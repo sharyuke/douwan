@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>豆玩教程视频合成</title>
+<style>
+  html,body{margin:0;background:#111;color:#fff;font-family:"Microsoft YaHei","PingFang SC","Noto Sans SC",sans-serif}
+  #stage{display:block;width:640px;height:360px}
+  #tip{position:fixed;left:12px;top:12px;font-size:12px;opacity:.7}
+</style>
+</head>
+<body>
+<canvas id="stage" width="1280" height="720"></canvas>
+<div id="tip">rendering…</div>
+<script>
+/* =========================================================================
+   教程视频合成器（开发用，由 scripts/make-tutorial-videos.cjs 打开）
+   把真实工作台截图按「镜头脚本」画到 canvas 上，再用 MediaRecorder 录成 MP4。
+   页面只负责合成；镜头脚本由 Node 通过 /__config 注入。
+   ========================================================================= */
+(async () => {
+  const W = 1280, H = 720
+  const XFADE = 0.38
+  const canvas = document.getElementById('stage')
+  const ctx = canvas.getContext('2d')
+  const bufA = document.createElement('canvas'); bufA.width = W; bufA.height = H
+  const bufB = document.createElement('canvas'); bufB.width = W; bufB.height = H
+  const actx = bufA.getContext('2d')
+  const bctx = bufB.getContext('2d')
+  const veil = document.createElement('canvas'); veil.width = W; veil.height = H
+  const vctx = veil.getContext('2d')
+  const tip = document.getElementById('tip')
+
+  const state = s => { window.__recorderState = s; tip.textContent = s }
+  window.__recorderState = 'loading'
+
+  try {
+    const cfg = await (await fetch('/__config')).json()
+    const images = {}
+    await Promise.all(cfg.images.map(name => new Promise((resolve, reject) => {
+      const img = new Image()
+      img.onload = () => { images[name] = img; resolve() }
+      img.onerror = () => reject(new Error('图片加载失败: ' + name))
+      img.src = '/__shots/' + name + '.png'
+    })))
+    await document.fonts.ready.catch(() => {})
+
+    const clamp = (v, a, b) => Math.max(a, Math.min(b, v))
+    const ease = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
+    const lerp = (a, b, t) => a + (b - a) * t
+    const pad2 = n => String(n).padStart(2, '0')
+
+    const segments = cfg.segments
+    const starts = []
+    let total = 0
+    for (const s of segments) { starts.push(total); total += s.dur }
+    total += 0.25
+
+    function roundRect(c, x, y, w, h, r) {
+      const rr = Math.min(r, w / 2, h / 2)
+      c.beginPath()
+      c.moveTo(x + rr, y)
+      c.arcTo(x + w, y, x + w, y + h, rr)
+      c.arcTo(x + w, y + h, x, y + h, rr)
+      c.arcTo(x, y + h, x, y, rr)
+      c.arcTo(x, y, x + w, y, rr)
+      c.closePath()
+    }
+
+    function pill(c, x, y, w, h, r, fill, text, color, font, align = 'left') {
+      c.save()
+      c.fillStyle = fill
+      roundRect(c, x, y, w, h, r)
+      c.fill()
+      c.fillStyle = color
+      c.font = font
+      c.textBaseline = 'middle'
+      c.textAlign = align
+      const tx = align === 'center' ? x + w / 2 : x + 14
+      c.fillText(text, tx, y + h / 2 + 1)
+      c.restore()
+    }
+
+    /* ---------------------------------------------------------------- 片头 */
+    function drawIntro(c, seg, p) {
+      const g = c.createLinearGradient(0, 0, W, H)
+      g.addColorStop(0, '#F03D2E')
+      g.addColorStop(0.62, '#F65B3F')
+      g.addColorStop(1, '#FF9A62')
+      c.fillStyle = g
+      c.fillRect(0, 0, W, H)
+
+      // 底纹：半透明豆子网格，缓慢上移
+      const off = (p * 26) % 46
+      c.save()
+      c.fillStyle = 'rgba(255,255,255,.085)'
+      for (let y = -46; y < H + 46; y += 46) {
+        for (let x = -46; x < W + 46; x += 46) {
+          c.beginPath()
+          c.arc(x + ((y / 46) % 2 ? 23 : 0), y - off, 5.5, 0, Math.PI * 2)
+          c.fill()
+        }
+      }
+      c.restore()
+
+      // 右侧装饰：一块半透明图纸
+      c.save()
+      c.translate(W - 250, H / 2 - 10)
+      c.rotate(-0.12)
+      c.globalAlpha = 0.14
+      c.fillStyle = '#fff'
+      roundRect(c, -150, -150, 300, 300, 24)
+      c.fill()
+      c.globalAlpha = 0.2
+      c.strokeStyle = '#fff'
+      c.lineWidth = 1
+      for (let i = -120; i <= 120; i += 24) {
+        c.beginPath(); c.moveTo(-150, i); c.lineTo(150, i); c.stroke()
+        c.beginPath(); c.moveTo(i, -150); c.lineTo(i, 150); c.stroke()
+      }
+      c.restore()
+
+      const t = clamp(p / 0.22, 0, 1)
+      const a = ease(t)
+      c.save()
+      c.globalAlpha = a
+      c.translate(0, (1 - a) * 18)
+
+      c.fillStyle = 'rgba(255,255,255,.9)'
+      c.font = '700 17px "Microsoft YaHei","PingFang SC",sans-serif'
+      c.textAlign = 'left'
+      c.fillText('豆玩 DOUWAN', 64, 66)
+      c.fillStyle = 'rgba(255,255,255,.7)'
+      c.font = '500 13px "Microsoft YaHei","PingFang SC",sans-serif'
+      c.fillText('拼豆图纸工作台 · 新手教程', 64, 90)
+
+      pill(c, 64, 236, 118, 38, 19, 'rgba(255,255,255,.18)', `第 ${cfg.lessonNo} 课`, '#fff', '700 16px "Microsoft YaHei",sans-serif', 'center')
+      c.fillStyle = '#fff'
+      c.font = '800 58px "Microsoft YaHei","PingFang SC",sans-serif'
+      c.fillText(seg.title, 64, 350)
+      c.fillStyle = 'rgba(255,255,255,.88)'
+      c.font = '400 22px "Microsoft YaHei","PingFang SC",sans-serif'
+      c.fillText(seg.sub, 64, 396)
+
+      c.fillStyle = 'rgba(255,255,255,.72)'
+      c.font = '500 14px "Microsoft YaHei","PingFang SC",sans-serif'
+      c.fillText(cfg.totalText + ' · 无声演示，重点看画面字幕', 64, H - 58)
+      c.restore()
+    }
+
+    /* ---------------------------------------------------------------- 片尾 */
+    function drawOutro(c, seg, p) {
+      c.fillStyle = '#F6F3EF'
+      c.fillRect(0, 0, W, H)
+      c.save()
+      c.strokeStyle = 'rgba(20,22,26,.045)'
+      c.lineWidth = 1
+      for (let x = 0; x < W; x += 32) { c.beginPath(); c.moveTo(x, 0); c.lineTo(x, H); c.stroke() }
+      for (let y = 0; y < H; y += 32) { c.beginPath(); c.moveTo(0, y); c.lineTo(W, y); c.stroke() }
+      c.restore()
+
+      const a = ease(clamp(p / 0.2, 0, 1))
+      c.save()
+      c.globalAlpha = a
+      c.translate(0, (1 - a) * 16)
+
+      c.fillStyle = '#F03D2E'
+      c.font = '700 16px "Microsoft YaHei","PingFang SC",sans-serif'
+      c.textAlign = 'left'
+      c.fillText('豆玩 DOUWAN', 64, 64)
+
+      c.fillStyle = '#191B1F'
+      c.font = '800 54px "Microsoft YaHei","PingFang SC",sans-serif'
+      c.fillText('去工作台试一次', 64, 306)
+      c.fillStyle = '#F03D2E'
+      c.font = '700 26px "Microsoft YaHei","PingFang SC",sans-serif'
+      c.fillText('dw.sharyuke.com', 64, 352)
+
+      c.fillStyle = 'rgba(25,27,31,.62)'
+      c.font = '400 17px "Microsoft YaHei","PingFang SC",sans-serif'
+      c.fillText(seg.next ? `下一课：${seg.next}` : '4 课都看完了，剩下的就是动手。', 64, 404)
+
+      c.save()
+      c.fillStyle = '#F03D2E'
+      roundRect(c, 64, 448, 196, 52, 26)
+      c.fill()
+      c.fillStyle = '#fff'
+      c.font = '700 18px "Microsoft YaHei","PingFang SC",sans-serif'
+      c.textAlign = 'center'
+      c.fillText('打开工作台 ›', 162, 480)
+      c.restore()
+
+      c.fillStyle = 'rgba(25,27,31,.4)'
+      c.font = '400 13px "Microsoft YaHei","PingFang SC",sans-serif'
+      c.fillText('教程会随功能更新，以工作台实际界面为准。', 64, H - 56)
+      c.restore()
+    }
+
+    /* ---------------------------------------------------------------- 截图镜头 */
+    function drawShot(c, seg, p) {
+      const img = images[seg.image]
+      const focus = seg.focus
+      const fit = Math.max(W / 1440, H / 810)
+      const endScale = Math.min(0.84 * W / focus.w, 0.72 * H / focus.h, 2.0)
+      const cp = ease(clamp((p - 0.05) / 0.86, 0, 1))
+      const s = lerp(fit, Math.max(fit, endScale), cp)
+      const cx = lerp(720, focus.x + focus.w / 2, cp)
+      const cy = lerp(405, focus.y + focus.h / 2, cp)
+      /* 镜头落点比画面中心高 34px：底部要给字幕留出安全区，
+         否则放大后的焦点框会被字幕压住。 */
+      const anchorY = lerp(H / 2, H / 2 - 34, cp)
+      let dx = W / 2 - cx * s
+      let dy = anchorY - cy * s
+      dx = clamp(dx, W - 1440 * s, 0)
+      dy = clamp(dy, H - 810 * s, 0)
+
+      c.fillStyle = '#0E1014'
+      c.fillRect(0, 0, W, H)
+      c.drawImage(img, dx, dy, 1440 * s, 810 * s)
+
+      const fx = dx + focus.x * s
+      const fy = dy + focus.y * s
+      const fw = focus.w * s
+      const fh = focus.h * s
+      const pad = clamp(10 * s, 6, 20)
+
+      // 聚光：压暗焦点之外
+      const veilA = 0.82 * clamp(p / 0.10, 0, 1) * (1 - clamp((p - 0.94) / 0.06, 0, 1))
+      vctx.clearRect(0, 0, W, H)
+      vctx.fillStyle = 'rgba(8,10,14,.46)'
+      vctx.fillRect(0, 0, W, H)
+      vctx.globalCompositeOperation = 'destination-out'
+      roundRect(vctx, fx - pad, fy - pad, fw + pad * 2, fh + pad * 2, 14)
+      vctx.fill()
+      vctx.globalCompositeOperation = 'source-over'
+      c.save()
+      c.globalAlpha = veilA
+      c.drawImage(veil, 0, 0)
+      c.restore()
+
+      // 焦点描边
+      const pulse = 0.5 + 0.5 * Math.sin(p * 12)
+      c.save()
+      c.strokeStyle = 'rgba(240,61,46,.95)'
+      c.lineWidth = 2.6 + pulse * 1.2
+      c.shadowColor = 'rgba(240,61,46,.55)'
+      c.shadowBlur = 16
+      roundRect(c, fx - pad, fy - pad, fw + pad * 2, fh + pad * 2, 14)
+      c.stroke()
+      c.restore()
+
+      // 光标：从右下移入焦点，落点有一次点击涟漪
+      if (seg.cursor !== false) {
+        const tx = fx + fw * (seg.cursorX ?? 0.58)
+        const ty = fy + fh * (seg.cursorY ?? 0.55)
+        const mv = ease(clamp(p / 0.24, 0, 1))
+        const px = lerp(tx + 54, tx, mv)
+        const py = lerp(ty + 38, ty, mv)
+        const click = clamp((p - 0.22) / 0.34, 0, 1)
+        if (click > 0 && click < 1) {
+          c.save()
+          c.strokeStyle = `rgba(240,61,46,${0.55 * (1 - click)})`
+          c.lineWidth = 3
+          c.beginPath()
+          c.arc(tx, ty, 6 + click * 30, 0, Math.PI * 2)
+          c.stroke()
+          c.restore()
+        }
+        c.save()
+        c.translate(px, py)
+        c.beginPath()
+        c.moveTo(0, 0)
+        c.lineTo(0, 21)
+        c.lineTo(5.4, 15.8)
+        c.lineTo(9.4, 24)
+        c.lineTo(13.4, 22)
+        c.lineTo(9.2, 13.8)
+        c.lineTo(16, 13.2)
+        c.closePath()
+        c.fillStyle = '#fff'
+        c.strokeStyle = 'rgba(12,14,18,.82)'
+        c.lineWidth = 2
+        c.shadowColor = 'rgba(0,0,0,.35)'
+        c.shadowBlur = 6
+        c.fill()
+        c.stroke()
+        c.restore()
+      }
+
+      // 底部字幕：做成左下角的下三分之一字幕条，避免白字压在浅色界面上
+      const capA = clamp((p - 0.02) / 0.10, 0, 1) * (1 - clamp((p - 0.95) / 0.05, 0, 1))
+      if (capA > 0.01) {
+        c.save()
+        c.globalAlpha = capA
+        const capX = 36, capY = H - 130, capW = 720, capH = 104
+        c.fillStyle = 'rgba(10,12,16,.94)'
+        roundRect(c, capX, capY, capW, capH, 15)
+        c.fill()
+        c.strokeStyle = 'rgba(255,255,255,.12)'
+        c.lineWidth = 1
+        c.stroke()
+
+        c.fillStyle = '#F03D2E'
+        c.beginPath()
+        c.arc(capX + 36, capY + 52, 19, 0, Math.PI * 2)
+        c.fill()
+        c.fillStyle = '#fff'
+        c.font = '800 15px "Microsoft YaHei",sans-serif'
+        c.textAlign = 'center'
+        c.textBaseline = 'middle'
+        c.fillText(seg.badge || '', capX + 36, capY + 53)
+
+        c.textAlign = 'left'
+        c.textBaseline = 'alphabetic'
+        c.fillStyle = '#fff'
+        c.font = '800 30px "Microsoft YaHei","PingFang SC",sans-serif'
+        c.fillText(seg.title, capX + 70, capY + 52)
+        c.fillStyle = 'rgba(255,255,255,.84)'
+        c.font = '400 18px "Microsoft YaHei","PingFang SC",sans-serif'
+        c.fillText(seg.sub, capX + 70, capY + 82)
+        c.restore()
+      }
+    }
+
+    /* ---------------------------------------------------------------- 顶栏与进度 */
+    function drawChrome(c, seg, t) {
+      /* 片头 / 片尾自己已经有品牌与课次，不再叠右上角的水印条 */
+      if (seg.type === 'scene') {
+        c.save()
+        c.globalAlpha = 0.94
+        c.fillStyle = 'rgba(255,255,255,.9)'
+        roundRect(c, 24, 20, 258, 34, 17)
+        c.fill()
+        c.fillStyle = '#F03D2E'
+        c.font = '800 13px "Microsoft YaHei",sans-serif'
+        c.textAlign = 'left'
+        c.textBaseline = 'middle'
+        c.fillText('豆玩 DOUWAN', 38, 38)
+        c.fillStyle = 'rgba(25,27,31,.55)'
+        c.font = '500 13px "Microsoft YaHei",sans-serif'
+        c.fillText('· 新手教程', 172, 38)
+        c.restore()
+
+        const label = `第 ${cfg.lessonNo} 课 / ${cfg.lessonCount}`
+        c.save()
+        c.fillStyle = 'rgba(255,255,255,.86)'
+        roundRect(c, W - 24 - 108, 20, 108, 34, 17)
+        c.fill()
+        c.fillStyle = 'rgba(25,27,31,.62)'
+        c.font = '600 13px "Microsoft YaHei",sans-serif'
+        c.textAlign = 'center'
+        c.textBaseline = 'middle'
+        c.fillText(label, W - 24 - 54, 38)
+        c.restore()
+      }
+
+      const p = clamp(t / total, 0, 1)
+      c.fillStyle = 'rgba(255,255,255,.22)'
+      c.fillRect(0, H - 4, W, 4)
+      c.fillStyle = '#FF6A55'
+      c.fillRect(0, H - 4, W * p, 4)
+    }
+
+    function renderSegment(target, seg, local) {
+      const p = clamp(local / seg.dur, 0, 1)
+      if (seg.type === 'intro') drawIntro(target, seg, p)
+      else if (seg.type === 'outro') drawOutro(target, seg, p)
+      else drawShot(target, seg, p)
+    }
+
+    function render(t) {
+      let i = segments.length - 1
+      for (let k = 0; k < segments.length; k++) {
+        if (t < starts[k] + segments[k].dur) { i = k; break }
+      }
+      const seg = segments[i]
+      const local = t - starts[i]
+      if (i > 0 && local < XFADE) {
+        renderSegment(bctx, segments[i - 1], segments[i - 1].dur - 0.001)
+        renderSegment(actx, seg, local)
+        ctx.clearRect(0, 0, W, H)
+        ctx.drawImage(bufB, 0, 0)
+        ctx.globalAlpha = ease(local / XFADE)
+        ctx.drawImage(bufA, 0, 0)
+        ctx.globalAlpha = 1
+      } else {
+        renderSegment(ctx, seg, local)
+      }
+      drawChrome(ctx, seg, t)
+    }
+
+    /* ---------------------------------------------------------------- 录制 */
+    /* 无头 Chrome 里 blob 下载不可靠（download 属性不落盘），
+       改成把成品切成 base64 分片挂在 window 上，由 Node 取走写文件。 */
+    function blobToBase64(blob) {
+      return new Promise((resolve, reject) => {
+        const fr = new FileReader()
+        fr.onload = () => resolve(String(fr.result).split(',')[1] || '')
+        fr.onerror = () => reject(new Error('读取录制结果失败'))
+        fr.readAsDataURL(blob)
+      })
+    }
+
+    render(0)
+    state('recording')
+    const stream = canvas.captureStream(30)
+    const mime = MediaRecorder.isTypeSupported('video/mp4;codecs=avc1.42E01E')
+      ? 'video/mp4;codecs=avc1.42E01E'
+      : 'video/webm;codecs=vp9'
+    const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 2400000 })
+    const chunks = []
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data) }
+
+    const stopped = new Promise(resolve => { rec.onstop = resolve })
+    rec.start(500)
+
+    const t0 = performance.now()
+    let frames = 0
+    await new Promise(resolve => {
+      function frame(now) {
+        const t = (now - t0) / 1000
+        if (t >= total) { render(total - 0.001); resolve(); return }
+        render(t)
+        frames++
+        requestAnimationFrame(frame)
+      }
+      requestAnimationFrame(frame)
+    })
+    const wallMs = performance.now() - t0
+    await new Promise(r => setTimeout(r, 220))
+    rec.stop()
+    await stopped
+    const ext = mime.startsWith('video/mp4') ? 'mp4' : 'webm'
+    const videoB64 = await blobToBase64(new Blob(chunks, { type: mime.split(';')[0] }))
+
+    // 封面：取第一个截图镜头的 62% 处
+    const posterSeg = segments.find(s => s.type === 'scene')
+    const posterAt = starts[segments.indexOf(posterSeg)] + posterSeg.dur * 0.62
+    render(posterAt)
+    const posterB64 = canvas.toDataURL('image/png').split(',')[1] || ''
+
+    const CHUNK = 512 * 1024
+    window.__videoChunks = []
+    for (let i = 0; i < videoB64.length; i += CHUNK) window.__videoChunks.push(videoB64.slice(i, i + CHUNK))
+    window.__posterB64 = posterB64
+    window.__recorderMeta = {
+      duration: total, mime, ext, bytes: Math.round(videoB64.length * 3 / 4),
+      wallMs: Math.round(wallMs), frames, chunkCount: chunks.length,
+      chunkBytes: chunks.reduce((a, c) => a + c.size, 0)
+    }
+
+    state('done')
+  } catch (err) {
+    window.__recorderState = 'error'
+    window.__recorderError = String(err && err.message ? err.message : err)
+    tip.textContent = 'error: ' + window.__recorderError
+  }
+})()
+</script>
+</body>
+</html>

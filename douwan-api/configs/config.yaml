@@ -1,0 +1,119 @@
+# 豆玩 DOUWAN 后端配置
+# 任何一项都可以用环境变量覆盖，变量名见 .env.example（前缀 DOUWAN_，层级用下划线连接）。
+# 例：DOUWAN_DATABASE_PASSWORD=xxx 覆盖 database.password
+
+app:
+  name: douwan-api
+  env: dev # dev / test / prod
+  debug: true
+
+server:
+  host: 0.0.0.0
+  port: 8080
+  # 优雅关闭时等待在途请求的最长时间
+  shutdown_timeout: 10s
+  # 可信反向代理：只有来自这些地址的 X-Forwarded-For / X-Real-IP 才会被采信。
+  # 活跃监控的地区统计读的就是 ClientIP()，配错会让全站访客落成「内网」。
+  # 不要写成 0.0.0.0/0：那样任何人都能伪造 IP 冒充访客。
+  trusted_proxies:
+    - 127.0.0.1
+    - ::1
+
+database:
+  host: 127.0.0.1
+  port: 5432
+  user: douwan
+  password: douwan
+  name: douwan
+  sslmode: disable
+  timezone: Asia/Shanghai
+  max_open_conns: 50
+  max_idle_conns: 10
+  conn_max_lifetime: 1h
+  # 自动建表 / 加字段。生产环境建议关掉，改由 cmd/migrate 显式执行
+  auto_migrate: true
+  # 打印 SQL
+  log_sql: false
+
+redis:
+  enabled: false
+  host: 127.0.0.1
+  port: 6379
+  password: ""
+  db: 0
+
+jwt:
+  # 生产环境必须通过 DOUWAN_JWT_SECRET 注入，不要提交真实密钥
+  secret: dev-only-change-me
+  issuer: douwan-api
+  access_ttl: 2h
+  refresh_ttl: 720h # 30 天
+
+log:
+  level: info # debug / info / warn / error
+  format: text # text / json
+
+cors:
+  allow_origins:
+    - http://localhost:5173
+    - http://127.0.0.1:5173
+
+# 后台管理
+admin:
+  # 卡密明文加密密钥（同时用作卡密哈希的 pepper）。
+  # 生产环境必须通过 DOUWAN_ADMIN_CARD_CIPHER_KEY 注入；
+  # 更换它会导致已发出的卡密无法再解密展示（兑换校验也会失效）。
+  card_cipher_key: ""
+  # 单次生成卡密的张数上限（防止误操作撑爆数据库）
+  max_generate_per_request: 1000
+  # 卡密随机部分长度（去掉连字符后的字符数），太短容易被猜
+  card_code_length: 16
+  # 同一 IP 每分钟允许的卡密兑换尝试次数（防暴力试探）
+  card_redeem_per_minute: 10
+
+# 文件存储（素材原图与缩略图）
+storage:
+  driver: local
+  # 部署时必须挂到持久化磁盘，否则发布覆盖会丢素材
+  upload_dir: ./data/uploads
+  # 对外访问前缀，nginx 可以直接把这个前缀指向同一个目录
+  public_prefix: /uploads
+  # 单文件大小上限（MB），1~100；后台「系统设置」里可以改运行期值
+  max_upload_mb: 10
+  # 缩略图长边像素上限
+  max_thumb_size: 480
+  # 允许的图片类型（服务端会按文件内容嗅探真实类型，不信扩展名）
+  allowed_types:
+    - image/jpeg
+    - image/png
+    - image/webp
+    - image/gif
+
+# 用户活跃数据监控（设计说明见 docs/activity.md）
+activity:
+  # 关掉后完全不采样、不落库；后台活跃接口返回空数据 + 口径说明
+  enabled: true
+  # 内存缓冲落库间隔（1s~10m）。越小数据越新，写库越频繁
+  flush_interval: 10s
+  # 内存里最多缓存多少个「用户 × 天」桶；超限丢弃新采样并计数。
+  # 数据库故障时的兜底：宁可少算，也不能把进程撑爆
+  buffer_limit: 20000
+  # 明细保留天数（≥30），超期由后台协程硬删除
+  retain_days: 400
+  cleanup_interval: 12h
+  # IP 归属地解析。数据文件缺失 / 未配置时只会降级成「地区未知」，不影响启动
+  geo_enabled: true
+  # 部署时把 ip2region 的 xdb 放到持久化目录（不要提交进仓库，11MB 二进制）
+  geo_v4_xdb: ./data/ip2region_v4.xdb
+  geo_v6_xdb: ""
+  # buffer（全量载入内存，约 11MB，最快）/ vector（只缓存索引，省内存、每次查盘）/ none
+  # 也接受 ip2region 原生写法：buffercache / content、vindex / vectorindex、nocache / file
+  geo_cache_policy: buffer
+  # 进程内 IP→地区 缓存条数，同一个 IP 只查一次
+  geo_cache_size: 8192
+  # 同一 IP 每分钟允许的 /api/v1/events 上报次数（防刷功能热度）
+  event_report_per_minute: 120
+  # 同一 IP 每分钟允许的 /api/v1/visits 页面访问上报次数（防刷访问量）
+  # 比埋点宽松：一次页面切换就是一条，正常用户一分钟翻十几页是常事；
+  # 但这是匿名接口，必须有个头，否则可以被脚本灌数据
+  visit_report_per_minute: 240

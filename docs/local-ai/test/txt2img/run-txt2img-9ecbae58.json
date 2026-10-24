@@ -1,0 +1,32 @@
+{
+  "workflow": "txt2img",
+  "prompt_id": "9ecbae58-57ab-4cb4-b54f-2b075e49b0d3",
+  "seconds": 6,
+  "params": {
+    "positive": "a cute panda sitting on a bamboo bench, flat illustration",
+    "negative": "photo, photorealistic, 3d render, blurry, deformed, extra limbs, watermark, text, logo, signature, lowres, worst quality",
+    "seed": 777,
+    "steps": 24,
+    "cfg": 7,
+    "width": 512,
+    "height": 512,
+    "batch_size": 1,
+    "sampler_name": "dpmpp_2m",
+    "scheduler": "karras",
+    "filename_prefix": "douwan_txt2img"
+  },
+  "outputs": [
+    {
+      "file": "douwan_txt2img_00001_.png",
+      "bytes": 198131,
+      "width": 512,
+      "height": 512,
+      "type": "output"
+    }
+  ],
+  "vram": {
+    "total_mb": 6144,
+    "free_before_mb": 2822,
+    "free_after_mb": 2822
+  }
+}

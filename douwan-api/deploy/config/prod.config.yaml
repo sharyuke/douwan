@@ -1,0 +1,88 @@
+# 豆玩 DOUWAN API 生产配置（qq / dw.sharyuke.com）
+# 密钥不写在这里：由 systemd 通过 /etc/douwan/api.env 注入
+app:
+  name: douwan-api
+  env: prod
+  debug: false
+
+server:
+  host: 127.0.0.1
+  port: 8080
+  shutdown_timeout: 15s
+  read_timeout: 30s
+  write_timeout: 2m
+  idle_timeout: 2m
+  # 只有本机 nginx 会连后端，所以只信回环地址。
+  # 活跃监控的地区统计依赖 ClientIP()，不要改成 0.0.0.0/0。
+  trusted_proxies:
+    - 127.0.0.1
+    - ::1
+
+database:
+  host: 127.0.0.1
+  port: 5432
+  user: douwan
+  name: douwan
+  sslmode: disable
+  timezone: Asia/Shanghai
+  max_open_conns: 25
+  max_idle_conns: 5
+  conn_max_lifetime: 1h
+  # 生产关掉自动建表，改由 bin/migrate 在发布时显式执行
+  auto_migrate: false
+  log_sql: false
+
+redis:
+  enabled: false
+
+jwt:
+  issuer: douwan-api
+  access_ttl: 2h
+  refresh_ttl: 720h
+
+log:
+  level: info
+  format: text
+
+cors:
+  allow_origins:
+    - https://dw.sharyuke.com
+    - http://dw.sharyuke.com
+    - http://localhost:5173
+
+# 后台管理。密钥（admin.card_cipher_key）不写在这里，由 /etc/douwan/api.env 注入。
+admin:
+  max_generate_per_request: 1000
+  card_code_length: 16
+  card_redeem_per_minute: 10
+
+# 文件存储：素材原图与缩略图落在本地磁盘。
+# 这个目录必须持久化（不要放临时目录），备份时也要一起备份。
+storage:
+  driver: local
+  upload_dir: /var/lib/douwan/uploads
+  public_prefix: /uploads
+  max_upload_mb: 10
+  max_thumb_size: 480
+  allowed_types:
+    - image/jpeg
+    - image/png
+    - image/webp
+    - image/gif
+
+# 用户活跃数据监控（设计说明见 docs/activity.md）
+activity:
+  enabled: true
+  flush_interval: 10s
+  buffer_limit: 20000
+  retain_days: 400
+  cleanup_interval: 12h
+  geo_enabled: true
+  # ip2region 数据文件（约 11MB），部署时手工放到这里：
+  #   scp data/ip2region_v4.xdb qq:/var/lib/douwan/ip2region_v4.xdb
+  # 文件缺失只会让地区维度显示「未知」，不影响服务启动
+  geo_v4_xdb: /var/lib/douwan/ip2region_v4.xdb
+  geo_v6_xdb: ""
+  geo_cache_policy: buffer
+  geo_cache_size: 8192
+  event_report_per_minute: 120

@@ -1,0 +1,57 @@
+{
+  "name": "douzao-vue",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --host",
+    "palette": "node scripts/build-palette.cjs",
+    "assets": "node scripts/build-assets.cjs",
+    "fidelity": "node scripts/fidelity/bench.mjs --label current",
+    "fidelity:scale": "node scripts/fidelity/bench-scale.mjs --label scale-full",
+    "fidelity:matte": "node scripts/fidelity/matte-bench.mjs --label current",
+    "fidelity:cartoon": "node scripts/fidelity/cartoon-bench.mjs",
+    "serve:dist": "node scripts/serve-dist.mjs",
+    "verify": "node scripts/audit.cjs",
+    "verify:archive": "node scripts/verify-archive.mjs",
+    "verify:render": "node scripts/verify/render-canvas-limits.mjs && node scripts/verify/render-batch-equiv.mjs && node scripts/verify/render-dirty-region.mjs && node scripts/verify/editor-canvas-compile.mjs && node scripts/verify/estimate-svg.mjs",
+    "verify:export": "node scripts/verify/export-plan.mjs && node scripts/verify/export-plan-1000.mjs && node scripts/verify/export-smoke.mjs",
+    "verify:pattern": "node scripts/verify/pattern-fingerprint.mjs",
+    "verify:alpha": "node scripts/verify/source-alpha.mjs",
+    "verify:perf": "node scripts/verify/perf-1000.mjs",
+    "verify:fixture": "node scripts/audit.cjs --setup-file scripts/audit-fixture.js",
+    "verify:create": "node scripts/audit.cjs --eval-file scripts/audit-create.js /editor",
+    "verify:cartoon": "node scripts/audit.cjs --setup-file scripts/audit-fixture.js --eval-file scripts/audit-cartoon.js /editor",
+    "verify:finish": "node scripts/audit.cjs --setup-file scripts/audit-fixture.js --eval-file scripts/audit-finish.js \"/p_audit_fixture?finish=1\"",
+    "verify:undo": "node scripts/audit.cjs --setup-file scripts/audit-fixture.js --eval-file scripts/audit-undo.js --page editorProject",
+    "verify:mobile": "node scripts/audit.cjs --setup-file scripts/audit-fixture.js --eval-file scripts/audit-mobile.js --page editor,editorProject",
+    "verify:edit-menu": "node scripts/audit.cjs --setup-file scripts/audit-fixture.js --eval-file scripts/audit-edit-menu.js --page editorProject",
+    "verify:scale": "node scripts/audit.cjs --setup-file scripts/audit-fixture.js --eval-file scripts/audit-scale.js --page editor,editorProject",
+    "verify:size-live": "node scripts/audit.cjs --setup-file scripts/audit-fixture.js --eval-file scripts/audit-size-live.js --page editorProject",
+    "verify:photo": "node scripts/audit.cjs --eval-file scripts/audit-photo.js /editor",
+    "verify:palette": "node scripts/palette-selfcheck.mjs",
+    "verify:palette-ui": "node scripts/audit.cjs --eval-file scripts/audit-palette.js --page editor,settings,inventory",
+    "verify:export-format": "node scripts/audit.cjs --setup-file scripts/audit-fixture.js --eval-file scripts/audit-export-format.js --page editorProject",
+    "verify:entitlement": "node scripts/audit.cjs --setup-file scripts/audit-entitlement-setup.js --eval-file scripts/audit-entitlement.js --page pricing",
+    "verify:account-entry": "node scripts/audit.cjs --eval-file scripts/audit-account-entry.js --page home,editor",
+    "verify:home": "node scripts/audit.cjs --eval-file scripts/audit-home-upload.js --page home",
+    "verify:header": "node scripts/audit.cjs --eval-file scripts/audit-header.js --page home",
+    "verify:nav": "node scripts/audit.cjs --eval-file scripts/audit-nav.js --page home",
+    "verify:touch": "node scripts/audit-touch-canvas.cjs --width 390 --height 844 && node scripts/audit-touch-canvas.cjs --width 820 --height 1180"
+  },
+  "dependencies": {
+    "vue": "^3.5.13",
+    "vue-router": "^4.6.4"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.1",
+    "vite": "^6.0.7"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}

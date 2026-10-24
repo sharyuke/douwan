@@ -1,0 +1,42 @@
+[Unit]
+Description=豆玩 DOUWAN API (douwan-api)
+Documentation=https://dw.sharyuke.com/
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=douwan
+Group=douwan
+WorkingDirectory=/opt/douwan-api
+# 密钥只在这里注入，不落进仓库
+EnvironmentFile=/etc/douwan/api.env
+
+# 上传目录必须存在，否则下面的 ReadWritePaths 会让服务以 226/NAMESPACE 启动失败。
+#
+# 两个坑都踩过：
+#  1. 目录不存在时，systemd 在「建立挂载命名空间」阶段就失败，**根本轮不到 ExecStartPre**，
+#     所以 ReadWritePaths 必须写成带 `-` 前缀的形式（路径缺失时跳过而不是报错）；
+#  2. ExecStartPre 默认以 User=douwan 运行，而 /var/lib/douwan 是 root:root 755，
+#     非 root 建不了子目录 —— 所以显式加 `+` 前缀让它以 root 身份执行。
+# 另外用 /etc/tmpfiles.d/douwan.conf 在开机时就把目录建好（见 deploy/systemd/）。
+ExecStartPre=+/usr/bin/install -d -m 755 -o douwan -g douwan /var/lib/douwan/uploads
+ExecStart=/opt/douwan-api/bin/server -config /etc/douwan/config.yaml
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+# 注意：这里用 true 而不是 full。full 会把整个文件系统（/usr 之外全部）
+# 挂成只读，素材上传目录 /var/lib/douwan/uploads 就写不进去了。
+ProtectSystem=true
+ProtectHome=true
+# 上传目录需要可写；用 ReadWritePaths 显式放开，其余保持只读。
+# 前缀 `-` 表示路径不存在时不报错（缺失时由上面的 ExecStartPre 与 tmpfiles 补建）。
+ReadWritePaths=-/var/lib/douwan/uploads
+LimitNOFILE=8192
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=douwan-api
+
+[Install]
+WantedBy=multi-user.target

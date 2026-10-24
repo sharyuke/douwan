@@ -1,0 +1,86 @@
+[
+  {
+    "ckpt": "Anything-V3.0-pruned-fp16.safetensors",
+    "denoise": 0.5,
+    "steps": 26,
+    "cfg": 8,
+    "seed": 20261015,
+    "ok": true,
+    "secs": "10.2",
+    "files": [
+      "grid_AnythingV3_d05_00001_.png"
+    ],
+    "vramFreeMB": 2822,
+    "vramTotalMB": 6144
+  },
+  {
+    "ckpt": "Anything-V3.0-pruned-fp16.safetensors",
+    "denoise": 0.65,
+    "steps": 26,
+    "cfg": 8,
+    "seed": 20261015,
+    "ok": true,
+    "secs": "5.0",
+    "files": [
+      "grid_AnythingV3_d065_00001_.png"
+    ],
+    "vramFreeMB": 2822,
+    "vramTotalMB": 6144
+  },
+  {
+    "ckpt": "Anything-V3.0-pruned-fp16.safetensors",
+    "denoise": 0.8,
+    "steps": 26,
+    "cfg": 8,
+    "seed": 20261015,
+    "ok": true,
+    "secs": "6.0",
+    "files": [
+      "grid_AnythingV3_d08_00001_.png"
+    ],
+    "vramFreeMB": 2822,
+    "vramTotalMB": 6144
+  },
+  {
+    "ckpt": "v1-5-pruned-emaonly.ckpt",
+    "denoise": 0.5,
+    "steps": 26,
+    "cfg": 8,
+    "seed": 20261015,
+    "ok": true,
+    "secs": "8.0",
+    "files": [
+      "grid_v15prunedemaonly_d05_00001_.png"
+    ],
+    "vramFreeMB": 2822,
+    "vramTotalMB": 6144
+  },
+  {
+    "ckpt": "v1-5-pruned-emaonly.ckpt",
+    "denoise": 0.65,
+    "steps": 26,
+    "cfg": 8,
+    "seed": 20261015,
+    "ok": true,
+    "secs": "5.3",
+    "files": [
+      "grid_v15prunedemaonly_d065_00001_.png"
+    ],
+    "vramFreeMB": 2822,
+    "vramTotalMB": 6144
+  },
+  {
+    "ckpt": "v1-5-pruned-emaonly.ckpt",
+    "denoise": 0.8,
+    "steps": 26,
+    "cfg": 8,
+    "seed": 20261015,
+    "ok": true,
+    "secs": "5.0",
+    "files": [
+      "grid_v15prunedemaonly_d08_00001_.png"
+    ],
+    "vramFreeMB": 2822,
+    "vramTotalMB": 6144
+  }
+]

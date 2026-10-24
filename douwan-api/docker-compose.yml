@@ -1,0 +1,78 @@
+# 本地一键起后端依赖：PostgreSQL + Redis + API
+#
+#   docker compose up -d postgres redis   # 只起依赖，用 go run 跑本地代码
+#   docker compose up --build             # 连 API 一起起
+#
+# 接口地址：http://127.0.0.1:8080/healthz
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: douwan-postgres
+    environment:
+      POSTGRES_USER: douwan
+      POSTGRES_PASSWORD: douwan
+      POSTGRES_DB: douwan
+      # 中文排序与大小写比较按这个区域走
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U douwan -d douwan"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: douwan-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    container_name: douwan-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DOUWAN_APP_ENV: dev
+      DOUWAN_APP_DEBUG: "false"
+      DOUWAN_DATABASE_HOST: postgres
+      DOUWAN_DATABASE_PORT: "5432"
+      DOUWAN_DATABASE_USER: douwan
+      DOUWAN_DATABASE_PASSWORD: douwan
+      DOUWAN_DATABASE_NAME: douwan
+      DOUWAN_REDIS_ENABLED: "true"
+      DOUWAN_REDIS_HOST: redis
+      # 生产部署请换成随机长串，并用环境变量注入，不要写进仓库
+      DOUWAN_JWT_SECRET: dev-only-change-me
+      # 卡密明文加密密钥：本地演示也要有值，否则后台看不到卡密明文
+      DOUWAN_ADMIN_CARD_CIPHER_KEY: dev-only-cipher-key-change-me
+      DOUWAN_STORAGE_UPLOAD_DIR: /app/data/uploads
+      # 多个来源用英文逗号分隔
+      DOUWAN_CORS_ALLOW_ORIGINS: "http://localhost:5173,http://127.0.0.1:5173"
+    ports:
+      - "8080:8080"
+    volumes:
+      # 素材原图与缩略图必须落在卷里，否则容器重建就丢图
+      - uploads-data:/app/data/uploads
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  redis-data:
+  uploads-data:

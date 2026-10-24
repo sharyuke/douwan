@@ -1,0 +1,26 @@
+node_modules/
+dist/
+dist.tar.gz
+.pnpm-store/
+*.log
+.DS_Store
+
+# 还原度评测的产物（跑分结果与渲染图，本地生成）
+scripts/fidelity/out/
+
+# 色板构建脚本的上游数据缓存（重跑脚本即可再生，供 --offline 用）
+scripts/.palette-cache/
+
+# 素材风格试画的出图（本地预览，重跑脚本即可再生）
+scripts/preview/out/
+
+# 无头浏览器自检的截图与报告（scripts/audit.cjs 生成）
+docs/audit/
+
+# 一次性排查用的临时脚本与产物（.tmp-* 前缀 / .tmp 目录），不该进仓库
+.tmp-*
+.tmp/
+
+# 打包给别人看的源码压缩包（本地生成，仓库本身就是源码）
+douzao-vue-source.zip
+*.patch

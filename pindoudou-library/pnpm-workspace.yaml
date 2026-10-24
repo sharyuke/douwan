@@ -1,0 +1,4 @@
+# pnpm 11 的构建脚本白名单（旧的 package.json > pnpm.onlyBuiltDependencies 已不再被读取）
+# esbuild 需要执行 postinstall 校验平台二进制，否则 pnpm install 会以退出码 1 结束
+allowBuilds:
+  esbuild: true

@@ -1,0 +1,35 @@
+{
+  "_meta": {
+    "name": "matting",
+    "kind": "rembg",
+    "service": "rembg",
+    "commercial_ok": true,
+    "title": "抠图（去背景）",
+    "description": "调用本地 rembg 服务的 /api/remove。豆玩付费流程固定使用 u2net（Apache-2.0），禁止使用 bria-rmbg 等商业授权模型。",
+    "endpoint": "POST /api/remove  multipart/form-data",
+    "invoke": {
+      "file": "图片二进制，multipart 字段名固定为 file",
+      "model": "固定 u2net",
+      "a": "true 时做 alpha matting 前景细化；若开启则同时需要 af/ab/ae",
+      "af": "alpha matting 前景阈值，默认 240",
+      "ab": "alpha matting 背景阈值，默认 10",
+      "ae": "alpha matting 腐蚀尺寸，默认 10",
+      "om": "true 时只输出 mask（单通道），默认 false",
+      "ppm": "true 时做后处理，默认 false",
+      "bgc": "背景色（仅 u2net 系列之外的模型支持；u2net 传了会被忽略）"
+    },
+    "response": "image/png（RGBA，colorType=6 或灰度+alpha colorType=4）",
+    "notes": [
+      "rembg 2.0.85 的 /api/remove 默认 model=bria-rmbg，商业授权，必须显式覆盖为 u2net",
+      "rembg 默认监听 0.0.0.0，启动必须显式 -h 127.0.0.1",
+      "合法 model 取值（服务端校验）：birefnet-general, birefnet-general-lite, birefnet-portrait, birefnet-dis, birefnet-hrsod, birefnet-cod, birefnet-massive, isnet-anime, dis_custom, isnet-general-use, sam, silueta, u2net_cloth_seg, u2net_custom, u2net_human_seg, u2net, u2netp, bria-rmbg, ben_custom, withoutbg",
+      "豆玩白名单：仅 u2net（Apache-2.0）经由本模板；其余模型未完成授权核验"
+    ]
+  },
+  "timeouts": { "client_seconds": 60, "server_seconds": 300 },
+  "limits": {
+    "max_upload_mb": 10,
+    "max_pixels": 4194304,
+    "allowed_formats": ["image/png", "image/jpeg", "image/webp"]
+  }
+}

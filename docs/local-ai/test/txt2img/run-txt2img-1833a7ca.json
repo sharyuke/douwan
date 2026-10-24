@@ -1,0 +1,32 @@
+{
+  "workflow": "txt2img",
+  "prompt_id": "1833a7ca-7a66-476e-be86-b5bc1aeec612",
+  "seconds": 7.2,
+  "params": {
+    "positive": "a small red lantern, flat vector illustration",
+    "negative": "photo, photorealistic, 3d render, blurry, deformed, extra limbs, watermark, text, logo, signature, lowres, worst quality",
+    "seed": 4242,
+    "steps": 24,
+    "cfg": 7,
+    "width": 512,
+    "height": 512,
+    "batch_size": 1,
+    "sampler_name": "dpmpp_2m",
+    "scheduler": "karras",
+    "filename_prefix": "douwan_txt2img"
+  },
+  "outputs": [
+    {
+      "file": "douwan_txt2img_00003_.png",
+      "bytes": 291768,
+      "width": 512,
+      "height": 512,
+      "type": "output"
+    }
+  ],
+  "vram": {
+    "total_mb": 6144,
+    "free_before_mb": 5113,
+    "free_after_mb": 2886
+  }
+}

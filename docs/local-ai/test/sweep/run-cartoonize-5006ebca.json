@@ -1,0 +1,31 @@
+{
+  "workflow": "cartoonize",
+  "prompt_id": "5006ebca-9720-4471-8912-9c6ae63c3044",
+  "seconds": 6,
+  "params": {
+    "image": "input-panda-512.jpg",
+    "positive": "anime style illustration, cel shading, flat colors, clean bold lineart, japanese animation key visual, same subject, same pose, same composition, detailed",
+    "negative": "photo, photorealistic, 3d render, realistic, blurry, deformed, extra limbs, watermark, text, logo, signature",
+    "seed": 20261017,
+    "steps": 26,
+    "cfg": 8,
+    "denoise": 0.95,
+    "sampler_name": "dpmpp_2m",
+    "scheduler": "karras",
+    "filename_prefix": "sw_d095"
+  },
+  "outputs": [
+    {
+      "file": "sw_d095_00001_.png",
+      "bytes": 445679,
+      "width": 512,
+      "height": 512,
+      "type": "output"
+    }
+  ],
+  "vram": {
+    "total_mb": 6144,
+    "free_before_mb": 2822,
+    "free_after_mb": 2822
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "workflow": "txt2img",
+  "prompt_id": "d0bdf83f-1287-47fc-9dd6-ee022e186522",
+  "seconds": 8.1,
+  "params": {
+    "positive": "a red lantern on a wooden table, flat vector illustration",
+    "negative": "photo, photorealistic, 3d render, blurry, deformed, extra limbs, watermark, text, logo, signature, lowres, worst quality",
+    "seed": 778,
+    "steps": 24,
+    "cfg": 7,
+    "width": 640,
+    "height": 640,
+    "batch_size": 1,
+    "sampler_name": "dpmpp_2m",
+    "scheduler": "karras",
+    "filename_prefix": "douwan_txt2img"
+  },
+  "outputs": [
+    {
+      "file": "douwan_txt2img_00002_.png",
+      "bytes": 699353,
+      "width": 640,
+      "height": 640,
+      "type": "output"
+    }
+  ],
+  "vram": {
+    "total_mb": 6144,
+    "free_before_mb": 2822,
+    "free_after_mb": 2822
+  }
+}

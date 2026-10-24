@@ -1,0 +1,83 @@
+{
+  "__douwan": {
+    "name": "txt2img",
+    "title": "文生图",
+    "kind": "comfyui",
+    "model": "v1-5-pruned-emaonly.ckpt",
+    "model_license": "CreativeML OpenRAIL-M（可商用，需在界面与文档中保留许可与来源说明）",
+    "params": {
+      "positive": { "node": "6", "field": "text", "type": "string", "required": true, "desc": "正向提示词；内容需经后端敏感词与长度校验（<=800 字符）" },
+      "negative": { "node": "7", "field": "text", "type": "string", "required": false, "default": "photo, photorealistic, 3d render, blurry, deformed, extra limbs, watermark, text, logo, signature, lowres, worst quality" },
+      "seed": { "node": "3", "field": "seed", "type": "int", "required": false, "default": 20261015, "min": 0, "max": 4294967295 },
+      "steps": { "node": "3", "field": "steps", "type": "int", "required": false, "default": 24, "min": 1, "max": 60 },
+      "cfg": { "node": "3", "field": "cfg", "type": "float", "required": false, "default": 7.0, "min": 1.0, "max": 20.0 },
+      "width": { "node": "5", "field": "width", "type": "int", "required": false, "default": 512, "min": 256, "max": 768, "multiple_of": 8 },
+      "height": { "node": "5", "field": "height", "type": "int", "required": false, "default": 512, "min": 256, "max": 768, "multiple_of": 8 },
+      "batch_size": { "node": "5", "field": "batch_size", "type": "int", "required": false, "default": 1, "min": 1, "max": 4 },
+      "sampler_name": { "node": "3", "field": "sampler_name", "type": "string", "required": false, "default": "dpmpp_2m", "enum": ["euler", "euler_ancestral", "dpmpp_2m", "dpmpp_2m_sde", "ddim", "uni_pc"] },
+      "scheduler": { "node": "3", "field": "scheduler", "type": "string", "required": false, "default": "karras", "enum": ["normal", "karras", "exponential", "sgm_uniform"] },
+      "filename_prefix": { "node": "9", "field": "filename_prefix", "type": "string", "required": false, "default": "douwan_txt2img" }
+    },
+    "notes": [
+      "默认 512x512：RTX 2060 6GB 在 --lowvram 下实测 7.0s / 单张",
+      "width/height 上限 768 是 6GB 显存的保守值；显存更大的节点可放宽"
+    ]
+  },
+  "3": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": 20261015,
+      "steps": 24,
+      "cfg": 7.0,
+      "sampler_name": "dpmpp_2m",
+      "scheduler": "karras",
+      "denoise": 1.0,
+      "model": ["4", 0],
+      "positive": ["6", 0],
+      "negative": ["7", 0],
+      "latent_image": ["5", 0]
+    }
+  },
+  "4": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "v1-5-pruned-emaonly.ckpt"
+    }
+  },
+  "5": {
+    "class_type": "EmptyLatentImage",
+    "inputs": {
+      "width": 512,
+      "height": 512,
+      "batch_size": 1
+    }
+  },
+  "6": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "a cute panda sitting on a bamboo bench, flat illustration, clean lines, soft colors",
+      "clip": ["4", 1]
+    }
+  },
+  "7": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "photo, photorealistic, 3d render, blurry, deformed, extra limbs, watermark, text, logo, signature, lowres, worst quality",
+      "clip": ["4", 1]
+    }
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": ["3", 0],
+      "vae": ["4", 2]
+    }
+  },
+  "9": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "douwan_txt2img",
+      "images": ["8", 0]
+    }
+  }
+}
