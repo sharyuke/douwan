@@ -61,18 +61,20 @@ function onDrop(e) {
       <img class="homeCollage homeCollage--right" :src="collageRight" alt="" aria-hidden="true">
 
       <div class="homeHero__in">
-        <p class="homeEyebrow">
-          <PixelIcon name="sparkles" :size="12" />
-          拼豆创作工作台
-        </p>
+        <div class="homeHead">
+          <p class="homeEyebrow">
+            <PixelIcon name="sparkles" :size="12" />
+            拼豆创作工作台
+          </p>
 
-        <h1 class="sr-only">把灵感，拼成喜欢的样子</h1>
-        <img
-          class="homeTitleArt"
-          :src="heroTitle"
-          width="1532" height="629" decoding="async"
-          alt="把灵感，拼成喜欢的样子。调色、分格、材料清单，让每一份喜欢都有图可拼。"
-        >
+          <h1 class="sr-only">免费拼豆图纸生成器——把灵感拼成喜欢的样子</h1>
+          <img
+            class="homeTitleArt"
+            :src="heroTitle"
+            width="1532" height="629" decoding="async"
+            alt="把灵感，拼成喜欢的样子。调色、分格、材料清单，让每一份喜欢都有图可拼。"
+          >
+        </div>
 
         <div
           class="uploadCard"
@@ -96,22 +98,24 @@ function onDrop(e) {
           </RouterLink>
         </div>
 
-        <ul class="homeFeatures">
-          <li>
-            <span class="homeFeature__icon is-pink"><PixelIcon name="heart" :size="18" /></span>
-            <span><b>全部功能免费</b><small>图片转换任意玩</small></span>
-          </li>
-          <li>
-            <span class="homeFeature__icon is-yellow"><PixelIcon name="palette" :size="18" /></span>
-            <span><b>颜色和尺寸可调整</b><small>自由定制，拼出独特创意</small></span>
-          </li>
-          <li>
-            <span class="homeFeature__icon is-green"><PixelIcon name="list" :size="18" /></span>
-            <span><b>图纸材料清单</b><small>一键生成，轻松准备材料</small></span>
-          </li>
-        </ul>
+        <div class="homeBottom">
+          <ul class="homeFeatures">
+            <li>
+              <span class="homeFeature__icon is-pink"><PixelIcon name="heart" :size="18" /></span>
+              <span><b>全部功能免费</b><small>图片转换任意玩</small></span>
+            </li>
+            <li>
+              <span class="homeFeature__icon is-yellow"><PixelIcon name="palette" :size="18" /></span>
+              <span><b>颜色和尺寸可调整</b><small>自由定制，拼出独特创意</small></span>
+            </li>
+            <li>
+              <span class="homeFeature__icon is-green"><PixelIcon name="list" :size="18" /></span>
+              <span><b>图纸材料清单</b><small>一键生成，轻松准备材料</small></span>
+            </li>
+          </ul>
 
-        <p class="homePrivacy">图片转换在浏览器本地完成，照片不会上传到服务器。</p>
+          <p class="homePrivacy">图片转换在浏览器本地完成，照片不会上传到服务器。</p>
+        </div>
       </div>
     </section>
 
@@ -136,10 +140,14 @@ function onDrop(e) {
 .homeHero{
   position:relative;isolation:isolate;overflow:hidden;
   min-height:max(660px,calc(100dvh - var(--header-h) - 72px));
-  display:flex;align-items:center;justify-content:center;
+  display:flex;align-items:stretch;justify-content:center;
   background:
     linear-gradient(180deg,#FFFDF8 0%,var(--bg) 46%,#FFF8EE 100%);
-  padding:36px 20px 30px;
+  /* hero 的高度 = 视口 - 顶栏 - 页脚。内容栏拉满这块高度后，
+     里面是「标题 / 上传卡 / 底部说明」三行网格：
+     上传卡那一行正好压在 hero 的垂直中线上，
+     上下两行等分剩余空间，标题往上贴、说明往下贴。 */
+  padding:32px 20px;
 }
 /* 柔和的粉 / 蓝光斑只做空气感，不抢上传卡 */
 .homeGlow{
@@ -178,8 +186,21 @@ function onDrop(e) {
 .homeHero__in{
   position:relative;z-index:1;
   width:min(720px,100%);
-  display:flex;flex-direction:column;align-items:center;text-align:center;
+  display:grid;grid-template-columns:minmax(0,1fr);
+  grid-template-rows:minmax(auto,1fr) auto minmax(auto,1fr);
+  row-gap:var(--block-gap);
+  text-align:center;
+  /* 三个板块（标题图 / 上传卡 / 底部三条能力）之间的统一间距。
+     间距由网格的 row-gap 提供，三行等距。 */
+  --block-gap:clamp(30px,4vh,50px);
+  /* 标题图的高度跟着视口走：标题块越高，上传卡就越被顶离中线。
+     46dvh - 303px 就是「首屏一半减去上传卡与间距」剩下的高度，
+     卡片因此在各种屏幕高度上都能正好落在中线上。 */
+  --title-h:clamp(100px,calc(46dvh - 303px),246px);
 }
+/* 标题块贴上行的底部（往上走），底部说明贴下行的顶部（往下走） */
+.homeHead{align-self:end;width:min(720px,100%);display:flow-root}
+.homeBottom{align-self:start;width:min(720px,100%);display:flow-root}
 
 /* -------------------------------- 标题 */
 .homeEyebrow{
@@ -196,15 +217,15 @@ function onDrop(e) {
   overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0;
 }
 .homeTitleArt{
-  display:block;width:100%;height:auto;object-fit:contain;
-  aspect-ratio:1532/629;
-  margin-top:18px;
+  display:block;width:auto;max-width:100%;height:var(--title-h);
+  object-fit:contain;aspect-ratio:1532/629;
+  margin:18px auto 0;
 }
 
 /* -------------------------------- 上传卡 */
 .uploadCard{
   width:min(520px,100%);min-height:300px;
-  margin-top:28px;padding:24px 26px 20px;
+  justify-self:center;margin-top:0;padding:24px 26px 20px;
   background:rgba(255,255,255,.96);border:1px solid var(--line);border-radius:var(--r-xl);
   box-shadow:0 2px 0 rgba(255,255,255,.7) inset,0 18px 44px rgba(30,27,25,.08);
   display:flex;flex-direction:column;align-items:center;justify-content:center;
@@ -241,7 +262,7 @@ function onDrop(e) {
 
 /* -------------------------------- 三条能力 */
 .homeFeatures{
-  width:min(760px,100%);margin:20px 0 0;padding:0;list-style:none;
+  width:min(760px,100%);margin:0;padding:0;list-style:none;
   display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;
   text-align:left;
 }
@@ -272,6 +293,13 @@ function onDrop(e) {
 .homeFoot__links a:hover{color:var(--ink);text-decoration:underline;text-underline-offset:4px}
 
 /* ============================ 响应式 ============================ */
+/* 屏幕不高时（1366×768、1280×800 这类笔记本）：hero 收成正好一屏，
+   标题图、卡片一起矮一档，上传卡仍然落在首屏中线上。 */
+@media(min-width:781px) and (max-height:900px){
+  .homeHero{min-height:max(520px,calc(100dvh - var(--header-h) - 72px))}
+  .homeHero__in{--title-h:clamp(64px,calc(46dvh - 303px),246px)}
+  .uploadCard{min-height:260px;padding:20px 26px 18px}
+}
 @media(max-width:1240px){
   .homeCollage{opacity:.72}
   .homeHero__in{width:min(660px,100%)}
@@ -287,9 +315,13 @@ function onDrop(e) {
     align-items:flex-start;padding:16px 14px 22px;
   }
   .homeGlow{display:none}
-  .homeHero__in{width:100%}
+  /* 手机上回到普通竖排流：不用中线定位，间距由各自的 margin 决定 */
+  .homeHero__in{
+    width:100%;display:flex;flex-direction:column;align-items:center;row-gap:0;
+  }
+  .homeHead,.homeBottom{align-self:auto;width:100%}
   .homeEyebrow{font-size:var(--fs-2xs);padding:4px 10px}
-  .homeTitleArt{margin-top:10px}
+  .homeTitleArt{height:auto;width:100%;max-width:none;margin:10px auto 0}
   .uploadCard{
     width:100%;min-height:0;margin-top:16px;padding:20px 18px 16px;border-radius:var(--r-xl);
   }
@@ -312,7 +344,7 @@ function onDrop(e) {
 @media(max-width:780px) and (max-height:700px){
   .homeHero{padding-top:14px}
   .homeEyebrow{display:none}
-  .homeTitleArt{margin-top:0}
+  .homeTitleArt{margin:0 auto}
   .uploadCard{margin-top:14px;padding:16px}
   .homeFeatures{display:none}
   .homePrivacy{margin-top:8px}
