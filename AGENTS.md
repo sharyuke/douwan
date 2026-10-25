@@ -2,7 +2,7 @@
 
 > 这个文件是给「以后在这个工作区干活的 AI」看的：先读这里，再看 [DEPLOY.md](DEPLOY.md)。
 > 最后更新：2026-10-25 深夜（**后台监控「排除名单」上线**：把主人自己的访问从统计里扣掉，
-> 已上线（`douwan-api` `7d065d7`、`pindoudou` `c98001a`）；同日晚（**SEO V3.0 上线**：三层关键词库 52 条 + 16 个目标页 + 素材库自动 SEO +
+> 已上线（`douwan-api` `7d065d7`、`pindoudou` `c98001a`）；同日晚（**SEO V3.0 上线**：三层关键词库 53 条 + 16 个目标页 + 素材库自动 SEO +
 > 首页首屏以下内容区 + `/colors/` 色卡页 + 后台「关键词管理」页，已上线（`pindoudou` `5fbbef0`+`fddad8e`+`42bdf62`，
 > `douwan-api` `dc9acc5`+`df1b801`，分支 `feat/seo-platform`）；同日晚（**SEO 平台上线**：history 路由 +
 > 服务端渲染 SEO 壳 + 动态 Sitemap + 百度/IndexNow/Google 推送队列 + 后台「SEO 管理」页，已上线
@@ -554,7 +554,8 @@ ssh pro 'curl -s -o /dev/null -w "https %{http_code} %{time_total}s\n" https://d
 - 需求原文：「豆玩 SEO 搜索词优化与关键词管理 V3.0」。交付文档：**`pindoudou/docs/seo-v3.md`**
 - **三层关键词库**（`src/data/seo.js` 的 `KEYWORD_GROUPS`/`KEYWORD_INTENTS`/`KEYWORD_TARGETS`，
   编译进 `dist/seo/pages.json`，后台「同步关键词库」写进 `seo_keywords` 表）：
-  工具转换词 14 / 免费素材词 30 / 教程与专业功能词 8 = **52 条**，对应 **16 个目标页**
+  工具转换词 15 / 免费素材词 30 / 教程与专业功能词 8 = **53 条**，对应 **16 个目标页**
+  （品牌词「豆玩」挂在首页相关词上，主意图仍是「拼豆图纸生成器」，不单独建页）
 - **关键词与页面对应**（每页一个主要意图 + 一组相关词，不为近义词造重复页面）：
   首页=拼豆图纸生成器；工具页=图片转拼豆 / 照片转拼豆图纸 / 像素 / 宠物；
   素材中心=免费拼豆图纸 / 拼豆素材；分类页=动物 / 水果 / 甜品 / 秋冬；
