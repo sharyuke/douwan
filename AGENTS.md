@@ -1,8 +1,14 @@
 # 豆玩 DOUWAN 工作区
 
 > 这个文件是给「以后在这个工作区干活的 AI」看的：先读这里，再看 [DEPLOY.md](DEPLOY.md)。
-> 最后更新：2026-10-25 下午（首页上传卡片对齐首屏中线，标题图随屏幕高度缩放，已上线（`b22b897`）；
-> 同日（电脑端首页首屏改成三板块等距、卡片居中、整组落在画面正中，已上线（`ec476db`）；
+> 最后更新：2026-10-25 深夜（**后台监控「排除名单」上线**：把主人自己的访问从统计里扣掉，
+> 已上线（`douwan-api` `7d065d7`、`pindoudou` `c98001a`）；同日晚（**SEO V3.0 上线**：三层关键词库 52 条 + 16 个目标页 + 素材库自动 SEO +
+> 首页首屏以下内容区 + `/colors/` 色卡页 + 后台「关键词管理」页，已上线（`pindoudou` `5fbbef0`+`fddad8e`+`42bdf62`，
+> `douwan-api` `dc9acc5`+`df1b801`，分支 `feat/seo-platform`）；同日晚（**SEO 平台上线**：history 路由 +
+> 服务端渲染 SEO 壳 + 动态 Sitemap + 百度/IndexNow/Google 推送队列 + 后台「SEO 管理」页，已上线
+> （`pindoudou` `08b45bf`+`8335988`+`b4cfd2c`，`douwan-api` `cb67ac0`+`2765403`）；
+> 同日（上传卡片对齐首屏中线，已上线（`b22b897`）；
+> 同日（电脑端首页首屏三板块等距、整组居中，已上线（`ec476db`）；
 > 2026-10-18（工作台除 ① 外全部卡片默认折叠，⑤ 图纸交付移到左栏、
 > 我的库存移到右栏，已上线（`5ab3ce6`）；**开发环境迁到本机 Windows**：pindoudou / douwan-api 源码、
 > Node 24 + pnpm 11 + Go 1.26 都在本地，日常不再用 home；图纸交付改左右结构、
@@ -108,7 +114,11 @@ ssh qq "echo $b | base64 -d | bash"
 ### 2.1 前端 `pindoudou`（豆玩 DOUWAN 拼豆图纸工作台）
 
 - 路径：本机 `C:\Users\sharyuke\Documents\work\douwan\pindoudou`；仓库 <https://gitee.com/maryuke/pindoudou.git>（`master`）
-- Vue 3.5 + Vite 6 + vue-router（hash 路由），**纯前端 SPA**：账号 / 会员 / Credits 目前都在 localStorage 里演示
+- Vue 3.5 + Vite 6 + vue-router（**2026-10-25 起是 history 路由**，`createWebHistory()` + `base: '/'`；
+  老的 `#/xxx` 链接由 `src/router/index.js` 的 `watchLegacyHash` shim 接管并 301 到新路径），
+  **纯前端 SPA**：账号 / 会员 / Credits 目前都在 localStorage 里演示
+- 公开页面的可抓取内容由**后端渲染成 SEO 壳**注入 `index.html` 的 `<!--seo-head-->` / `<!--seo-body-->`，
+  爬虫在初始 HTML 里就能读到 H1、正文、内链、JSON-LD（详见 §5「已完成（2026-10-25 晚）」）
 - 线上：**<https://dw.sharyuke.com>**（qq 的 `/var/www/dw.sharyuke.com`，由 nginx 托管 `dist/`）
 - 依赖已装、`dist/` 已产出（2026-10-15 装过一轮）；`README.md` 是权威设计文档（算法、色板、会员模型、设计令牌）
 
@@ -120,8 +130,16 @@ ssh qq "echo $b | base64 -d | bash"
 | `src/composables/useStudio.js` (1150 行) | 工作台状态中枢 |
 | `src/composables/useMembership.js` | 会员权益判定，**按钮永不隐藏**，点不动要给原因 + 升级路径 |
 | `src/data/palette.js`、`assets.js` | **脚本生成，勿手改**（`pnpm palette` / `assets`） |
-| `src/views/admin/AdminActivityView.vue` | 后台「用户活跃监控」页：总览 / **访问量** / 留存 / 使用频率 / 地区 / 功能使用 / 来源渠道 / 用户明细，调 10 个 `/admin/activity/*` |
+| `src/views/admin/AdminActivityView.vue` | 后台「用户活跃监控」页：总览 / **访问量** / 留存 / 使用频率 / 地区 / 功能使用 / 来源渠道 / 用户明细 / **排除名单**，调 13 个 `/admin/activity/*` |
 | `src/lib/telemetry.js` | 前台访问量埋点：路由 `afterEach` 上报 `POST /api/v1/visits`（访客标识存 localStorage、同页面 2 秒去抖、后台页面不上报、失败静默） |
+| `src/data/seo.js` | **SEO 文案单一事实来源**：站点信息、首页/素材中心/教程页文案、工具页生成规则、应用内路由清单；构建时编译成 `dist/seo/pages.json` 供后端渲染。**V3.0 起还包含关键词库（分组 / 意图 / 目标页）与自动 SEO 模板** |
+| `src/lib/seo.js` | 运行时注入 canonical / OG / Twitter / JSON-LD |
+| `src/views/admin/AdminSeoView.vue` | 后台「SEO 管理」页（权限点 `seo.view`/`seo.manage`）：可索引页面数、Sitemap 状态、各引擎推送结果、推送历史、手动补推（含「强制补推」）、素材 SEO 文案编辑 |
+| `src/views/admin/AdminSeoKeywords.vue` | 后台「SEO 管理 → 关键词管理」标签页（V3.0 新增）：列表 / 增删改 / CSV 导入 / 分组筛选 / 三个诊断面板（意图冲突、页面字段自检、低点击率候选） |
+| `src/components/home/HomeContent.vue` | 首页**首屏以下**的可抓取内容区（V3.0 新增，5 个块）：转换步骤 / 功能清单 / 免费素材 / 常见问题 / 分类入口（分类与数量来自真实接口） |
+| `src/views/ColorsView.vue` | 拼豆色号 / 色卡对照页（V3.0 新增，路由 `/colors/`），15 个品牌的真实色号 |
+| `scripts/verify-seo-v3.cjs` | **SEO V3.0 验收自检**：head 标签 / sitemap / robots / 首页内容区 / 色卡页，桌面 + 手机两档视口；`node scripts/verify-seo-v3.cjs --url https://dw.sharyuke.com` |
+| `scripts/admin-audit-seo-keywords.js` | 关键词管理端到端探针（11 步），由 `admin-audit.cjs` 带 `ADMIN_EVAL_FILE` 调用 |
 | `scripts/audit.cjs` | 无头浏览器自检：51 页 × 3 视口，查报错 / 横向溢出 / 画布空白 |
 | `scripts/admin-audit.cjs` | 后台页无头自检（**真登录 + 真接口**，只读）：查白屏 / console 报错 / 溢出并留截图；`AUDIT_DIST=` 可指向私有构建目录 |
 | `scripts/fidelity/` | 还原度与抠图精度跑分（改算法前后各跑一次比数字） |
@@ -158,6 +176,17 @@ node scripts/admin-audit.cjs
   接口清单见仓库 `docs/api.md`
 - 后台管理（套餐 / 卡密 / 订单 / 素材 / 用户 / 设置 / 日志 / 管理员）与**用户活跃数据监控**
   （`/api/v1/admin/activity/*`，权限点 `activity.view`；设计与口径见仓库 `docs/activity.md`）
+- **SEO 平台**（2026-10-25 上线，权限点 `seo.view` / `seo.manage`）：`internal/seo/`（渲染 / 内容 / 推送）、
+  `internal/{model,repository,service,handler}/seo*.go`、`/api/v1/admin/seo/*` 7 个接口、
+  表 `seo_push_tasks`、`library_assets`/`library_categories` 加 `seo_title`/`seo_description`/`seo_no_index`。
+  交付文档见 `pindoudou/docs/seo.md`；架构决策见工作区记忆 `topics/seo-architecture.md`
+- **SEO V3.0 关键词管理**（2026-10-25 上线，复用 `seo.view`/`seo.manage`）：
+  表 `seo_keywords`（分组 / 优先级 / 意图 / 目标页 / 状态 / 引擎 / 曝光 / 点击 / 点击率 / 排名 / 统计周期 / 数据来源），
+  `/api/v1/admin/seo/keywords*` 11 个接口（含 CSV 导入、库同步、冲突检测、页面字段自检、低点击率候选、
+  Search Console 数据导入）+ `POST /admin/seo/regenerate` 重新生成自动文案。
+  交付文档见 `pindoudou/docs/seo-v3.md`
+  - ⚠️ 关键词表的分组列名是 **`keyword_group`**（`group` 在 SQLite 和 PostgreSQL 里都是保留字），
+    Go/JSON 字段仍叫 `group`；写 SQL 一定要用 `keyword_group`
 - **站点访问量（PV / UV，含未登录访客）**：表 `site_visitors` + `site_visitor_page_daily`，
   上报接口 `POST /api/v1/visits`（**允许匿名**，OptionalAuth + 限流），后台 `/admin/activity/traffic`
   与 `/traffic/visitors`（复用 `activity.view`）。要点：
@@ -193,6 +222,20 @@ go build -o bin\server.exe ./cmd/server
 go build -o bin\migrate.exe ./cmd/migrate
 ```
 
+> ⚠️ **本机 `go test` 可能跑不了改过的包**：本机有「企业签名级别」的 WDAC 策略，
+> Go 构建是确定性的 ⇒ 没改过的包每次哈希一样能跑，**一改代码哈希就变**会被直接拦掉：
+> `fork/exec ...test.exe: An Application Control policy has blocked this file.`
+> 事件日志在 `Microsoft-Windows-CodeIntegrity/Operational`（Id 3033 / 3077）。
+> **对策：后端测试放到 home 上跑**（home 有 Go 1.26.8）：
+> ```powershell
+> cd C:\Users\sharyuke\Documents\work\douwan\douwan-api\.tmp\wt-seo
+> & "C:\Windows\System32\tar.exe" -czf ..\wt-seo-src.tar.gz --exclude=.git --exclude=.tmp --exclude=bin .
+> scp ..\wt-seo-src.tar.gz home:/tmp/wt-seo-src.tar.gz
+> ssh home 'rm -rf /tmp/wt-seo-test && mkdir -p /tmp/wt-seo-test && tar -xzf /tmp/wt-seo-src.tar.gz -C /tmp/wt-seo-test && cd /tmp/wt-seo-test && go vet ./... && go test -count=1 ./...'
+> ```
+> 注意 PATH 上的 `tar` 是 Git 的 GNU tar，会把 `C:\...` 当远程主机名 —— 要用
+> `C:\Windows\System32\tar.exe`（bsdtar）。
+
 ### 2.3 提交代码（在本机提交）
 
 ```powershell
@@ -204,9 +247,10 @@ git push
 
 - 本机已配好 Git 凭据：`pindoudou` 的 remote 内嵌账号密码（历史遗留），
   `douwan-api` 走 Git Credential Manager，`git push` 可直接用。
-- ⚠️ 本机 `douwan-api` 是从 home 工作区整包同步的：`master` 比 `origin/master` 落后 5 个提交
-  （QQ 登录相关），且工作区里有并行会话未提交的本地 AI 模块。先不要贸然 `git pull`，
-  等这批 AI 改动提交/确认后再合并，避免覆盖。
+- ⚠️ 本机 `douwan-api` 的**主工作区**（`douwan-api\`）仍停在旧状态：落后 `origin/master`，
+  且工作区里有并行会话未提交的本地 AI 模块。**别在主工作区 `git pull`**，会覆盖那批改动。
+  SEO 平台是在隔离 worktree `douwan-api\.tmp\wt-seo`（分支 `feat/seo-platform`）里做的，
+  已推到 `origin/master`（`2765403`）。要在主工作区合并，先确认本地 AI 改动怎么处理。
 
 ---
 
@@ -242,6 +286,10 @@ curl -s -X DELETE "https://gitee.com/api/v5/repos/maryuke/douwan-api?access_toke
 
 发布顺序（**后端先迁移再起服，前端直接覆盖**）：
 
+> ⚠️ 打包用 **`C:\Windows\System32\tar.exe`**（Windows 自带的 bsdtar）。
+> PATH 上的 `tar` 是 Git 的 GNU tar，它会把 `C:\...` 当成远程主机名、把 `\d` 当转义，
+> 打包会失败或生成错名字的文件名。
+
 ```powershell
 # ① 后端：本机测试 + 交叉编译 + 推送
 cd C:\Users\sharyuke\Documents\work\douwan\douwan-api
@@ -249,9 +297,8 @@ go test ./...
 $env:CGO_ENABLED='0'; $env:GOOS='linux'; $env:GOARCH='amd64'
 go build -trimpath -ldflags='-s -w' -o bin\server ./cmd/server
 go build -trimpath -ldflags='-s -w' -o bin\migrate ./cmd/migrate
-tar -czf .tmp\douwan-api-bin.tar.gz -C bin server migrate
+& "C:\Windows\System32\tar.exe" -czf .tmp\douwan-api-bin.tar.gz -C bin server migrate
 scp .tmp\douwan-api-bin.tar.gz qq:/tmp/
-
 # ② 后端：qq 上换二进制 → 迁移 → 重启 → 探活
 ssh qq 'set -e; systemctl stop douwan-api
   mkdir -p /tmp/douwan-api-bin && tar -xzf /tmp/douwan-api-bin.tar.gz -C /tmp/douwan-api-bin
@@ -263,7 +310,7 @@ ssh qq 'set -e; systemctl stop douwan-api
 # ③ 前端：本机构建 + 推送 + 覆盖
 cd C:\Users\sharyuke\Documents\work\douwan\pindoudou
 pnpm build
-tar -czf .tmp\douwan-web.tar.gz -C dist .
+& "C:\Windows\System32\tar.exe" -czf .tmp\douwan-web.tar.gz -C dist .
 scp .tmp\douwan-web.tar.gz qq:/tmp/
 ssh qq 'rm -rf /var/www/dw.sharyuke.com/* && tar -xzf /tmp/douwan-web.tar.gz -C /var/www/dw.sharyuke.com
   && chmod -R 755 /var/www/dw.sharyuke.com'
@@ -472,6 +519,104 @@ ssh pro 'curl -s -o /dev/null -w "https %{http_code} %{time_total}s\n" https://d
   「线上版本 + 我这一处改动」，不会把对方未上线的路由改动带上线
   （junction 要用 `cmd /c rmdir` 删，删 worktree 前先摘掉，否则会连真 `node_modules` 一起删掉）
 
+**已完成（2026-10-25 晚）——SEO 平台上线（`pindoudou` `08b45bf`+`8335988`+`b4cfd2c`，`douwan-api` `cb67ac0`+`2765403`，已上线）**
+
+- 需求原文：「豆玩 SEO 搜索引擎优化与自动抓取系统开发需求 V2.0」。交付文档：`pindoudou/docs/seo.md`
+- **路由 hash → history**（`createWebHistory()` + `base: '/'`）。这是可抓取的前提：
+  爬虫眼里 hash 路由的所有页面都是同一个 URL。配套 `watchLegacyHash`/`restoreFragment` 兼容老链接，
+  OAuth 回调的 token 仍留在 fragment 里不外泄；`/library` 由 nginx/后端 301 → `/materials/`
+- **服务端渲染 SEO 壳**（不重构 SPA）：后端读 `dist/index.html` 外壳，把渲染好的 head/body 注入
+  `<!--seo-head-->`/`<!--seo-body-->`。内容来源是前端构建时生成的 `dist/seo/pages.json`
+  （`scripts/build-seo-pages.mjs` 从 `src/data/seo.js` 编译）——「爬虫看到的」与「用户看到的」同一份文案
+- **路径命名**：分类 `/materials/category/{slug}/`（**不**用需求建议的 `/materials/animals/`，
+  因为素材 slug 与分类 slug 会撞名）；素材 `/materials/{slug}/`；
+  作品材料清单从 `/materials/:projectId` 挪到 `/project-materials/:projectId?`
+- **推送**：百度普通收录 API、IndexNow、Google Sitemaps API（**不用** Google Indexing API 推普通素材页）。
+  Token 只从服务端配置读，不进仓库、不通过接口返回明文。内容指纹去重（没变就跳过），
+  后台有「强制补推」开关；队列一次取 50 条并循环排空
+- **后台「SEO 管理」页** `#/admin/seo`：可索引页面数、Sitemap/robots 状态、各引擎推送结果、推送历史、
+  手动补推、批量补推、素材 SEO 文案编辑、查看失败原因
+- **口径**：后台严格区分「已推送 ≠ 已抓取 ≠ 已收录 ≠ 有排名」，没接官方数据接口时**不显示任何收录数**
+- ⚠️ **踩到的真 bug**：`ContentStore.Get()` 读过一次 `pages.json` 就永远用缓存，
+  注释里写的「按 mtime 判断是否需要重新读」其实没实现 —— 前端发布覆盖 `pages.json` 后爬虫看到的还是旧文案
+  （首页 H1 就是这么没更新的）。已修 + 补回归测试 `internal/seo/content_test.go`
+- ⚠️ **本机 WDAC 会拦掉改过的 Go 测试二进制**（策略「企业签名级别」）：
+  Go 构建确定性 ⇒ 没改过的包哈希一样能跑，**一改代码哈希就变**直接被拦
+  （`An Application Control policy has blocked this file`）。**后端测试改到 home 上跑**
+- 验证：全站 80 页自检 0 错误（4 视口）、后台自检 26/26、后端全量单测全绿（home 上跑）、
+  公网逐项复核（每页 title/description/h1 各恰好 1 个、canonical 唯一、内链是真 `<a href>`、
+  JSON-LD 无虚构评分与下载量）；推送协议对着本地 mock 端点实测过（百度与 IndexNow 请求格式、批量、去重、强制补推）
+- ⚠️ **线上三个推送通道当前都未配置**（等用户在百度/IndexNow/GSC 取 Token），`seo_push_tasks` 表 0 行。
+  平台验证步骤、Token 填法见 `pindoudou/docs/seo.md` §7 §8
+
+**已完成（2026-10-25 深夜）——SEO V3.0：搜索词优化与关键词管理（`pindoudou` `5fbbef0`+`fddad8e`+`42bdf62`，`douwan-api` `dc9acc5`+`df1b801`，已上线）**
+
+- 需求原文：「豆玩 SEO 搜索词优化与关键词管理 V3.0」。交付文档：**`pindoudou/docs/seo-v3.md`**
+- **三层关键词库**（`src/data/seo.js` 的 `KEYWORD_GROUPS`/`KEYWORD_INTENTS`/`KEYWORD_TARGETS`，
+  编译进 `dist/seo/pages.json`，后台「同步关键词库」写进 `seo_keywords` 表）：
+  工具转换词 14 / 免费素材词 30 / 教程与专业功能词 8 = **52 条**，对应 **16 个目标页**
+- **关键词与页面对应**（每页一个主要意图 + 一组相关词，不为近义词造重复页面）：
+  首页=拼豆图纸生成器；工具页=图片转拼豆 / 照片转拼豆图纸 / 像素 / 宠物；
+  素材中心=免费拼豆图纸 / 拼豆素材；分类页=动物 / 水果 / 甜品 / 秋冬；
+  教程中心=拼豆新手教程；色卡页=拼豆色号 / 拼豆色卡对照（`/colors/`，V3.0 新建的真实色号页）
+- **素材库自动 SEO**：按真实字段（名称 / 分类 / 简介 / 格数 / 标签）生成 Title / H1 / 描述 / 图片 alt；
+  管理员改过的文案 `seo_auto=false`，自动重算不覆盖；没有内容的页面标 noindex、不进 Sitemap
+- **首页内容区**（`src/components/home/HomeContent.vue`）：首屏保持单屏不动，内容放在首屏以下 ——
+  转换步骤 4 步 / 功能 6 项 / 免费素材 3 段 / FAQ 5 条 / 分类入口（真实分类 + 真实数量）
+- **后台「关键词管理」页**（`src/views/admin/AdminSeoKeywords.vue`）：列表、增删改、CSV 导入、
+  分组与状态筛选、按点击/曝光/点击率排序，外加三个诊断面板（意图冲突 / 页面缺字段 / 低点击率候选）
+- **搜索表现数据**：Google Search Console API 的代码路径已就绪（`internal/seo/searchconsole.go`），
+  **但没配服务账号凭据** ⇒ 曝光/点击/点击率/排名一律显示「暂无数据」，绝不编造；
+  百度、Bing 没有可用的关键词查询接口，走站长后台手动导出 CSV 导入
+- ⚠️ **踩到的真 bug（已修）**：`CountByCategory` 把草稿和已下架的素材也数了进去，
+  首页写「22 个素材」、分类页写「共 21 个」，用户点进去数一遍就对不上。
+  改成只数 `status = published`，并把「可索引数」与「已发布数」分成两个计数；
+  回归测试 `TestCategoryCountOnlyCountsPublished` 盯着（去掉过滤后该用例会失败）
+- 验证：`go vet` + 全量单测全绿（home 上跑）、**线上 SEO V3 验收自检 50/50 通过**
+  （`node scripts/verify-seo-v3.cjs --url https://dw.sharyuke.com`）、
+  后台自检 **28/28 通过**（桌面 + 手机）、关键词管理探针两档视口各 11/11 步通过、
+  全站自检 80 页 × 4 视口 0 错误（`notfound` 页那条 404 是按设计的）
+- 回滚：qq `/opt/douwan-api/bin/*.bak-seov3-20261025-151030`、
+  `/root/douwan-backups/douwan-seov3-20261025-151030.dump`
+- ⚠️ **线上 6 个分类还没有已发布素材**（beginner / couples / cute / festivals / lifestyle / plants），
+  对应 14 条关键词状态是「planned」，分类页标 noindex、不进 Sitemap、不推送；
+  素材到位后发布流程会自动建页并转「已上线」
+
+**已完成（2026-10-25 深夜）——后台监控「排除名单」：把「自己」的访问从统计里扣掉（`douwan-api` `7d065d7`，`pindoudou` `c98001a`，已上线）**
+
+- 需求原文：「后台的用户监控，我想把我自己访问的区分出来，我自己打开的不算」。
+  实测主人自己的流量占了访客数的九成（`219.152.45.216` 一个 IP 就 384 个访客 / 3985 次访问），
+  不剔除的话「访问量 / 访客数」几乎全是自己
+- 做法：后台「用户活跃监控」新增**「排除名单」**标签页（新表 `monitor_exclusions`，kind = ip / visitor / user）。
+  名单里的访问**不计入** PV / UV / DAU / 留存 / 地区 / 功能 / 渠道 / 用户列表，
+  但**剔掉了多少会在卡片里单独报出来**（「剔掉了自己」和「本来就没有人」必须分得开）
+- 后端要点：
+  - 名单通过 **context** 传到查询层（`repository.WithExclusion` + `excludeUsers` / `excludeVisitors`），
+    二十来个统计查询自动带上；不给每个方法加参数 ⇒ 不会漏掉某一张表
+  - IP 与账号要**展开成访客标识**（访问量那张表只有访客标识），访客标识支持**前 8 位前缀**
+    （后台列表出于隐私只显示前 8 位，主人能对着列表点「标为自己」）
+  - 值都要校验（IP 用 `net.ParseIP`、访客标识只认十六进制、账号只认数字）：
+    写错的规则在库里看起来和正确的一样，实际一条都排除不掉
+  - 删除走软删除 ⇒ `Add` 必须 `Unscoped` 找回并**恢复**那条记录，
+    否则重新添加会撞 `(kind, value)` 唯一索引（已踩过，已修 + 回归测试）
+  - 新增 `GET/POST/DELETE /api/v1/admin/activity/exclusions`，复用 `activity.view` 权限
+- 前端：新增「排除名单」标签页（名单条数 / 覆盖访客 / 覆盖账号三张卡 + 一键标记 + 手动添加 + 逐条删除）；
+  访客明细表每行加「标为自己」；用户明细每行加「标为自己」（按账号）；
+  总览与「访问量」两页各加一条提示写明剔掉了多少
+- 已按主人实际出口预置 6 条：IP `219.152.45.216` / `219.152.41.0` / `219.152.40.85` / `219.152.43.28`
+  （自己的宽带与手机网络）、`127.0.0.1`（服务器本机自检）、账号 `32`（`yqf5258`，自己的前台账号）。
+  效果：30 天窗口 PV 从 5544 → 408、UV 从 519 → 26
+- 验证：`go vet` + 全量单测全绿（home 上跑，本机 WDAC 会拦改过的测试二进制，见 §2.2）；
+  真机（临时管理员）确认增删、统计立即重算、软删除后重新添加不撞唯一索引；后台无头自检 **30/30 通过**
+  （含线上产物复检）；临时管理员已删除
+- 回滚：qq `/opt/douwan-api/bin/server.bak-20261025-152834`（部署前那版）、
+  `/tmp/dw-web-backup-before-exclusions-20261025-153612.tar.gz`（前端）
+- ⚠️ 这次前端是**从 `42bdf62`（不是旧基线）**打的补丁：并行会话已经往 `master` 推了 SEO V3.0 的三个提交，
+  线上产物哈希与旧基线对不上；用 `git diff --output` 导出补丁 + `git apply --3way` 落到最新基线上，
+  才不会把对方没上线的改动带上线 / 覆盖掉
+- ⚠️ 部署前先核对线上产物哈希（`dist/index.html` 里的 `assets/index-*.js`）与本地基线构建是否一致：
+  不一致说明线上比基线新，**必须重新基于最新提交打补丁**，不能直接覆盖
+
 **待办**
 
 1. **前端功能埋点还没接**：访问量（页面级）已经通了，但 `pattern.generate` / `pattern.export` /
@@ -490,3 +635,17 @@ ssh pro 'curl -s -o /dev/null -w "https %{http_code} %{time_total}s\n" https://d
    访问量模块提交时已刻意避开这些文件（`config.go` / `migrate.go` / `repository.go` 只提交本模块所需的行）
 8. **临时预览页 `activity-preview.html` 现在是历史遗留**：正式入口是 `#/admin/activity`，
    保留只是为了对外做只读演示，等用户确认后可删
+9. **SEO 平台等 Token 才能真正推送**（2026-10-25 上线，代码全就绪、通道全空）：
+   百度普通收录 token、Bing IndexNow key、Google 服务账号 JSON 私钥，
+   填到 qq 的 `/etc/douwan/api.env`（`DOUWAN_SEO_BAIDU_TOKEN` / `DOUWAN_SEO_INDEXNOW_KEY` /
+   `DOUWAN_SEO_GOOGLE_CLIENT_EMAIL` / `DOUWAN_SEO_GOOGLE_PRIVATE_KEY` / `DOUWAN_SEO_GOOGLE_SITE`）
+   后 `systemctl restart douwan-api`。步骤见 `pindoudou/docs/seo.md` §7 §8
+10. **SEO 的 P2 项**：教程文章独立页与后台教程管理、自然搜索流量统计。都要等先有真实收录与排名数据才有对象
+11. **WebP / AVIF 图片输出**：Go 标准库不能编码 WebP，要做需要引新依赖或走前端构建期转换
+12. **搜索表现数据还没接**：Google 要服务账号 JSON 私钥 + 已验证站点（`DOUWAN_SEO_GOOGLE_CLIENT_EMAIL` /
+    `DOUWAN_SEO_GOOGLE_PRIVATE_KEY` / `DOUWAN_SEO_GOOGLE_SITE`，已配就能自动拉曝光/点击/点击率/排名）；
+    百度、Bing 走站长后台手动导出 CSV 导入。没接之前后台一律显示「暂无数据」
+13. **6 个分类还没有已发布素材**（beginner / couples / cute / festivals / lifestyle / plants），
+    14 条关键词状态是「planned」，分类页标 noindex 不进 Sitemap；补素材后会自动转「已上线」
+14. **线上临时管理员已清理干净**：`tmpseo2026`（V3.0 自检用）与 `tmpasset1022`（并行会话遗留）都已删除，
+    现在只剩真实管理员 `douwan`。以后自检要用临时账号的话，用完记得删
