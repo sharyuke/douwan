@@ -1,7 +1,8 @@
 # 豆玩 DOUWAN 工作区
 
 > 这个文件是给「以后在这个工作区干活的 AI」看的：先读这里，再看 [DEPLOY.md](DEPLOY.md)。
-> 最后更新：2026-10-25 深夜（**「蔬菜」6 张图进素材库「美食水果」分类**（运营数据，无代码改动）；
+> 最后更新：2026-10-25 深夜（**「植物花卉」5 张花束进素材库**（运营数据，无代码改动）；
+> 深夜（**「蔬菜」6 张图进素材库「美食水果」分类**（运营数据，无代码改动）；
 > 深夜（**后台监控「排除名单」上线**：把主人自己的访问从统计里扣掉，
 > 已上线（`douwan-api` `7d065d7`、`pindoudou` `c98001a`）；同日晚（**SEO V3.0 上线**：三层关键词库 53 条 + 16 个目标页 + 素材库自动 SEO +
 > 首页首屏以下内容区 + `/colors/` 色卡页 + 后台「关键词管理」页，已上线（`pindoudou` `5fbbef0`+`fddad8e`+`42bdf62`，
@@ -580,8 +581,9 @@ ssh pro 'curl -s -o /dev/null -w "https %{http_code} %{time_total}s\n" https://d
   全站自检 80 页 × 4 视口 0 错误（`notfound` 页那条 404 是按设计的）
 - 回滚：qq `/opt/douwan-api/bin/*.bak-seov3-20261025-151030`、
   `/root/douwan-backups/douwan-seov3-20261025-151030.dump`
-- ⚠️ **线上 6 个分类还没有已发布素材**（beginner / couples / cute / festivals / lifestyle / plants），
-  对应 14 条关键词状态是「planned」，分类页标 noindex、不进 Sitemap、不推送；
+- ⚠️ **线上还有 5 个分类没有已发布素材**（beginner / couples / cute / festivals / lifestyle；
+  plants 已于 2026-10-25 深夜补上 5 张花束），
+  对应关键词状态是「planned」，分类页标 noindex、不进 Sitemap、不推送；
   素材到位后发布流程会自动建页并转「已上线」
 
 **已完成（2026-10-25 深夜）——后台监控「排除名单」：把「自己」的访问从统计里扣掉（`douwan-api` `7d065d7`，`pindoudou` `c98001a`，已上线）**
@@ -641,6 +643,28 @@ ssh pro 'curl -s -o /dev/null -w "https %{http_code} %{time_total}s\n" https://d
   详情页 `/materials/asset-cc9bc456f7` 正常（标题「扁豆拼豆图纸素材免费下载 - 豆玩」、
   分类「美食水果 / 萌趣食物」、标签齐全、同类素材正常）
 
+**已完成（2026-10-25 深夜）——「植物花卉」5 张花束进素材库（运营数据，无代码改动）**
+
+- 需求原文：「/z/拼豆/素材库/素材/植物/aff41301-499c-4d73-938a-5f350484e2f0.zip 这个传到植物花卉的分类，不做用途分类」
+- 源是一个 zip（4.2MB），里面 5 张 PNG（文件名是 UUID，没有可读名字）：
+  `aff41301…` 紫粉花束小兔、`b4ace3b7…` 向日葵小鸡花束、`ccce96e7…` 紫白花束熊猫、
+  `4dc15ab1…` 红玫瑰花束小熊、`16bec14a…` 蓝色花束小猫（都是 Q 版花束 + 中间一只小动物）
+- 走后台素材上传接口 `POST /api/v1/admin/assets/upload`（每张单独一次请求，理由同上一条）：
+  `category_id=16`（植物花卉）、`status=published`、`tier=free`、`is_featured=false`、
+  `sort_order` 895~935，落库 id 120~124
+- 标签 `["植物花卉","花束","原创角色","入门"]`，描述「Q版萌趣花束拼豆图案，入门难度，色块大、线条简单，适合新手练习。」；
+  **同样不带用途标签**（前台「用途」筛选按标签匹配，选「钥匙扣」时该分类 0 条）
+- **这是「植物花卉」分类的第一批素材**：该分类页原来因为没有已发布素材是 noindex / 不进 Sitemap，
+  现在 `robots=index,follow`、标题「植物花卉拼豆图纸大全｜免费素材在线制作 - 豆玩」，
+  5 个素材详情页也都进了 sitemap（`/materials/asset-17655f0ac2` 等）
+  - `seo_keywords` 里指向 `/materials/category/plants/` 的两条（35 植物拼豆图纸 / 36 花卉拼豆图纸）
+    状态仍是 `planned`（待建设），要改成「已上线」得去后台「SEO 管理 → 关键词管理」改
+- 临时管理员 `tmp_plant_uploader`（id 35）已软删除并停用；5 条素材的 `created_by` 改回真实管理员 `douwan`（id 1）
+- 验证：真浏览器打开 `https://dw.sharyuke.com/materials/category/plants`（桌面 1440×960 与手机 390×844）
+  —— 5 张都在（页面显示「共 5 个素材」）、缩略图全部加载成功、用途筛选选「钥匙扣」0 条、
+  详情页正常（标题「紫粉花束小兔拼豆图纸素材免费下载 - 豆玩」、分类「植物花卉 / 花束」、同类素材列出其余 4 张）；
+  无 console 报错、无失败请求
+
 **待办**
 
 1. **前端功能埋点还没接**：访问量（页面级）已经通了，但 `pattern.generate` / `pattern.export` /
@@ -669,7 +693,11 @@ ssh pro 'curl -s -o /dev/null -w "https %{http_code} %{time_total}s\n" https://d
 12. **搜索表现数据还没接**：Google 要服务账号 JSON 私钥 + 已验证站点（`DOUWAN_SEO_GOOGLE_CLIENT_EMAIL` /
     `DOUWAN_SEO_GOOGLE_PRIVATE_KEY` / `DOUWAN_SEO_GOOGLE_SITE`，已配就能自动拉曝光/点击/点击率/排名）；
     百度、Bing 走站长后台手动导出 CSV 导入。没接之前后台一律显示「暂无数据」
-13. **6 个分类还没有已发布素材**（beginner / couples / cute / festivals / lifestyle / plants），
-    14 条关键词状态是「planned」，分类页标 noindex 不进 Sitemap；补素材后会自动转「已上线」
-14. **线上临时管理员已清理干净**：`tmpseo2026`（V3.0 自检用）与 `tmpasset1022`（并行会话遗留）都已删除，
-    现在只剩真实管理员 `douwan`。以后自检要用临时账号的话，用完记得删
+13. **还有 5 个分类没有已发布素材**（beginner / couples / cute / festivals / lifestyle；
+    plants 已于 2026-10-25 深夜补上 5 张花束），
+    对应关键词状态是「planned」，分类页标 noindex 不进 Sitemap；补素材后会自动转「已上线」
+14. **线上临时管理员已清理干净**：`tmpseo2026`（V3.0 自检用）、`tmpasset1022`（并行会话遗留）、
+    `tmp_mon_admin`（id 33）、`tmp_veg_uploader`（id 34）、`tmp_plant_uploader`（id 35）
+    都已软删除并停用，只有真实管理员 `douwan`（id 1）能登录。
+    ⚠️ 软删除的账号在 `admins` 表里还在（`deleted_at` 有值），用 SQL 查会看到，
+    别误以为还有别的管理员能用；以后自检要用临时账号的话，用完记得删
