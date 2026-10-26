@@ -1,7 +1,10 @@
 # 豆玩 DOUWAN 工作区
 
 > 这个文件是给「以后在这个工作区干活的 AI」看的：先读这里，再看 [DEPLOY.md](DEPLOY.md)。
-> 最后更新：2026-10-25 深夜（**「植物花卉」5 张花束进素材库**（运营数据，无代码改动）；
+> 最后更新：2026-10-26 下午（**新手简化版上线**：打开网站默认新手版（三步做出图纸），
+> 顶栏可切专业模式，已上线（`pindoudou` `959565a`）；同日下午（**后端两条分支合并并重新发布**：
+> `feat/seo-platform`（SEO V3.0）合回 master，线上恢复 `/colors/` 服务端渲染与关键词管理接口，
+> `douwan-api` `5111531`）；2026-10-25 深夜（**「植物花卉」5 张花束进素材库**（运营数据，无代码改动）；
 > 深夜（**「蔬菜」6 张图进素材库「美食水果」分类**（运营数据，无代码改动）；
 > 深夜（**后台监控「排除名单」上线**：把主人自己的访问从统计里扣掉，
 > 已上线（`douwan-api` `7d065d7`、`pindoudou` `c98001a`）；同日晚（**SEO V3.0 上线**：三层关键词库 53 条 + 16 个目标页 + 素材库自动 SEO +
@@ -140,6 +143,14 @@ ssh qq "echo $b | base64 -d | bash"
 | `src/views/admin/AdminSeoKeywords.vue` | 后台「SEO 管理 → 关键词管理」标签页（V3.0 新增）：列表 / 增删改 / CSV 导入 / 分组筛选 / 三个诊断面板（意图冲突、页面字段自检、低点击率候选） |
 | `src/components/home/HomeContent.vue` | 首页**首屏以下**的可抓取内容区（V3.0 新增，5 个块）：转换步骤 / 功能清单 / 免费素材 / 常见问题 / 分类入口（分类与数量来自真实接口） |
 | `src/views/ColorsView.vue` | 拼豆色号 / 色卡对照页（V3.0 新增，路由 `/colors/`），15 个品牌的真实色号 |
+| `src/components/beginner/BeginnerWizard.vue` | **新手简化版三步向导**（2026-10-26）：步骤条 + 参数保护弹层 + 手机端固定 CTA |
+| `src/components/beginner/BeginnerSelect.vue` | 新手版第 ① 步：上传 / 免费素材 → 统一「图片已选好」确认页 |
+| `src/components/beginner/BeginnerAdjust.vue` | 新手版第 ② 步：拼豆效果 / 原图 / 对比三视图 + 等比例尺寸滑块 + 颜色丰富程度 |
+| `src/components/beginner/BeginnerExport.vue` | 新手版第 ③ 步：成果预览 + 材料清单 + 下载真实图纸 |
+| `src/components/beginner/ModeSwitchDialog.vue` | 模式切换确认弹层（全站只挂一个，z-index 500 压在工作台指引层 400 之上） |
+| `src/composables/useBeginnerMode.js` | 新手 / 专业模式状态 + 两条保护判断（**不落 localStorage**，默认新手版） |
+| `src/views/BeginnerView.vue` | `/` 的容器：sr-only H1 + 向导 + `HomeContent`（SEO 可抓取正文照旧） |
+| `scripts/verify-beginner.cjs` | **新手版三端验收**：手机 390 / 平板 834 / 电脑 1440 真浏览器跑完整链路（上传→调效果→拿图纸→切专业→切回新手→免费素材），带 `--url` 可直接验收线上 |
 | `scripts/verify-seo-v3.cjs` | **SEO V3.0 验收自检**：head 标签 / sitemap / robots / 首页内容区 / 色卡页，桌面 + 手机两档视口；`node scripts/verify-seo-v3.cjs --url https://dw.sharyuke.com` |
 | `scripts/admin-audit-seo-keywords.js` | 关键词管理端到端探针（11 步），由 `admin-audit.cjs` 带 `ADMIN_EVAL_FILE` 调用 |
 | `scripts/audit.cjs` | 无头浏览器自检：51 页 × 3 视口，查报错 / 横向溢出 / 画布空白 |
@@ -251,8 +262,9 @@ git push
   `douwan-api` 走 Git Credential Manager，`git push` 可直接用。
 - ⚠️ 本机 `douwan-api` 的**主工作区**（`douwan-api\`）仍停在旧状态：落后 `origin/master`，
   且工作区里有并行会话未提交的本地 AI 模块。**别在主工作区 `git pull`**，会覆盖那批改动。
-  SEO 平台是在隔离 worktree `douwan-api\.tmp\wt-seo`（分支 `feat/seo-platform`）里做的，
-  已推到 `origin/master`（`2765403`）。要在主工作区合并，先确认本地 AI 改动怎么处理。
+  SEO 平台是在隔离 worktree `douwan-api\.tmp\wt-seo`（分支 `feat/seo-platform`）里做的；
+  2026-10-26 已把 `feat/seo-platform` merge 进 master（`feat/seo-v3-merge`，`5111531`）并推到 `origin/master`。
+  **以后改后端一律用 `douwan-api\.tmp\wt-*` 隔离工作区**（主工作区不能 pull）。
 
 ---
 
@@ -665,6 +677,72 @@ ssh pro 'curl -s -o /dev/null -w "https %{http_code} %{time_total}s\n" https://d
   详情页正常（标题「紫粉花束小兔拼豆图纸素材免费下载 - 豆玩」、分类「植物花卉 / 花束」、同类素材列出其余 4 张）；
   无 console 报错、无失败请求
 
+**已完成（2026-10-26 下午）——新手简化版上线（`pindoudou` `959565a`，已上线）**
+
+- 需求原文：「根据需求在原本基础上加一个新手简化版，三个端口都需要，打开网站默认显示新手版」
+  （`Z:\拼豆\新手简化版\03_详细产品需求_PRD.md` / `04_视觉指引.md` / `05_Grok_直接执行命令.md`）
+  交付文档：**`pindoudou/docs/beginner.md`**（文件清单 / 复用清单 / PRD §七 10 条逐条勾选 / 遗留项）
+- **入口变了**：路由 `/` 现在是 `BeginnerView`（新手版首页），**旧首页挪到 `/home`**（noindex、不进 Sitemap，
+  已加进 `src/data/seo.js` 的 `APP_ROUTES`），`/create` 重定向到 `/`
+  - 首页的 canonical / sitemap / 关键词定位**完全不变** —— 同一个 URL，不另开页面
+  - `BeginnerView` 里保留 `HomeContent`（SEO V3.0 的可抓取正文），服务端 SEO 壳照旧按 `/` 渲染
+- **新手三步**：① 选择图片（上传 / 免费素材 → 统一「图片已选好」确认页）② 调整拼豆效果
+  （拼豆效果 / 原图 / 对比三视图、等比例成品尺寸滑块、颜色丰富程度少色/标准/丰富）
+  ③ 获取图纸（成果预览 + 材料清单 + 下载真实图纸 + 进入专业模式 + 返回上一步）
+- **数据必须真实**：成品厘米 = 格数 × 豆径（口径在 `lib/boardSpec.js`）、豆子数 = 有效非空格统计、
+  颜色数 = 图纸实际用色、板数 = 按分板规格铺满要几块板；
+  拖动滑块时显示**估算值并标注**，松手后重新取样显示**精确值** —— 两者不混着说
+- **两种模式共用同一件作品**（`useStudio` 单例）：模式只决定显示哪一层界面，作品状态原样留着
+- **两条保护**：
+  - 模式保护：`useStudio` 新增 `manualEdited`（这张图被逐颗改过没有），专业 → 新手时先弹
+    `ModeSwitchDialog` 说明「不会自动重画」，确认后停在第 ③ 步，不按新手默认参数重画
+  - 参数保护：新手改尺寸 / 颜色数会重算图纸，若图被手改过就弹「**保留当前修改** /
+    **另存一个版本并继续**」两条安全路径
+- **模式状态不落 localStorage**：「打开网站默认显示新手版」是硬要求；
+  专业工作台在 `/editor`，刷新仍在专业版
+- 顶栏常驻「新手 / 专业」分段开关；侧栏与手机底栏的「创作」指向 `/`
+- ⚠️ **踩到的坑**：
+  - ① 第 ① 步生成图纸那一刻若用 `watch(hasPattern)` 跳第 ③ 步，会把中间的「调整效果」整步吃掉 ——
+    改成 `onMounted(() => { if (hasPattern.value) step.value = 3 })`（只在挂载时判一次）
+  - ② 手机端第 ③ 步的下载按钮被预览图顶到屏幕外 —— 预览限高 + 底部固定 CTA 条
+    （`bottom: calc(84px + env(safe-area-inset-bottom))`，在底部标签栏上方）
+  - ③ 顶栏上传按钮在**已经站在首页**时也能用，但路由不变、组件不重挂载，
+    只在 `onMounted` 取一次 `pendingUpload` 永远取不到 —— 改成 `watch(pendingFile)`
+    （`usePendingUpload.js` 因此导出这个 ref）
+  - ④ 工作台的新手指引层 z-index 是 400、普通弹窗只有 200：第一次进工作台就点「新手」时，
+    指引会盖在弹窗上（弹窗被压暗还点不动）—— 切换弹层提到 500，
+    并给 `EditorGuide` 加 `suspend` 属性（弹层打开时收起指引，**保留当前步骤**）
+  - ⑤ 页面里有两个 file input（顶栏 `.libFile` 与向导 `.bsel__file`），
+    自检脚本用 `input[type=file]` 会选中顶栏那个 —— 改用 `.bsel__file` 精确选择器
+- 验证：`node scripts/verify-beginner.cjs --url https://dw.sharyuke.com` **线上 73/73 通过**
+  （mobile 25 / tablet 24 / desktop 24，console 报错 0 条）；
+  全站自检 80 页 0 错误；`node scripts/verify-seo-v3.cjs --url https://dw.sharyuke.com` **50/50 通过**
+- 三端真实截图 27 张已入库：`pindoudou/docs/beginner/`（每端 9 张：选图 / 确认页 / 调整 / 少色 /
+  获取图纸 / 专业模式 / 切回新手 / 保护弹层 / 免费素材）
+- 回滚：qq `/root/douwan-backups/dw-web-before-beginner-20261026-144102.tar.gz`（前端）
+
+**已完成（2026-10-26 下午）——后端两条分支合并并重新发布（`douwan-api` `5111531`，已上线）**
+
+- ⚠️ **发现并修掉一个线上回归**：2026-10-25 深夜发布「排除名单」时，后端二进制是从 **master** 构建的，
+  而 **SEO V3.0（关键词管理）只在 `feat/seo-platform` 分支上、从来没合进 master** ⇒ 线上那一版
+  同时丢了两个东西：
+  - `/api/v1/admin/seo/keywords*` 11 个接口全部 **404**（后台「关键词管理」页直接不可用）
+  - `/colors/` 服务端渲染**没有对应分支** ⇒ 规范化把 `/colors/` 301 成 `/colors` 再 404
+    （色卡页在爬虫眼里是 404，而它在 Sitemap 里）
+- 做法：新建隔离 worktree `douwan-api\.tmp\wt-merge`（分支 `feat/seo-v3-merge`），
+  把 `feat/seo-platform` **merge** 进 `origin/master`（无冲突，19 个文件），
+  在 **home** 上跑 `go vet ./...` + `go test -count=1 ./...` 全绿，再交叉编译 linux/amd64，
+  部署到 qq（先 `pg_dump` 备份 + 旧二进制 `.bak-20261026-144945`），迁移后重启
+- 验证：`/colors/` → 200（标题「拼豆色号与色卡对照 - 各品牌真实色号表 - 豆玩」）、
+  `/api/v1/admin/seo/keywords` → 401（路由在，要登录）、排除名单与访问量接口都还在
+- 顺手统一了**素材 SEO 文案**：85 条在架素材的标题统一成「名称拼豆图纸｜免费拼豆素材 - 豆玩」
+  （此前 11 条新上传的素材用的是旧格式「…素材免费下载 - 豆玩」）。
+  用后台「重新生成自动文案」接口 `POST /api/v1/admin/seo/regenerate` 重算（人工写过的 0 条被覆盖）
+- ⚠️ **`origin/master` 现在包含 V3.0 了**，但本机 `douwan-api\` 主工作区**仍然落后**且有并行会话的
+  本地 AI 未提交改动 —— **别在主工作区 `git pull`**，继续用 `douwan-api\.tmp\wt-*` 隔离工作区
+- 临时管理员 `tmpseo2026`（id 36）用完已软删除并停用（令牌已失效）；顺手把
+  `tmp_mon_admin`（id 33）也停用了
+
 **待办**
 
 1. **前端功能埋点还没接**：访问量（页面级）已经通了，但 `pattern.generate` / `pattern.export` /
@@ -696,7 +774,8 @@ ssh pro 'curl -s -o /dev/null -w "https %{http_code} %{time_total}s\n" https://d
 13. **还有 5 个分类没有已发布素材**（beginner / couples / cute / festivals / lifestyle；
     plants 已于 2026-10-25 深夜补上 5 张花束），
     对应关键词状态是「planned」，分类页标 noindex 不进 Sitemap；补素材后会自动转「已上线」
-14. **线上临时管理员已清理干净**：`tmpseo2026`（V3.0 自检用）、`tmpasset1022`（并行会话遗留）、
+14. **线上临时管理员已清理干净**：`tmpseo2026`（V3.0 自检用）、`tmpseo20261026`（素材文案重算用，id 36）、
+    `tmpasset1022`（并行会话遗留）、
     `tmp_mon_admin`（id 33）、`tmp_veg_uploader`（id 34）、`tmp_plant_uploader`（id 35）
     都已软删除并停用，只有真实管理员 `douwan`（id 1）能登录。
     ⚠️ 软删除的账号在 `admins` 表里还在（`deleted_at` 有值），用 SQL 查会看到，
