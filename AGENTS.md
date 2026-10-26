@@ -1,7 +1,9 @@
 # 豆玩 DOUWAN 工作区
 
 > 这个文件是给「以后在这个工作区干活的 AI」看的：先读这里，再看 [DEPLOY.md](DEPLOY.md)。
-> 最后更新：2026-10-26 下午（**首页那行「免费拼豆图纸生成器」标题不再显示**：`.sr-only` 提到全局样式，
+> 最后更新：2026-10-26 晚（**首页恢复 + 新手版变成「创作」底下的操作台**：首页回到带插画的主视觉，
+> 新手简化版挪到 `/create`（操作台，隶属「创作」命令），三端首页都恢复，已上线（`pindoudou` `c1e2990`）；
+> 同日下午（**首页那行「免费拼豆图纸生成器」标题不再显示**：`.sr-only` 提到全局样式，
 > 已上线（`pindoudou` `e04c543`）；同日下午（**首页首屏以下的长文内容区三端全删**：手机 / 平板 / 电脑都不再显示
 > 「图片如何转换拼豆图纸」以下的内容，正文仍由服务端 SEO 壳写进原始 HTML，已上线
 > （`pindoudou` `c8bb9a5`）；同日下午（**新手简化版上线**：打开网站默认新手版（三步做出图纸），
@@ -144,19 +146,19 @@ ssh qq "echo $b | base64 -d | bash"
 | `src/lib/seo.js` | 运行时注入 canonical / OG / Twitter / JSON-LD |
 | `src/views/admin/AdminSeoView.vue` | 后台「SEO 管理」页（权限点 `seo.view`/`seo.manage`）：可索引页面数、Sitemap 状态、各引擎推送结果、推送历史、手动补推（含「强制补推」）、素材 SEO 文案编辑 |
 | `src/views/admin/AdminSeoKeywords.vue` | 后台「SEO 管理 → 关键词管理」标签页（V3.0 新增）：列表 / 增删改 / CSV 导入 / 分组筛选 / 三个诊断面板（意图冲突、页面字段自检、低点击率候选） |
-| ~~`src/components/home/HomeContent.vue`~~ | **2026-10-26 已删除**：首页首屏以下的内容区（转换步骤 / 功能清单 / 免费素材 / 常见问题 / 分类入口）按用户要求三端全删。同样的正文由**服务端 SEO 壳**（`internal/seo` + `src/data/seo.js`）写进首页原始 HTML，爬虫照旧读得到 |
+| `src/components/home/HomeContent.vue` | 首页首屏以下的内容区（转换步骤 / 功能清单 / 免费素材 / 常见问题 / 分类入口）。⚠️ 2026-10-26 白天按用户要求三端删过一次，**当晚首页恢复时又挂回来了**（组件文件用 `git checkout c8bb9a5^ --` 取回） |
 | `src/views/ColorsView.vue` | 拼豆色号 / 色卡对照页（V3.0 新增，路由 `/colors/`），15 个品牌的真实色号 |
 | `src/components/beginner/BeginnerWizard.vue` | **新手简化版三步向导**（2026-10-26）：步骤条 + 参数保护弹层 + 手机端固定 CTA |
 | `src/components/beginner/BeginnerSelect.vue` | 新手版第 ① 步：上传 / 免费素材 → 统一「图片已选好」确认页 |
 | `src/components/beginner/BeginnerAdjust.vue` | 新手版第 ② 步：拼豆效果 / 原图 / 对比三视图 + 等比例尺寸滑块 + 颜色丰富程度 |
 | `src/components/beginner/BeginnerExport.vue` | 新手版第 ③ 步：成果预览 + 材料清单 + 下载真实图纸 |
 | `src/components/beginner/ModeSwitchDialog.vue` | 模式切换确认弹层（全站只挂一个，z-index 500 压在工作台指引层 400 之上） |
-| `src/composables/useBeginnerMode.js` | 新手 / 专业模式状态 + 两条保护判断（**不落 localStorage**，默认新手版） |
-| `src/views/BeginnerView.vue` | `/` 的容器：sr-only H1 + 向导（2026-10-26 起不再挂首屏以下的长文内容区） |
-| `scripts/verify-beginner.cjs` | **新手版三端验收**：手机 390 / 平板 834 / 电脑 1440 真浏览器跑完整链路（上传→调效果→拿图纸→切专业→切回新手→免费素材），带 `--url` 可直接验收线上 |
-| `scripts/verify-seo-v3.cjs` | **SEO V3.0 验收自检**：head 标签 / sitemap / robots / 首页内容区 / 色卡页，电脑 + 平板 + 手机三档视口；`node scripts/verify-seo-v3.cjs --url https://dw.sharyuke.com` |
+| `src/composables/useBeginnerMode.js` | 新手 / 专业模式状态 + 两条保护判断（**不落 localStorage**；操作台 `/create` ↔ 专业工作台 `/editor` 之间切） |
+| `src/views/BeginnerView.vue` | `/create`（**操作台** = 新手简化版）的容器：sr-only H1 + 「创作 · 操作台」面包屑 + 向导 |
+| `scripts/verify-beginner.cjs` | **操作台三端验收**：手机 390 / 平板 834 / 电脑 1440 真浏览器跑完整链路（先验首页是带插画的主视觉 → 上传→调效果→拿图纸→切专业→切回新手→免费素材），带 `--url` 可直接验收线上 |
+| `scripts/verify-seo-v3.cjs` | **SEO V3.0 验收自检**：head 标签 / sitemap / robots / 首页主视觉与内容区 / 色卡页，电脑 + 平板 + 手机三档视口；`node scripts/verify-seo-v3.cjs --url https://dw.sharyuke.com` |
 | `scripts/admin-audit-seo-keywords.js` | 关键词管理端到端探针（11 步），由 `admin-audit.cjs` 带 `ADMIN_EVAL_FILE` 调用 |
-| `scripts/audit.cjs` | 无头浏览器自检：51 页 × 3 视口，查报错 / 横向溢出 / 画布空白 |
+| `scripts/audit.cjs` | 无头浏览器自检：21 页 × 4 视口 = 84 项，查报错 / 横向溢出 / 画布空白 |
 | `scripts/admin-audit.cjs` | 后台页无头自检（**真登录 + 真接口**，只读）：查白屏 / console 报错 / 溢出并留截图；`AUDIT_DIST=` 可指向私有构建目录 |
 | `scripts/fidelity/` | 还原度与抠图精度跑分（改算法前后各跑一次比数字） |
 
@@ -581,7 +583,8 @@ ssh pro 'curl -s -o /dev/null -w "https %{http_code} %{time_total}s\n" https://d
   管理员改过的文案 `seo_auto=false`，自动重算不覆盖；没有内容的页面标 noindex、不进 Sitemap
 - **首页内容区**（`src/components/home/HomeContent.vue`）：首屏保持单屏不动，内容放在首屏以下 ——
   转换步骤 4 步 / 功能 6 项 / 免费素材 3 段 / FAQ 5 条 / 分类入口（真实分类 + 真实数量）。
-  ⚠️ **2026-10-26 按用户要求三端全删**，组件已删；正文改由服务端 SEO 壳写进原始 HTML
+  ⚠️ **2026-10-26 白天按用户要求三端全删过一次，当天晚上市恢复老首页时组件又挂回来了**
+  （组件文件用 `git checkout c8bb9a5^ --` 取回）—— 现在正文既在页面上，也在服务端 SEO 壳的原始 HTML 里
 - **后台「关键词管理」页**（`src/views/admin/AdminSeoKeywords.vue`）：列表、增删改、CSV 导入、
   分组与状态筛选、按点击/曝光/点击率排序，外加三个诊断面板（意图冲突 / 页面缺字段 / 低点击率候选）
 - **搜索表现数据**：Google Search Console API 的代码路径已就绪（`internal/seo/searchconsole.go`），
@@ -686,11 +689,12 @@ ssh pro 'curl -s -o /dev/null -w "https %{http_code} %{time_total}s\n" https://d
 - 需求原文：「根据需求在原本基础上加一个新手简化版，三个端口都需要，打开网站默认显示新手版」
   （`Z:\拼豆\新手简化版\03_详细产品需求_PRD.md` / `04_视觉指引.md` / `05_Grok_直接执行命令.md`）
   交付文档：**`pindoudou/docs/beginner.md`**（文件清单 / 复用清单 / PRD §七 10 条逐条勾选 / 遗留项）
-- **入口变了**：路由 `/` 现在是 `BeginnerView`（新手版首页），**旧首页挪到 `/home`**（noindex、不进 Sitemap，
-  已加进 `src/data/seo.js` 的 `APP_ROUTES`），`/create` 重定向到 `/`
+- **入口变了（2026-10-26 晚又改过一次，现为最终状态）**：路由 `/` 现在是**首页**
+  （带插画的主视觉那版），**新手简化版挪到 `/create`，页面名叫「操作台」，隶属「创作」命令**
+  （侧栏与手机底栏的「创作」都指它）；老链接 `/home` 重定向到 `/`
   - 首页的 canonical / sitemap / 关键词定位**完全不变** —— 同一个 URL，不另开页面
-  - `BeginnerView` 里曾保留 `HomeContent`（SEO V3.0 的可抓取正文），**2026-10-26 已按用户要求移除**，
-    服务端 SEO 壳照旧按 `/` 渲染（正文只存在于原始 HTML，页面里不再显示）
+  - `/create` 是应用内页面：`noindex`、不进 Sitemap（已在 `src/data/seo.js` 的 `APP_ROUTES` 里）
+  - 首页重新挂上 `HomeContent`（SEO V3.0 的可抓取正文），操作台只做三步、不带长文内容区
 - **新手三步**：① 选择图片（上传 / 免费素材 → 统一「图片已选好」确认页）② 调整拼豆效果
   （拼豆效果 / 原图 / 对比三视图、等比例成品尺寸滑块、颜色丰富程度少色/标准/丰富）
   ③ 获取图纸（成果预览 + 材料清单 + 下载真实图纸 + 进入专业模式 + 返回上一步）
@@ -703,9 +707,9 @@ ssh pro 'curl -s -o /dev/null -w "https %{http_code} %{time_total}s\n" https://d
     `ModeSwitchDialog` 说明「不会自动重画」，确认后停在第 ③ 步，不按新手默认参数重画
   - 参数保护：新手改尺寸 / 颜色数会重算图纸，若图被手改过就弹「**保留当前修改** /
     **另存一个版本并继续**」两条安全路径
-- **模式状态不落 localStorage**：「打开网站默认显示新手版」是硬要求；
-  专业工作台在 `/editor`，刷新仍在专业版
-- 顶栏常驻「新手 / 专业」分段开关；侧栏与手机底栏的「创作」指向 `/`
+- **模式状态不落 localStorage**：打开网站停在普通状态（首页是宣传页，不参与模式同步）；
+  操作台 `/create` 刷新仍在操作台，专业工作台 `/editor` 刷新仍在专业版
+- 顶栏常驻「新手 / 专业」分段开关；侧栏与手机底栏的「创作」指向 `/create`（操作台）
 - ⚠️ **踩到的坑**：
   - ① 第 ① 步生成图纸那一刻若用 `watch(hasPattern)` 跳第 ③ 步，会把中间的「调整效果」整步吃掉 ——
     改成 `onMounted(() => { if (hasPattern.value) step.value = 3 })`（只在挂载时判一次）
@@ -727,6 +731,9 @@ ssh pro 'curl -s -o /dev/null -w "https %{http_code} %{time_total}s\n" https://d
 - 回滚：qq `/root/douwan-backups/dw-web-before-beginner-20261026-144102.tar.gz`（前端）
 
 **已完成（2026-10-26 下午）——首页首屏以下的长文内容区，三端全删（`pindoudou` `c8bb9a5`，已上线）**
+
+> ⚠️ **这条在当天晚上被推翻了**：用户随后要求恢复老首页，首页的内容区跟着回来了
+> （见下一条「首页恢复 + 操作台」）。下面是当时的做法，留着当过程记录。
 
 - 需求原文：先说「电脑版把这以下的内容都删除」（截图从「图片如何转换拼豆图纸」开始），
   随后改成「**所有端口这以下的内容都删除**」—— 即手机 / 平板 / 电脑三端都不显示这块内容
@@ -784,6 +791,42 @@ ssh pro 'curl -s -o /dev/null -w "https %{http_code} %{time_total}s\n" https://d
 - 临时管理员 `tmpseo2026`（id 36）用完已软删除并停用（令牌已失效）；顺手把
   `tmp_mon_admin`（id 33）也停用了
 
+**已完成（2026-10-26 晚）——首页恢复 + 新手简化版变成「创作」底下的**操作台**（`pindoudou` `c1e2990`，已上线）**
+
+- 需求原文：「把之前的首页恢复，这个新手版加入的是操作台，隶属于创作命令下的，
+  三个端口的首页都恢复，有插画有主题的那个」
+- **路由**：首页回到 `/`（`HomeView.vue`：奶油底顶栏 + 主视觉标题图 + 上传卡 + 三条真实能力 +
+  左右两幅拼豆插画 + 首屏以下的 `HomeContent` 正文 + 紧凑页脚），**手机 / 平板 / 电脑三端都是这一版**；
+  `/create` = **操作台**（`BeginnerView.vue`，新手三步向导，`noindex`、不进 Sitemap）；
+  老链接 `/home` 重定向到 `/`
+- **导航**：`siteNav.js`（侧栏）与 `MobileTabbar.vue`（手机底栏）的「创作」都指向 `/create`；
+  操作台页面顶部有「创作 · 操作台」面包屑，说明它隶属「创作」这条命令；
+  顶栏「新手 / 专业」分段开关在 `/create` ↔ `/editor` 之间切（`App.vue` 的模式同步也改成这两个地址）
+- **站内 CTA 全部改指操作台**：`ToolView` / `ProjectsView` / `NotFoundView` / `MaterialsView` /
+  `BuildView` / `HelpView` / `AssetDetailView` / `ColorsView` / `MaterialPreviewDialog` / `AppFooter`
+  里的「开始创作 / 去创作 / 上传照片开始 / 用这个素材生成图纸」；
+  顶栏上传（素材库的「上传图片去创作」）改回 `/editor`（待上传文件由工作台取走）
+- **首页重新挂上 `HomeContent`**：组件文件用 `git checkout c8bb9a5^ -- src/components/home/HomeContent.vue` 取回；
+  首页紧凑页脚加了一条「操作台 · 三步做图纸」（首页桌面端没有左侧栏，否则从首页进不去操作台）
+- 顺手修掉一个真 bug：`src/lib/seo.js` 里 `noindex` 页面的标题后缀写死成「· 豆玩后台」，
+  前台的应用内页面（工作台、操作台）也被挂上「后台」两个字 —— 改成后台才用「豆玩后台」、
+  其余用「豆玩 DOUWAN」
+- 自检跟着改：
+  - `verify-beginner.cjs` 改验 `/create`（并先验「首页是带插画的主视觉」「首页不再放向导」）；
+    「切回新手模式」的断言路径改成 `/create`
+  - `audit.cjs` 页面表：`/home` 改成「老链接跳转」，`/create` 从「别名」改成「操作台」
+  - `verify-seo-v3.cjs` 首页断言从「三端都不渲染内容区」改成「主视觉 + 插画 + 内容区 5 个块都在、
+    H1 仍隐藏、首页不再放向导、页脚在主视觉之后」
+- 验证：线上 `verify-beginner.cjs --url` **82/82 通过**（console 报错 0）、
+  `verify-seo-v3.cjs --url` **62/62 通过**、`audit.cjs --url` **84 项 0 错误**
+  （只有 404 页自身那条 404，按设计）；线上 `/` 原始 HTML 仍是 `index,follow` + canonical `/` +
+  服务端 SEO 壳正文，`/create` 是 `noindex`
+- 回滚：qq `/root/douwan-backups/dw-web-before-home-restore-20261026-154837.tar.gz`（前端）
+- ⚠️ **这次没有动后端**：服务端给应用内页面的标题是兜底值「豆玩 DOUWAN · 豆玩 DOUWAN」，
+  客户端接管后会改成「拼豆操作台 · 豆玩 DOUWAN」；要一次到位就在
+  `douwan-api` 的 `internal/service/seo.go` 的 `appRouteTitle()` 里加一条 `/create` 分支
+  （改后端必须用 `douwan-api\.tmp\wt-*` 隔离工作区，测试放 home 上跑，见 §2.2）
+
 **待办**
 
 1. **前端功能埋点还没接**：访问量（页面级）已经通了，但 `pattern.generate` / `pattern.export` /
@@ -821,6 +864,10 @@ ssh pro 'curl -s -o /dev/null -w "https %{http_code} %{time_total}s\n" https://d
     都已软删除并停用，只有真实管理员 `douwan`（id 1）能登录。
     ⚠️ 软删除的账号在 `admins` 表里还在（`deleted_at` 有值），用 SQL 查会看到，
     别误以为还有别的管理员能用；以后自检要用临时账号的话，用完记得删
-15. **首页那批长文内容（FAQ / 功能说明 / 转换步骤）现在只存在于原始 HTML 里**（2026-10-26 按用户要求
-    从页面上删掉了）。爬虫读得到、人看不到 —— 想让它重新出现在页面上，只能另找地方放
-    （比如 `/help` 页的正文），不要往首页向导下面塞回来
+15. **首页那批长文内容（FAQ / 功能说明 / 转换步骤）已经回到首页页面上**（2026-10-26 晚恢复老首页时
+    一起回来的，位置是首屏以下的 `HomeContent` 区块；原始 HTML 里也仍有一份）。
+    操作台 `/create` 保持干净、只有三步向导，不要把这批长文搬到操作台页面里
+16. **服务端给 `/create` 的兜底标题重复**：「豆玩 DOUWAN · 豆玩 DOUWAN」（客户端接管后会改成
+    「拼豆操作台 · 豆玩 DOUWAN」）。要一次到位就在 `douwan-api` 的
+    `internal/service/seo.go` 的 `appRouteTitle()` 里加一条 `/create` 分支；
+    改后端必须用 `douwan-api\.tmp\wt-*` 隔离工作区，测试放 home 上跑（见 §2.2）
