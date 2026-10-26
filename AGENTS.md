@@ -1,7 +1,8 @@
 # 豆玩 DOUWAN 工作区
 
 > 这个文件是给「以后在这个工作区干活的 AI」看的：先读这里，再看 [DEPLOY.md](DEPLOY.md)。
-> 最后更新：2026-10-26 晚（**操作台第 ② 步预览图放大**：电脑与平板端预览图按比例撑满整块预览区，
+> 最后更新：2026-10-26 晚（**操作台第 ③ 步成果预览放大**：电脑与平板端成果预览同样撑满预览框，
+> 已上线（`pindoudou` `dd6b7aa`）；同日晚（**操作台第 ② 步预览图放大**：电脑与平板端预览图按比例撑满整块预览区，
 > 已上线（`pindoudou` `95894a6`）；同日晚（**首页再调整**：首屏以下的长文内容区删掉、首页入口默认进新手版（操作台）、
 > 操作台底部那条站点页脚挪到首页，已上线（`pindoudou` `4f64c9a`）；
 > 同日晚（**首页恢复 + 新手版变成「创作」底下的操作台**：首页回到带插画的主视觉，
@@ -154,11 +155,11 @@ ssh qq "echo $b | base64 -d | bash"
 | `src/components/beginner/BeginnerWizard.vue` | **新手简化版三步向导**（2026-10-26）：步骤条 + 参数保护弹层 + 手机端固定 CTA |
 | `src/components/beginner/BeginnerSelect.vue` | 新手版第 ① 步：上传 / 免费素材 → 统一「图片已选好」确认页 |
 | `src/components/beginner/BeginnerAdjust.vue` | 新手版第 ② 步：拼豆效果 / 原图 / 对比三视图 + 等比例尺寸滑块 + 颜色丰富程度。**≥781px（电脑 / 平板）预览图按比例撑满整块预览区**（`max-size` 640 + CSS 等比放大，预览区高 `clamp(360px,60vh,660px)`），手机端样式不动 |
-| `src/components/beginner/BeginnerExport.vue` | 新手版第 ③ 步：成果预览 + 材料清单 + 下载真实图纸 |
+| `src/components/beginner/BeginnerExport.vue` | 新手版第 ③ 步：成果预览 + 材料清单 + 下载真实图纸。**≥781px（电脑 / 平板）成果预览撑满预览框**（`max-size` 640 + CSS 等比放大，预览框高 `clamp(360px,60vh,660px)`），手机端样式不动 |
 | `src/components/beginner/ModeSwitchDialog.vue` | 模式切换确认弹层（全站只挂一个，z-index 500 压在工作台指引层 400 之上） |
 | `src/composables/useBeginnerMode.js` | 新手 / 专业模式状态 + 两条保护判断（**不落 localStorage**；操作台 `/create` ↔ 专业工作台 `/editor` 之间切） |
 | `src/views/BeginnerView.vue` | `/create`（**操作台** = 新手简化版）的容器：sr-only H1 + 「创作 · 操作台」面包屑 + 向导（工具页，不挂站点页脚） |
-| `scripts/verify-beginner.cjs` | **操作台三端验收**：手机 390 / 平板 834 / 电脑 1440 真浏览器跑完整链路（先验首页是带插画的主视觉 → 上传→调效果→拿图纸→切专业→切回新手→免费素材），带 `--url` 可直接验收线上。含**第 ② 步预览图占比断言**（≥781px 高度占预览区 ≥85%、面积占比 ≥40%；手机端画布不超出预览区 105%） |
+| `scripts/verify-beginner.cjs` | **操作台三端验收**：手机 390 / 平板 834 / 电脑 1440 真浏览器跑完整链路（先验首页是带插画的主视觉 → 上传→调效果→拿图纸→切专业→切回新手→免费素材），带 `--url` 可直接验收线上。含**第 ② 步预览图占比断言**与**第 ③ 步成果预览占比断言**（≥781px 高度占 ≥85%、面积占比 ≥40%；手机端画布不超出预览区 105%） |
 | `scripts/verify-seo-v3.cjs` | **SEO V3.0 验收自检**：head 标签 / sitemap / robots / 首页主视觉与内容区 / 色卡页，电脑 + 平板 + 手机三档视口；`node scripts/verify-seo-v3.cjs --url https://dw.sharyuke.com`（线上 59/59） |
 | `scripts/admin-audit-seo-keywords.js` | 关键词管理端到端探针（11 步），由 `admin-audit.cjs` 带 `ADMIN_EVAL_FILE` 调用 |
 | `scripts/audit.cjs` | 无头浏览器自检：21 页 × 4 视口 = 84 项，查报错 / 横向溢出 / 画布空白 |
@@ -909,6 +910,39 @@ ssh pro 'curl -s -o /dev/null -w "https %{http_code} %{time_total}s\n" https://d
   线上 `index.html` 指向新产物 `assets/index-BLVkyKjP.js`（与本地构建同哈希）
 - 交付文档：`pindoudou/docs/beginner.md` 新增小节「### 第 ② 步预览图为什么以前很小」
   （含根因、三个 CSS 坑、实测数字）
+
+**已完成（2026-10-26 晚，第四次调整）——操作台第 ③ 步成果预览放大（电脑 / 平板端）（`pindoudou` `dd6b7aa`，已上线）**
+
+- 需求原文：「这里的预览图占比也大一些」（截图 = 操作台 `/create` 第 ③ 步「拿走图纸」，
+  红框圈出灰色预览框里的成果图）
+- **跟第 ② 步同一个病根**：`prepareCanvas` 把画布的行内尺寸写成 1 格 = 1 CSS px，
+  `max-size` 只有 420 ⇒ 234×312 的图纸只画成 234×312 px，在很宽的灰色预览框里缩成一小块
+- 改法（只动 `src/components/beginner/BeginnerExport.vue`）：
+  - `PatternPreview` 的 `max-size` **420 → 640**
+  - 新增 `@media(min-width:781px)`（**只在电脑 / 平板生效**）：
+    `.bexp__art{height:clamp(360px,60vh,660px);min-height:0;grid-template-rows:minmax(0,1fr)}`
+    + 画布 `width:auto !important;height:auto !important;max-width:100%;max-height:100%`
+  - **手机端（≤780px）样式一行没动**（画布仍是 306×287，预览框 306×287）
+- 三个 CSS 坑与第 ② 步完全一样（`!important` 必需、不能用 `height:100%`、网格行要 `minmax(0,1fr)`）
+- 实测（线上，无头 Chrome）：
+  - 平板 834：成果预览 624×624 / 预览框 662×632 ⇒ 高占 99%、宽占 94%、面积占 93%
+  - 电脑 1440：成果预览 512×512 / 预览框 700×512 ⇒ 高占 100%、宽占 73%、面积占 73%
+  - 手机 390：306×287 / 306×287（与改前一致）
+- 自检跟着改：`verify-beginner.cjs` 在第 ③ 步新增两条占比断言（≥781px 高占 ≥85%、面积占 ≥40%；
+  手机端断言画布不超过预览框 105%），第 ② 步那两条保持不变
+- 验证：线上 `verify-beginner.cjs --url` **107/107 通过**（mobile 35 / tablet 36 / desktop 36，
+  console 报错 0）、线上 `audit.cjs --url` **84 项 0 错误**（只有 404 页自身那条 404，按设计）、
+  0 横向溢出、0 空白画布；本地 `verify-beginner.cjs` 92/92；
+  桌面 1440 与平板 834 两档真浏览器截图已肉眼核对（手机端截图也确认没变）
+- 部署：qq 上先备份 `/root/douwan-backups/dw-web-before-export-preview-20261026-175020.tar.gz`，
+  再用 `C:\Windows\System32\tar.exe` 打包 `dist` → scp → 覆盖；
+  线上 `index.html` 指向新产物 `assets/index-C7LuC2pG.js`（与本地构建同哈希）
+- 交付文档：`pindoudou/docs/beginner.md` 的小节改名「### 预览图为什么以前很小（第 ② 步 / 第 ③ 步）」，
+  补上第 ③ 步的改法与实测数字
+- ⚠️ **手机端还有个老问题，这次没动**：画布的宽高是两个**定值**（行内 px），
+  `max-width` 与 `max-height` 各自独立生效 ⇒ 两者不等时画面轻微变形（306×287 的方图）。
+  真要修得让宽高保持比例（`width:auto !important` + 只留 `max-height`），会改变手机端观感，
+  等用户提了再动
 
 **待办**
 
