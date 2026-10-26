@@ -1,7 +1,9 @@
 # 豆玩 DOUWAN 工作区
 
 > 这个文件是给「以后在这个工作区干活的 AI」看的：先读这里，再看 [DEPLOY.md](DEPLOY.md)。
-> 最后更新：2026-10-26 晚（**操作台第 ③ 步成果预览放大**：电脑与平板端成果预览同样撑满预览框，
+> 最后更新：2026-10-26 晚（**手机端操作台改成一屏工作台**：≤780px 的三步锁在一屏里，
+> 步骤条固定在顶、当前步骤自己滚、底部本步主按钮常显，平板 / 电脑版面没动，
+> 已上线（`pindoudou` `44dc027`+`43c5850`）；同日晚（**操作台第 ③ 步成果预览放大**：电脑与平板端成果预览同样撑满预览框，
 > 已上线（`pindoudou` `dd6b7aa`）；同日晚（**操作台第 ② 步预览图放大**：电脑与平板端预览图按比例撑满整块预览区，
 > 已上线（`pindoudou` `95894a6`）；同日晚（**首页再调整**：首屏以下的长文内容区删掉、首页入口默认进新手版（操作台）、
 > 操作台底部那条站点页脚挪到首页，已上线（`pindoudou` `4f64c9a`）；
@@ -152,14 +154,14 @@ ssh qq "echo $b | base64 -d | bash"
 | `src/views/admin/AdminSeoKeywords.vue` | 后台「SEO 管理 → 关键词管理」标签页（V3.0 新增）：列表 / 增删改 / CSV 导入 / 分组筛选 / 三个诊断面板（意图冲突、页面字段自检、低点击率候选） |
 | `src/components/home/HomeContent.vue` | 首页首屏以下的内容区（转换步骤 / 功能清单 / 免费素材 / 常见问题 / 分类入口）。⚠️ 2026-10-26 白天删过一次、当晚首页恢复时挂回来，**当天晚些时候又删掉了** —— 现在页面不渲染它，正文只存在于服务端的 SEO 壳里（组件文件还在仓库里，`git checkout c8bb9a5^ --` 能取回） |
 | `src/views/ColorsView.vue` | 拼豆色号 / 色卡对照页（V3.0 新增，路由 `/colors/`），15 个品牌的真实色号 |
-| `src/components/beginner/BeginnerWizard.vue` | **新手简化版三步向导**（2026-10-26）：步骤条 + 参数保护弹层 + 手机端固定 CTA |
-| `src/components/beginner/BeginnerSelect.vue` | 新手版第 ① 步：上传 / 免费素材 → 统一「图片已选好」确认页 |
-| `src/components/beginner/BeginnerAdjust.vue` | 新手版第 ② 步：拼豆效果 / 原图 / 对比三视图 + 等比例尺寸滑块 + 颜色丰富程度。**≥781px（电脑 / 平板）预览图按比例撑满整块预览区**（`max-size` 640 + CSS 等比放大，预览区高 `clamp(360px,60vh,660px)`），手机端样式不动 |
-| `src/components/beginner/BeginnerExport.vue` | 新手版第 ③ 步：成果预览 + 材料清单 + 下载真实图纸。**≥781px（电脑 / 平板）成果预览撑满预览框**（`max-size` 640 + CSS 等比放大，预览框高 `clamp(360px,60vh,660px)`），手机端样式不动 |
+| `src/components/beginner/BeginnerWizard.vue` | **新手简化版三步向导**（2026-10-26）：步骤条 + 参数保护弹层。**手机端（≤780px）改成 flex 纵列**：步骤条压扁一行、当前步骤自己滚、底部主按钮是容器里的一格（常显，压在四导航之上） |
+| `src/components/beginner/BeginnerSelect.vue` | 新手版第 ① 步：上传 / 免费素材 → 统一「图片已选好」确认页。**手机端素材卡片区独立滚动**（`.bsel__libScroll`） |
+| `src/components/beginner/BeginnerAdjust.vue` | 新手版第 ② 步：拼豆效果 / 原图 / 对比三视图 + 等比例尺寸滑块 + 颜色丰富程度。**≥781px（电脑 / 平板）预览图按比例撑满整块预览区**（`max-size` 640 + CSS 等比放大，预览区高 `clamp(360px,60vh,660px)`）；**手机端预览区占满剩余高度、参数区压紧**（见 §2.1） |
+| `src/components/beginner/BeginnerExport.vue` | 新手版第 ③ 步：成果预览 + 材料清单 + 下载真实图纸。**≥781px 成果预览撑满预览框**（同上的 `max-size` 640 + 等比放大）；**手机端摘要压 2 列、材料明细进底部抽屉**（见 §2.1） |
 | `src/components/beginner/ModeSwitchDialog.vue` | 模式切换确认弹层（全站只挂一个，z-index 500 压在工作台指引层 400 之上） |
 | `src/composables/useBeginnerMode.js` | 新手 / 专业模式状态 + 两条保护判断（**不落 localStorage**；操作台 `/create` ↔ 专业工作台 `/editor` 之间切） |
-| `src/views/BeginnerView.vue` | `/create`（**操作台** = 新手简化版）的容器：sr-only H1 + 「创作 · 操作台」面包屑 + 向导（工具页，不挂站点页脚） |
-| `scripts/verify-beginner.cjs` | **操作台三端验收**：手机 390 / 平板 834 / 电脑 1440 真浏览器跑完整链路（先验首页是带插画的主视觉 → 上传→调效果→拿图纸→切专业→切回新手→免费素材），带 `--url` 可直接验收线上。含**第 ② 步预览图占比断言**与**第 ③ 步成果预览占比断言**（≥781px 高度占 ≥85%、面积占比 ≥40%；手机端画布不超出预览区 105%） |
+| `src/views/BeginnerView.vue` | `/create`（**操作台** = 新手简化版）的容器：sr-only H1 + 「创作 · 操作台」面包屑 + 向导（工具页，不挂站点页脚）。**手机端容器锁高一屏**（`100dvh` − 顶栏 − 标签栏 − 安全区 − 键盘高度），`visualViewport` 量键盘高度写进 `--kb` |
+| `scripts/verify-beginner.cjs` | **操作台三端验收**：视口**手机三档（360×640 / 390×844 / 430×932）+ 平板 834 + 电脑 1440** 真浏览器跑完整链路（先验首页是带插画的主视觉 → 上传→调效果→拿图纸→切专业→切回新手→免费素材），带 `--url` 可直接验收线上（线上 228/228）。含**第 ② / ③ 步预览图占比断言**（≥781px 高度占 ≥85%、面积占比 ≥40%；手机端画布不超出预览区 105%）与**手机一屏断言**（整页不滚动、CTA 在标签栏之上、摘要 2 列、材料抽屉、素材列表自己滚） |
 | `scripts/verify-seo-v3.cjs` | **SEO V3.0 验收自检**：head 标签 / sitemap / robots / 首页主视觉与内容区 / 色卡页，电脑 + 平板 + 手机三档视口；`node scripts/verify-seo-v3.cjs --url https://dw.sharyuke.com`（线上 59/59） |
 | `scripts/admin-audit-seo-keywords.js` | 关键词管理端到端探针（11 步），由 `admin-audit.cjs` 带 `ADMIN_EVAL_FILE` 调用 |
 | `scripts/audit.cjs` | 无头浏览器自检：21 页 × 4 视口 = 84 项，查报错 / 横向溢出 / 画布空白 |
@@ -939,10 +941,42 @@ ssh pro 'curl -s -o /dev/null -w "https %{http_code} %{time_total}s\n" https://d
   线上 `index.html` 指向新产物 `assets/index-C7LuC2pG.js`（与本地构建同哈希）
 - 交付文档：`pindoudou/docs/beginner.md` 的小节改名「### 预览图为什么以前很小（第 ② 步 / 第 ③ 步）」，
   补上第 ③ 步的改法与实测数字
-- ⚠️ **手机端还有个老问题，这次没动**：画布的宽高是两个**定值**（行内 px），
-  `max-width` 与 `max-height` 各自独立生效 ⇒ 两者不等时画面轻微变形（306×287 的方图）。
-  真要修得让宽高保持比例（`width:auto !important` + 只留 `max-height`），会改变手机端观感，
-  等用户提了再动
+- ⚠️ **手机端画布变形的那个老问题已经解决**（在第五次调整里一并修好）：手机端现在也是
+  `width:auto !important` + `height:auto !important` + `max-width/max-height:100%`，
+  宽高按比例缩放，不再出现「306×287 的方图轻微变形」
+
+**已完成（2026-10-26 晚，第五次调整）——手机端操作台改成一屏工作台（`pindoudou` `44dc027`+`43c5850`，已上线）**
+
+- 需求原文：「手机端的布局单独改一下」
+  （`Z:\拼豆\新手简化版\新手2.0\03_详细需求文档_PRD.md` / `DouWan_Visual_Guide.md` / `DouWan_Grok_Commands.md`）
+  **只改 ≤780px 的手机端**，平板 / 电脑 / 专业工作台版面一个字没动
+- **改之前**：操作台三步是一条长页面，每步都要上下滚；底部主按钮是 `position:fixed` 的浮层，
+  预览图一大就被顶出屏幕；材料清单几十行全铺在页面上
+- **改之后（手机端）**：整个操作台是一屏工作台
+  - `.bview` 锁高 `calc(100dvh - 顶栏 - 86px - env(safe-area-inset-bottom) - var(--kb,0px))`，
+    `display:flex; flex-direction:column; min-height:0; overflow:hidden` ⇒ **整页不再往下长**
+  - 步骤条固定在顶、当前步骤在中间自己滚、**底部本步主按钮是容器里的一格**（`flex:0 0 auto`），
+    永远压在四导航之上，也永远不盖住上面的内容
+  - 键盘弹起：用 `visualViewport` 量出被键盘吃掉的高度写进 CSS 变量 `--kb`，容器高度再减掉它
+    （`100dvh` 本身不跟键盘缩）
+  - 画布：预览区 `flex:1`，画布按容器等比缩放（`width/height:auto !important` + `max-width/height:100%`）
+  - 参数区：档位压成一行、数据卡改成「标签 · 数值」一行、颜色三档排一行；放不下就在参数区里自己滚
+  - 素材列表：卡片区独立滚动（`.bsel__libScroll`，含「加载更多」），搜索与分类固定在顶上
+  - 第 ③ 步：六个统计字段压成 2 列（一个不少）；材料清单页面上只留摘要 + 前若干项 +
+    「查看全部 N 种」，明细进**底部抽屉**（可搜索、可滚动、关闭不丢状态）
+  - 极矮屏（360×640）：允许中部局部滚动，步骤条 / CTA / 四导航不离屏，面包屑让位给画布
+- 交付文档：`pindoudou/docs/beginner.md` 新增 **§2.1 手机端一屏工作台**（版面分层图 + 关键做法表）
+- 自检：`scripts/verify-beginner.cjs` 视口扩到**手机三档（360×640 / 390×844 / 430×932）+ 平板 + 电脑**，
+  断言扩到 200 项（本地）/ 228 项（线上带 `--url`）：整页不滚动、画布不出框、颜色三档不用滚就能看到
+  （矮屏除外）、CTA 在标签栏之上、摘要 6 字段 2 列、材料抽屉能开能关能搜、素材列表自己滚
+- 验证：本地 `verify-beginner.cjs` **200/200**、全站 `audit.cjs` **84 页 0 错误**；
+  线上 `verify-beginner.cjs --url` **228/228**（console 报错 0）、`verify-seo-v3.cjs --url` **59/59**；
+  三张真机手机截图已入库 `pindoudou/docs/beginner/mobile-onescreen-*.png`
+- 部署：qq 备份 `/root/douwan-backups/dw-web-before-mobile2-20261026-181500.tar.gz`，
+  `C:\Windows\System32\tar.exe` 打包 → scp → 覆盖；线上产物 `assets/index-OgSrYHuO.js`
+- ⚠️ **并行会话在同时改同一批文件**（第 ② / ③ 步电脑端预览放大）：两边的提交都进了 `master`
+  （我的分支 `feat/beginner-mobile-onepage` 合并了 `origin/master` 后快进推上去），
+  `verify-beginner.cjs` 与 `BeginnerExport.vue` 两处冲突按「两边都留」手工合的
 
 **待办**
 
