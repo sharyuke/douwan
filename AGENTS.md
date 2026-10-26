@@ -1,7 +1,9 @@
 # 豆玩 DOUWAN 工作区
 
 > 这个文件是给「以后在这个工作区干活的 AI」看的：先读这里，再看 [DEPLOY.md](DEPLOY.md)。
-> 最后更新：2026-10-26 晚（**手机端操作台改成一屏工作台**：≤780px 的三步锁在一屏里，
+> 最后更新：2026-10-26 深夜（**手机端第 ② 步预览放大**：新手版传图后的预览图提到「专业版工作台画布」的量级
+> （116 → 251 px @ 390×844），参数区改成自己滚，已上线（`pindoudou` `0ebad00`）；
+> 同日晚（**手机端操作台改成一屏工作台**：≤780px 的三步锁在一屏里，
 > 步骤条固定在顶、当前步骤自己滚、底部本步主按钮常显，平板 / 电脑版面没动，
 > 已上线（`pindoudou` `44dc027`+`43c5850`）；同日晚（**操作台第 ③ 步成果预览放大**：电脑与平板端成果预览同样撑满预览框，
 > 已上线（`pindoudou` `dd6b7aa`）；同日晚（**操作台第 ② 步预览图放大**：电脑与平板端预览图按比例撑满整块预览区，
@@ -314,6 +316,13 @@ curl -s -X DELETE "https://gitee.com/api/v5/repos/maryuke/douwan-api?access_toke
 > ⚠️ 打包用 **`C:\Windows\System32\tar.exe`**（Windows 自带的 bsdtar）。
 > PATH 上的 `tar` 是 Git 的 GNU tar，它会把 `C:\...` 当成远程主机名、把 `\d` 当转义，
 > 打包会失败或生成错名字的文件名。
+>
+> ⚠️ **`vite build` 会清空整个 `dist/`**，而 `dist/seo/pages.json` 由
+> `node scripts/build-seo-pages.mjs` 单独生成（不在 vite 产物里）。
+> 前端发布固定三步：`vite build` → `node scripts/build-seo-pages.mjs` → 打包 `dist`。
+> 少跑中间那步 ⇒ 线上没有 `seo/pages.json` ⇒ `/create`、`/editor` 直接 404
+> （后端找不到 SEO 内容就回「页面不存在」的壳，2026-10-26 晚就踩过一次）。
+> 发布后确认 `/var/www/dw.sharyuke.com/seo/pages.json` 存在（约 61KB），再验 `/create` 是 200。
 
 ```powershell
 # ① 后端：本机测试 + 交叉编译 + 推送
@@ -979,6 +988,38 @@ ssh pro 'curl -s -o /dev/null -w "https %{http_code} %{time_total}s\n" https://d
 - ⚠️ **并行会话在同时改同一批文件**（第 ② / ③ 步电脑端预览放大）：两边的提交都进了 `master`
   （我的分支 `feat/beginner-mobile-onepage` 合并了 `origin/master` 后快进推上去），
   `verify-beginner.cjs` 与 `BeginnerExport.vue` 两处冲突按「两边都留」手工合的
+
+**已完成（2026-10-26 晚，第六次调整）——手机端第 ② 步预览放大到「专业版画布」的量级（`pindoudou` `0ebad00`，已上线）**
+
+- 需求原文：「手机端新手版传图后，预览图占比要放大，和专业版操作台画布一样大」
+- 先量了**专业版工作台**（真浏览器打开 `/editor`、上传 `scripts/fidelity/fixtures/photo_pumpkin.png`）：
+  手机端画布 **186 / 260 / 338 px**（360×640 / 390×844 / 430×932，占视口 29% / 31% / 36%）。
+  新手版第 ② 步改前只有 **114 / 116 / 162 px**，差不多是专业版的一半
+- 改法（只动 `src/components/beginner/BeginnerAdjust.vue` 的 ≤780px 段）：
+  - `.badj__stage{flex:1 1 0; min-height:clamp(250px,40dvh,430px)}` —— 这一格有下限高度，
+    画布优先；参数区放不下就在它自己里面滚
+  - 矮屏（≤700px 高）另加一段：`.badj__stage` 让出 6px（`calc(40dvh - 6px)`）、
+    颜色三档的第二行说明文字隐藏、块间距与内边距各收 2~4px ⇒ 参数区刚好容得下「颜色丰富程度」
+- 实测（线上，无头 Chrome）：画布 **164 / 251 / 286 px**（预览框 186 / 267 / 302，参数区 96 / 175 / 228）
+  —— 从专业版的一半提到同一量级
+- ⚠️ **代价（已写进交付文档）**：画布占了高度，参数区一定放不下全部内容，改成**自己滚**；
+  矮屏上颜色三档的按钮第二行说明（「少色 / 标准 / 丰富」的补充文案）不显示，
+  只留按钮主文案，换来「滚到底就能完整看到颜色三档」
+- ⚠️ **踩到的坑**：`flex:1 1 0` 的基准必须是 **0**。画布的行内尺寸（几百 px）会把这一格的
+  基准尺寸顶高，基准一高参数区就被挤到只剩几十 px；`min-height` 只给下限，不解决基准问题
+- 自检跟着改：`verify-beginner.cjs` 第 ② 步换成 5 条断言 —— 整页不滚动、画布完整落在预览框里、
+  **画布高度 ≥ 视口 25%（绝对下限 150px，对齐专业版画布量级）**、参数区自己滚、
+  **滚到参数区底部能看到颜色三档**（量 `.badj__params` 与 `.badj__rich` 的矩形）、CTA 在标签栏之上
+- 验证：本地 `verify-beginner.cjs` **212/212**（手机三档各 50 + 平板 31 + 电脑 31，console 报错 0）、
+  全站 `audit.cjs` 0 错误页；线上 `verify-beginner.cjs --url` **240/240**、`verify-seo-v3.cjs --url` **59/59**
+- 部署：qq 备份 `/root/douwan-backups/dw-web-before-mobile-preview-20261026-183500.tar.gz`；
+  线上产物 `assets/index-Crfur4XW.js` + `assets/BeginnerView-Bup8hF1z.css`（与本地构建同哈希）
+- ⚠️ **这次部署踩到一个真事故（已修，务必记住）**：`vite build` 会**清空整个 `dist/`**，
+  而 `dist/seo/pages.json` 是 `scripts/build-seo-pages.mjs` 单独生成的、不在 vite 的产物里。
+  连跑几次 `vite build` 却没重跑那个脚本 ⇒ 发布包里没有 `seo/pages.json` ⇒
+  `/create` 与 `/editor` 直接 **404**（后端找不到 SEO 内容就回「页面不存在」的壳）。
+  现在每次都按「`vite build` → `node scripts/build-seo-pages.mjs` → 打包」的顺序做，
+  发布后确认 `/var/www/dw.sharyuke.com/seo/pages.json` 在（61410 字节），再验 `/create` 是 200
 
 **待办**
 
