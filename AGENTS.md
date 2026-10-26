@@ -958,7 +958,7 @@ ssh pro 'curl -s -o /dev/null -w "https %{http_code} %{time_total}s\n" https://d
   - 步骤条固定在顶、当前步骤在中间自己滚、**底部本步主按钮是容器里的一格**（`flex:0 0 auto`），
     永远压在四导航之上，也永远不盖住上面的内容
   - 键盘弹起：用 `visualViewport` 量出被键盘吃掉的高度写进 CSS 变量 `--kb`，容器高度再减掉它
-    （`100dvh` 本身不跟键盘缩）
+    （`100dvh` 本身不跟键盘缩）。实测 390×844：容器 700 → 400px（键盘 300px），收起后复原
   - 画布：预览区 `flex:1`，画布按容器等比缩放（`width/height:auto !important` + `max-width/height:100%`）
   - 参数区：档位压成一行、数据卡改成「标签 · 数值」一行、颜色三档排一行；放不下就在参数区里自己滚
   - 素材列表：卡片区独立滚动（`.bsel__libScroll`，含「加载更多」），搜索与分类固定在顶上
@@ -967,10 +967,12 @@ ssh pro 'curl -s -o /dev/null -w "https %{http_code} %{time_total}s\n" https://d
   - 极矮屏（360×640）：允许中部局部滚动，步骤条 / CTA / 四导航不离屏，面包屑让位给画布
 - 交付文档：`pindoudou/docs/beginner.md` 新增 **§2.1 手机端一屏工作台**（版面分层图 + 关键做法表）
 - 自检：`scripts/verify-beginner.cjs` 视口扩到**手机三档（360×640 / 390×844 / 430×932）+ 平板 + 电脑**，
-  断言扩到 200 项（本地）/ 228 项（线上带 `--url`）：整页不滚动、画布不出框、颜色三档不用滚就能看到
-  （矮屏除外）、CTA 在标签栏之上、摘要 6 字段 2 列、材料抽屉能开能关能搜、素材列表自己滚
+  断言扩到 200 项（本地）/ 234 项（线上带 `--url`）：整页不滚动、画布不出框、颜色三档不用滚就能看到
+  （矮屏除外）、CTA 在标签栏之上、摘要 6 字段 2 列、材料抽屉能开能关能搜、素材列表自己滚、
+  **键盘弹起时容器让出高度（把 `visualViewport.height` 压低 300px 再派发 resize，走页面里真实的监听逻辑，
+  断言容器正好矮 300px、收起后复原）**
 - 验证：本地 `verify-beginner.cjs` **200/200**、全站 `audit.cjs` **84 页 0 错误**；
-  线上 `verify-beginner.cjs --url` **228/228**（console 报错 0）、`verify-seo-v3.cjs --url` **59/59**；
+  线上 `verify-beginner.cjs --url` **234/234**（console 报错 0）、`verify-seo-v3.cjs --url` **59/59**；
   三张真机手机截图已入库 `pindoudou/docs/beginner/mobile-onescreen-*.png`
 - 部署：qq 备份 `/root/douwan-backups/dw-web-before-mobile2-20261026-181500.tar.gz`，
   `C:\Windows\System32\tar.exe` 打包 → scp → 覆盖；线上产物 `assets/index-OgSrYHuO.js`
