@@ -1,7 +1,9 @@
 # 豆玩 DOUWAN 工作区
 
 > 这个文件是给「以后在这个工作区干活的 AI」看的：先读这里，再看 [DEPLOY.md](DEPLOY.md)。
-> 最后更新：2026-10-26 下午（**新手简化版上线**：打开网站默认新手版（三步做出图纸），
+> 最后更新：2026-10-26 下午（**首页首屏以下的长文内容区三端全删**：手机 / 平板 / 电脑都不再显示
+> 「图片如何转换拼豆图纸」以下的内容，正文仍由服务端 SEO 壳写进原始 HTML，已上线
+> （`pindoudou` `c8bb9a5`）；同日下午（**新手简化版上线**：打开网站默认新手版（三步做出图纸），
 > 顶栏可切专业模式，已上线（`pindoudou` `959565a`）；同日下午（**后端两条分支合并并重新发布**：
 > `feat/seo-platform`（SEO V3.0）合回 master，线上恢复 `/colors/` 服务端渲染与关键词管理接口，
 > `douwan-api` `5111531`）；2026-10-25 深夜（**「植物花卉」5 张花束进素材库**（运营数据，无代码改动）；
@@ -141,7 +143,7 @@ ssh qq "echo $b | base64 -d | bash"
 | `src/lib/seo.js` | 运行时注入 canonical / OG / Twitter / JSON-LD |
 | `src/views/admin/AdminSeoView.vue` | 后台「SEO 管理」页（权限点 `seo.view`/`seo.manage`）：可索引页面数、Sitemap 状态、各引擎推送结果、推送历史、手动补推（含「强制补推」）、素材 SEO 文案编辑 |
 | `src/views/admin/AdminSeoKeywords.vue` | 后台「SEO 管理 → 关键词管理」标签页（V3.0 新增）：列表 / 增删改 / CSV 导入 / 分组筛选 / 三个诊断面板（意图冲突、页面字段自检、低点击率候选） |
-| `src/components/home/HomeContent.vue` | 首页**首屏以下**的可抓取内容区（V3.0 新增，5 个块）：转换步骤 / 功能清单 / 免费素材 / 常见问题 / 分类入口（分类与数量来自真实接口） |
+| ~~`src/components/home/HomeContent.vue`~~ | **2026-10-26 已删除**：首页首屏以下的内容区（转换步骤 / 功能清单 / 免费素材 / 常见问题 / 分类入口）按用户要求三端全删。同样的正文由**服务端 SEO 壳**（`internal/seo` + `src/data/seo.js`）写进首页原始 HTML，爬虫照旧读得到 |
 | `src/views/ColorsView.vue` | 拼豆色号 / 色卡对照页（V3.0 新增，路由 `/colors/`），15 个品牌的真实色号 |
 | `src/components/beginner/BeginnerWizard.vue` | **新手简化版三步向导**（2026-10-26）：步骤条 + 参数保护弹层 + 手机端固定 CTA |
 | `src/components/beginner/BeginnerSelect.vue` | 新手版第 ① 步：上传 / 免费素材 → 统一「图片已选好」确认页 |
@@ -149,9 +151,9 @@ ssh qq "echo $b | base64 -d | bash"
 | `src/components/beginner/BeginnerExport.vue` | 新手版第 ③ 步：成果预览 + 材料清单 + 下载真实图纸 |
 | `src/components/beginner/ModeSwitchDialog.vue` | 模式切换确认弹层（全站只挂一个，z-index 500 压在工作台指引层 400 之上） |
 | `src/composables/useBeginnerMode.js` | 新手 / 专业模式状态 + 两条保护判断（**不落 localStorage**，默认新手版） |
-| `src/views/BeginnerView.vue` | `/` 的容器：sr-only H1 + 向导 + `HomeContent`（SEO 可抓取正文照旧） |
+| `src/views/BeginnerView.vue` | `/` 的容器：sr-only H1 + 向导（2026-10-26 起不再挂首屏以下的长文内容区） |
 | `scripts/verify-beginner.cjs` | **新手版三端验收**：手机 390 / 平板 834 / 电脑 1440 真浏览器跑完整链路（上传→调效果→拿图纸→切专业→切回新手→免费素材），带 `--url` 可直接验收线上 |
-| `scripts/verify-seo-v3.cjs` | **SEO V3.0 验收自检**：head 标签 / sitemap / robots / 首页内容区 / 色卡页，桌面 + 手机两档视口；`node scripts/verify-seo-v3.cjs --url https://dw.sharyuke.com` |
+| `scripts/verify-seo-v3.cjs` | **SEO V3.0 验收自检**：head 标签 / sitemap / robots / 首页内容区 / 色卡页，电脑 + 平板 + 手机三档视口；`node scripts/verify-seo-v3.cjs --url https://dw.sharyuke.com` |
 | `scripts/admin-audit-seo-keywords.js` | 关键词管理端到端探针（11 步），由 `admin-audit.cjs` 带 `ADMIN_EVAL_FILE` 调用 |
 | `scripts/audit.cjs` | 无头浏览器自检：51 页 × 3 视口，查报错 / 横向溢出 / 画布空白 |
 | `scripts/admin-audit.cjs` | 后台页无头自检（**真登录 + 真接口**，只读）：查白屏 / console 报错 / 溢出并留截图；`AUDIT_DIST=` 可指向私有构建目录 |
@@ -577,7 +579,8 @@ ssh pro 'curl -s -o /dev/null -w "https %{http_code} %{time_total}s\n" https://d
 - **素材库自动 SEO**：按真实字段（名称 / 分类 / 简介 / 格数 / 标签）生成 Title / H1 / 描述 / 图片 alt；
   管理员改过的文案 `seo_auto=false`，自动重算不覆盖；没有内容的页面标 noindex、不进 Sitemap
 - **首页内容区**（`src/components/home/HomeContent.vue`）：首屏保持单屏不动，内容放在首屏以下 ——
-  转换步骤 4 步 / 功能 6 项 / 免费素材 3 段 / FAQ 5 条 / 分类入口（真实分类 + 真实数量）
+  转换步骤 4 步 / 功能 6 项 / 免费素材 3 段 / FAQ 5 条 / 分类入口（真实分类 + 真实数量）。
+  ⚠️ **2026-10-26 按用户要求三端全删**，组件已删；正文改由服务端 SEO 壳写进原始 HTML
 - **后台「关键词管理」页**（`src/views/admin/AdminSeoKeywords.vue`）：列表、增删改、CSV 导入、
   分组与状态筛选、按点击/曝光/点击率排序，外加三个诊断面板（意图冲突 / 页面缺字段 / 低点击率候选）
 - **搜索表现数据**：Google Search Console API 的代码路径已就绪（`internal/seo/searchconsole.go`），
@@ -685,7 +688,8 @@ ssh pro 'curl -s -o /dev/null -w "https %{http_code} %{time_total}s\n" https://d
 - **入口变了**：路由 `/` 现在是 `BeginnerView`（新手版首页），**旧首页挪到 `/home`**（noindex、不进 Sitemap，
   已加进 `src/data/seo.js` 的 `APP_ROUTES`），`/create` 重定向到 `/`
   - 首页的 canonical / sitemap / 关键词定位**完全不变** —— 同一个 URL，不另开页面
-  - `BeginnerView` 里保留 `HomeContent`（SEO V3.0 的可抓取正文），服务端 SEO 壳照旧按 `/` 渲染
+  - `BeginnerView` 里曾保留 `HomeContent`（SEO V3.0 的可抓取正文），**2026-10-26 已按用户要求移除**，
+    服务端 SEO 壳照旧按 `/` 渲染（正文只存在于原始 HTML，页面里不再显示）
 - **新手三步**：① 选择图片（上传 / 免费素材 → 统一「图片已选好」确认页）② 调整拼豆效果
   （拼豆效果 / 原图 / 对比三视图、等比例成品尺寸滑块、颜色丰富程度少色/标准/丰富）
   ③ 获取图纸（成果预览 + 材料清单 + 下载真实图纸 + 进入专业模式 + 返回上一步）
@@ -720,6 +724,30 @@ ssh pro 'curl -s -o /dev/null -w "https %{http_code} %{time_total}s\n" https://d
 - 三端真实截图 27 张已入库：`pindoudou/docs/beginner/`（每端 9 张：选图 / 确认页 / 调整 / 少色 /
   获取图纸 / 专业模式 / 切回新手 / 保护弹层 / 免费素材）
 - 回滚：qq `/root/douwan-backups/dw-web-before-beginner-20261026-144102.tar.gz`（前端）
+
+**已完成（2026-10-26 下午）——首页首屏以下的长文内容区，三端全删（`pindoudou` `c8bb9a5`，已上线）**
+
+- 需求原文：先说「电脑版把这以下的内容都删除」（截图从「图片如何转换拼豆图纸」开始），
+  随后改成「**所有端口这以下的内容都删除**」—— 即手机 / 平板 / 电脑三端都不显示这块内容
+- 删掉的是 `src/components/home/HomeContent.vue`（SEO V3.0 的首屏以下内容区，5 个块：
+  转换步骤 4 步 / 功能清单 6 项 / 免费素材 3 段 / FAQ 5 条 / 分类入口）：
+  - `src/views/BeginnerView.vue`（`/`）：不再挂 `<HomeContent />`，首页只剩三步向导 + 页脚
+  - `src/views/HomeView.vue`（旧首页 `/home`，noindex）：一并移除
+  - 组件文件删除（已无引用）
+- ⚠️ **正文没有从网站消失，只是从页面上消失了**：服务端渲染的 SEO 壳（`douwan-api` 的
+  `internal/seo`）仍按 `src/data/seo.js` 把同样的文案写进首页**原始 HTML**
+  （`seo-lead` / `seo-p` / `seo-grid` / `seo-steps` / `seo-h2` / `seo-faq` / `seo-links`），
+  爬虫读到的仍是完整正文 + 内链 + JSON-LD；Vue 挂载后 `#app` 里换成向导，页面上看不到那段
+  - 线上原始 HTML 里已核对：正文四段（转换步骤 / 功能卡 / 两个 H2 小节）+ FAQ + 分类内链都在
+  - 新增断言守住这一点：`verify-seo-v3.cjs` 里「首页原始 HTML 仍含长文正文（服务端 SEO 壳）」
+- 自检跟着改：`verify-seo-v3.cjs` 的首页内容区断言从「三端都要有 5 个块」改成
+  「**三端都不渲染**内容区 + 「页脚不压住向导」」，并补上**平板档**视口（桌面 / 平板 / 手机三档）；
+  `audit.cjs` 的页面表加入旧首页 `/home`（盯住老链接进来还是不是个能用的页面）
+- 验证：本地全站自检 80 页 0 错误；**线上 SEO V3 自检 50/50 通过**
+  （`node scripts/verify-seo-v3.cjs --url https://dw.sharyuke.com`）、
+  **新手版自检 73/73 通过**（`node scripts/verify-beginner.cjs --url https://dw.sharyuke.com`）；
+  线上 `/` 与 `/home` 四档视口 0 报错、无横向溢出；桌面 / 平板 / 手机三张首页截图已核对
+- 回滚：qq `/root/douwan-backups/dw-web-before-homecontent-20261026-152442.tar.gz`（前端）
 
 **已完成（2026-10-26 下午）——后端两条分支合并并重新发布（`douwan-api` `5111531`，已上线）**
 
@@ -780,3 +808,6 @@ ssh pro 'curl -s -o /dev/null -w "https %{http_code} %{time_total}s\n" https://d
     都已软删除并停用，只有真实管理员 `douwan`（id 1）能登录。
     ⚠️ 软删除的账号在 `admins` 表里还在（`deleted_at` 有值），用 SQL 查会看到，
     别误以为还有别的管理员能用；以后自检要用临时账号的话，用完记得删
+15. **首页那批长文内容（FAQ / 功能说明 / 转换步骤）现在只存在于原始 HTML 里**（2026-10-26 按用户要求
+    从页面上删掉了）。爬虫读得到、人看不到 —— 想让它重新出现在页面上，只能另找地方放
+    （比如 `/help` 页的正文），不要往首页向导下面塞回来
