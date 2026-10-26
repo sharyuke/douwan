@@ -1,7 +1,8 @@
 # 豆玩 DOUWAN 工作区
 
 > 这个文件是给「以后在这个工作区干活的 AI」看的：先读这里，再看 [DEPLOY.md](DEPLOY.md)。
-> 最后更新：2026-10-26 晚（**首页再调整**：首屏以下的长文内容区删掉、首页入口默认进新手版（操作台）、
+> 最后更新：2026-10-26 晚（**操作台第 ② 步预览图放大**：电脑与平板端预览图按比例撑满整块预览区，
+> 已上线（`pindoudou` `95894a6`）；同日晚（**首页再调整**：首屏以下的长文内容区删掉、首页入口默认进新手版（操作台）、
 > 操作台底部那条站点页脚挪到首页，已上线（`pindoudou` `4f64c9a`）；
 > 同日晚（**首页恢复 + 新手版变成「创作」底下的操作台**：首页回到带插画的主视觉，
 > 新手简化版挪到 `/create`（操作台，隶属「创作」命令），三端首页都恢复，已上线（`pindoudou` `c1e2990`）；
@@ -152,12 +153,12 @@ ssh qq "echo $b | base64 -d | bash"
 | `src/views/ColorsView.vue` | 拼豆色号 / 色卡对照页（V3.0 新增，路由 `/colors/`），15 个品牌的真实色号 |
 | `src/components/beginner/BeginnerWizard.vue` | **新手简化版三步向导**（2026-10-26）：步骤条 + 参数保护弹层 + 手机端固定 CTA |
 | `src/components/beginner/BeginnerSelect.vue` | 新手版第 ① 步：上传 / 免费素材 → 统一「图片已选好」确认页 |
-| `src/components/beginner/BeginnerAdjust.vue` | 新手版第 ② 步：拼豆效果 / 原图 / 对比三视图 + 等比例尺寸滑块 + 颜色丰富程度 |
+| `src/components/beginner/BeginnerAdjust.vue` | 新手版第 ② 步：拼豆效果 / 原图 / 对比三视图 + 等比例尺寸滑块 + 颜色丰富程度。**≥781px（电脑 / 平板）预览图按比例撑满整块预览区**（`max-size` 640 + CSS 等比放大，预览区高 `clamp(360px,60vh,660px)`），手机端样式不动 |
 | `src/components/beginner/BeginnerExport.vue` | 新手版第 ③ 步：成果预览 + 材料清单 + 下载真实图纸 |
 | `src/components/beginner/ModeSwitchDialog.vue` | 模式切换确认弹层（全站只挂一个，z-index 500 压在工作台指引层 400 之上） |
 | `src/composables/useBeginnerMode.js` | 新手 / 专业模式状态 + 两条保护判断（**不落 localStorage**；操作台 `/create` ↔ 专业工作台 `/editor` 之间切） |
 | `src/views/BeginnerView.vue` | `/create`（**操作台** = 新手简化版）的容器：sr-only H1 + 「创作 · 操作台」面包屑 + 向导（工具页，不挂站点页脚） |
-| `scripts/verify-beginner.cjs` | **操作台三端验收**：手机 390 / 平板 834 / 电脑 1440 真浏览器跑完整链路（先验首页是带插画的主视觉 → 上传→调效果→拿图纸→切专业→切回新手→免费素材），带 `--url` 可直接验收线上 |
+| `scripts/verify-beginner.cjs` | **操作台三端验收**：手机 390 / 平板 834 / 电脑 1440 真浏览器跑完整链路（先验首页是带插画的主视觉 → 上传→调效果→拿图纸→切专业→切回新手→免费素材），带 `--url` 可直接验收线上。含**第 ② 步预览图占比断言**（≥781px 高度占预览区 ≥85%、面积占比 ≥40%；手机端画布不超出预览区 105%） |
 | `scripts/verify-seo-v3.cjs` | **SEO V3.0 验收自检**：head 标签 / sitemap / robots / 首页主视觉与内容区 / 色卡页，电脑 + 平板 + 手机三档视口；`node scripts/verify-seo-v3.cjs --url https://dw.sharyuke.com`（线上 59/59） |
 | `scripts/admin-audit-seo-keywords.js` | 关键词管理端到端探针（11 步），由 `admin-audit.cjs` 带 `ADMIN_EVAL_FILE` 调用 |
 | `scripts/audit.cjs` | 无头浏览器自检：21 页 × 4 视口 = 84 项，查报错 / 横向溢出 / 画布空白 |
@@ -867,6 +868,47 @@ ssh pro 'curl -s -o /dev/null -w "https %{http_code} %{time_total}s\n" https://d
 - 回滚：qq `/root/douwan-backups/dw-web-before-home-clean-20261026-162538.tar.gz`（前端）
 - ⚠️ **这次也没有动后端**：SEO 壳的正文是后端渲染的，删的是页面上的那一块，
   服务端逻辑一行没改 ⇒ 不用在隔离 worktree 里跑后端测试
+
+**已完成（2026-10-26 晚，第三次调整）——操作台第 ② 步预览图放大（电脑 / 平板端）（`pindoudou` `95894a6`，已上线）**
+
+- 需求原文：「电脑和平板端这个预览图在整块的占比大一些，现在太小了」
+  （截图 = 操作台 `/create` 第 ② 步「调整拼豆效果」，红框圈出灰色预览区里的拼豆效果图）
+- **根因不是预览区太小，是画布按 1 格 = 1 CSS px 渲染**：`lib/render.js` 的 `drawPixels` 按
+  `cell = floor(maxSize / max(宽,高))` 画，`prepareCanvas` 把 `el.style.width/height` 写成**行内 px**。
+  原来 `max-size=520`，一张 234×312 的图纸就只画成 234×312 px，而预览区本身很宽 ⇒
+  图缩在正中间一小块，四周大片空白（用户看到的「太小」）
+- 改法（只动 `src/components/beginner/BeginnerAdjust.vue`）：
+  - `PatternPreview` 的 `max-size` **520 → 640**（拼豆效果页签 + 对比页签里那张都改）
+  - 新增 `@media(min-width:781px)`（**只在电脑 / 平板生效**）：
+    - `.badj__stage{--preview-h:clamp(360px,60vh,660px)}`；`.badj__pane--pattern{height:var(--preview-h)}`
+    - `.badj__pane :deep(canvas){width:auto !important;height:auto !important;max-width:100%;max-height:100%}`
+      —— 用「auto + max 约束」等比放大，宽高比不变形
+    - `.badj__canvasBox` / `.badj__pane` / `.badj__split .badj__pane` 的网格行写成 `minmax(0,1fr)`
+  - **手机端（≤780px）的样式一行没动**，实测手机画布仍是 310×321 / 预览区 310×321
+- ⚠️ **踩到的三个 CSS 坑（以后改这块必看）**：
+  - 画布的宽高是**行内样式**（`prepareCanvas` 写的），优先级最高 ⇒ CSS 里必须带 `!important`，
+    不带等于没改（写 `height:100%!important` 出现过「桌面画布 624px 溢出容器 512px 共 112px」）
+  - **不能靠 `height:100%` 撑满**：画布固有高度比容器高时，网格行的基准尺寸会被它顶住，
+    百分比解析不出来 ⇒ 换成「`width/height:auto` + `max-width/max-height:100%`」等比缩放
+  - 网格行**必须**写 `minmax(0,1fr)`：行高一旦由内容决定，里面的 `max-height:100%` 就解析不出来。
+    只给 `.badj__canvasBox` 加不够，`.badj__pane` 自身的行也要改（两层都要）
+- 实测（线上，无头 Chrome）：
+  - 桌面 2560×1227：画布 624×624 / 预览区 724×660 ⇒ 高占 95%、宽占 86%、面积占 82%
+  - 平板 834×1112：画布 624×624 / 预览区 666×660 ⇒ 95% / 94% / 89%
+  - 笔记本 1440×900：画布 540×540 / 预览区 724×540 ⇒ 100% / 75% / 75%
+  - 改前对照：312 格的图纸只画成 312×312（约一半面积、宽占 43%）
+  - 「原图」页签按原图自然尺寸显示（预览区高度随内容收缩）；「对比」页签两栏各 356×356
+- 自检跟着改：`verify-beginner.cjs` 新增「预览图占比」断言（量 `.badj__canvasBox` 内容盒与
+  `canvas` 的矩形，算高占 / 宽占 / 面积占比）—— ≥781px 断言**高占 ≥85% 且面积占 ≥40%**，
+  手机端断言画布高度不超过预览区 105%
+- 验证：线上 `verify-beginner.cjs --url` **102/102 通过**（mobile / tablet / desktop 各 34，console 报错 0）、
+  线上 `audit.cjs --url` **84 项 0 错误**（只有 404 页自身那条 404，按设计）、0 横向溢出、0 空白画布；
+  本地 `verify-beginner.cjs` 87/87；桌面 2560×1227 与平板 834×1112 两档真浏览器截图已肉眼核对
+- 部署：qq 上先备份 `/root/douwan-backups/dw-web-before-preview-big-20261026-*.tar.gz`，
+  再用 `C:\Windows\System32\tar.exe` 打包 `dist` → scp → 覆盖 `/var/www/dw.sharyuke.com`；
+  线上 `index.html` 指向新产物 `assets/index-BLVkyKjP.js`（与本地构建同哈希）
+- 交付文档：`pindoudou/docs/beginner.md` 新增小节「### 第 ② 步预览图为什么以前很小」
+  （含根因、三个 CSS 坑、实测数字）
 
 **待办**
 
