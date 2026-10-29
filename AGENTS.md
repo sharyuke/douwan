@@ -1,7 +1,49 @@
 # 豆玩 DOUWAN 工作区
 
 > 这个文件是给「以后在这个工作区干活的 AI」看的：先读这里，再看 [DEPLOY.md](DEPLOY.md)。
-> 最后更新：2026-10-29 傍晚（**图纸导出标版按 V3 最终设计图重做**：`Z:\拼豆\网站需求文档\图纸导出设计.zip`
+> 最后更新：2026-10-29 晚上（**图纸导出底部双卡的占比压回设计稿那一档**：用户看线上
+> 104×104 / 45 色导出图，红框圈住底部「图案信息 + 颜色清单」那一行，说「这里的占比再小一点」。
+> 根因：颜色清单锁死三列、颜色一多卡片就一路长高（45 色排 15 行 = 427 设计 px），
+> 底部双卡占整页 25.9 %（设计稿是 21.5 %）。改法：列数按「每列最多 11 行」往上加
+> （3 → 5 列），行数有上限 ⇒ 卡片高度锁在设计稿那一档（≈ 301 设计 px × 缩放系数）；
+> 列多了每列挤，改成紧凑排版（色块 + 色号贴左、数量右对齐）；28 色那一档仍是三列十行
+> （设计稿的样子没动）。实测 104×104 / 45 色：底部占整页 25.9 % → **19.9 %**，
+> 整页 2806×4102 → 2806×3787；52 色 21.9 %、28 色 20.7 %、30 色 20.7 %。
+> 自检新增 `pnpm verify:export-proportion`（`scripts/verify/export-proportion.mjs`：
+> 45 色以内双卡高度 ≈ 图案信息卡高度、底部占整页 ≤ 24 %、用户那一档 ≤ 21 %，已接进
+> `verify:export`）与 `pnpm export:preview`（`scripts/export-case-preview.cjs`：
+> 按指定尺寸 / 颜色数 / 钉板型号走**真实导出链路**出标版整页图；颜色数可以精确指定 ——
+> 照片量化会自己收敛，南瓜照 104×104 只用 28 色，凑不出 45 色那一档，脚本会按
+> 色值最近的真实 MARD 色号扩容到指定色数）；`export-plan-1000` / `export-smoke`
+> 钉死的数字跟着版式更新（整页变矮 ⇒ 每格像素降档后回升：116→23 / 300→9 / 450→6 / 464→6）。
+> 验证：本地与线上 `audit-export-template` 9/9、全站自检 84 页 0 错误、
+> `verify:export` 四条全绿；四档尺寸 / 钉板 / 颜色数样例见
+> `pindoudou/docs/export-template/`（设计稿与新导出并排 + 四档样例）。
+> 前端 `pindoudou` `a484abc`（rebase 到 `92c8bfc` 之上），已上线，
+> 线上产物 `assets/index-Q9G9aPWX.js`；qq 回滚包
+> `/root/douwan-backups/dw-web-before-export-cards-20261029-193231.tar.gz`）；
+> 2026-10-29 傍晚（**拖清晰度滑杆改的是「画面在画布上的大小」**：用户反馈
+> 「这个尺寸缩放出bug了，拉动调整的是画面在画布上的大小，不是调整画布大小」。根因：手改过的图纸
+> 走 `resizeVariantsPreserving → resizePreserveCells`，而那条路在成品区域（artW/artH）变小时
+> 只把「成品区域的框」改小、旧格子 1:1 留在原处 ⇒ 界面写「117 × 117 颗」而画面还是 156 格大。
+> 改法：`resizePreserveCells` 不再分两套 —— **成品区域变了就等比缩放画面**（`resampleArtCells`：
+> 缩小 = 块内多数色合并、放大 = 按块复制），成品区域没变（只换底板）才 1:1 平移，
+> 与没手改过的图（按新尺寸重新取样）口径一致；缩放时画在成品区域外的豆子如实报数。
+> `setCanvasSize` / `setCanvasCapacity` / `resizeVariantsPreserving` 增加 `announce`
+> （拖滑杆是连续动作，不弹 toast，反馈由左栏尺寸说明行承担；丢豆子那种照弹）。
+> 左栏 `applySizeNow` 传 `announce:false` 并把缩放结果回填到说明行
+> （「画面已缩到 117 × 117 格（细节按块合并）」）；顺带修掉一个真 bug：说明行在
+> 「尺寸已经落到画布上」那次早退前被清掉 ⇒ 用户拖完看到的是一行空白。
+> 自检新增 `pnpm verify:art-scale`（真浏览器：设底板 156 / 成品 156 → 真 PointerEvent 画一笔 →
+> 真拖滑杆到 117 → 断言底板仍是 156 / 成品变 117×117 / 画面四边按 117/156 等比缩放 /
+> 画面落在成品区域内 / 标题里的颗数与实际一致），`audit-board-resize` 扩到 9 场景（全部改成缩放口径）。
+> 验证：本地与线上 `verify:art-scale` / `verify:board-crop` / `verify:board-resize`（9 场景 × 4 视口）/
+> `verify:size-live` / `verify:size-wide` / `verify:size-tips` / `verify:range-wheel` /
+> `verify:scale` / `verify:actual` 全绿，全站自检 84 页 0 错误（线上只有 404 页自身那条 404，按设计），
+> `verify:seo-v3` 59/59、`verify:beginner` 245/245。
+> 前端 `pindoudou` `92c8bfc`（基于 `f99e506` 在隔离 worktree `.tmp/wt-boardcrop` 做的），
+> 已上线，线上产物 `assets/index--uDpx3VK.js`）；
+> 2026-10-29 傍晚（**图纸导出标版按 V3 最终设计图重做**：`Z:\拼豆\网站需求文档\图纸导出设计.zip`
 > 换成了 V3 交付包（`豆玩_图纸标版_Grok交付包_V3`），这次是**按最终设计图做像素级还原**，
 > 不是重新设计 —— 位置 / 比例 / 圆角 / 留白 / 字体层级 / 线色 / 粉蓝配色 / 图标大小与像素风格
 > 全部照 `01_最终设计图\FINAL_最终确认标版_必须严格还原.png`（1121×1403）量出来的值做，
@@ -230,8 +272,11 @@ ssh qq "echo $b | base64 -d | bash"
 | `scripts/verify-board-crop.cjs` | **换钉板不裁画面验收**（`pnpm verify:board-crop`）：真浏览器走真实用户路径（载素材 → 铺满 104 板 → 画布上真拖一笔 → 左栏「底板尺寸（实物）」下拉选 52 钉板），断言图案包围盒**等比缩小**（不是被裁掉一半）+ console 报错 0，前后各留一张截图；带 `--url` 可直接验收线上 |
 | `src/lib/exportTemplate.js` | **图纸导出标版 V3 的唯一口径**（2026-10-29 傍晚上线）：页眉 Logo + 粉色网址胶囊 + Slogan 与四色块 / 图纸面板 / 底部「图案信息」与「颜色清单」双卡。尺寸、坐标、颜色全部按 V3 最终设计图量出来的常量；`templateExtraHeight` 与 `composeExportTemplate` 共用同一套排版计算（预检尺寸与实际文件永不失配）；`exportRulerPx` 是导出专用的坐标带宽度（设计稿约 4.6 格宽），`exportChartTheme` 是导出专用的线色 / 坐标配色 |
 | `scripts/audit-export-template.cjs` | **导出标版验收**（`pnpm verify:export-template`）：真浏览器跑新手第 ③ 步与专业「图纸交付」两条导出链路，拦截 `URL.createObjectURL` 抓导出的 PNG，按 V3 设计图逐区验收 9 项（页眉 Logo / 网址胶囊 / Slogan / 四色块 / 格线 / 两个胶囊分居左右 / 六个像素图标 / 色块色号 / 底部无页脚 Slogan）；带 `--url` 可直接验收线上 |
+| `scripts/verify/export-proportion.mjs` | **底部双卡占比的回归守卫**（`pnpm verify:export-proportion`，已接进 `verify:export`）：45 色以内双卡高度 ≈ 图案信息卡高度、底部占整页 ≤ 24 %（设计稿 21.5 %）、用户那一档（104×104 / 45 色）≤ 21 %；> 55 色卡片会长高，只做记录 |
+| `scripts/export-case-preview.cjs` | **按尺寸 / 颜色数 / 钉板型号出标版整页图**（`pnpm export:preview`）：走真实导出链路，产物在 `.tmp/export-template-audit/`。颜色数可精确指定（照片量化会自己收敛，脚本按色值最近的真实 MARD 色号扩容），用于视觉验收与不同档位的样例图 |
 | `scripts/admin-audit-seo-keywords.js` | 关键词管理端到端探针（11 步），由 `admin-audit.cjs` 带 `ADMIN_EVAL_FILE` 调用 |
 | `scripts/audit.cjs` | 无头浏览器自检：21 页 × 4 视口 = 84 项，查报错 / 横向溢出 / 画布空白 |
+| `scripts/verify-art-scale.cjs` | **清晰度滑杆验收**（`pnpm verify:art-scale`）：真浏览器设底板 156 / 成品 156 → 真 PointerEvent 画一笔 → 真拖滑杆到 117，断言「底板仍是 156」「成品变 117×117」「画面四边按 117/156 等比缩放」「画面落在成品区域内」「标题里的颗数与实际一致」；带 `--url` 可直接验收线上 |
 | `scripts/admin-audit.cjs` | 后台页无头自检（**真登录 + 真接口**，只读）：查白屏 / console 报错 / 溢出并留截图；`AUDIT_DIST=` 可指向私有构建目录 |
 | `scripts/fidelity/` | 还原度与抠图精度跑分（改算法前后各跑一次比数字） |
 
