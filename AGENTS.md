@@ -1,7 +1,68 @@
 # 豆玩 DOUWAN 工作区
 
 > 这个文件是给「以后在这个工作区干活的 AI」看的：先读这里，再看 [DEPLOY.md](DEPLOY.md)。
-> 最后更新：2026-10-26 深夜（**手机端第 ② 步预览放大**：新手版传图后的预览图提到「专业版工作台画布」的量级
+> 最后更新：2026-10-29 傍晚（**图纸导出标版按 V3 最终设计图重做**：`Z:\拼豆\网站需求文档\图纸导出设计.zip`
+> 换成了 V3 交付包（`豆玩_图纸标版_Grok交付包_V3`），这次是**按最终设计图做像素级还原**，
+> 不是重新设计 —— 位置 / 比例 / 圆角 / 留白 / 字体层级 / 线色 / 粉蓝配色 / 图标大小与像素风格
+> 全部照 `01_最终设计图\FINAL_最终确认标版_必须严格还原.png`（1121×1403）量出来的值做，
+> 只有真实数据（矩阵 / 透明格 / 色板套装 / 钉板元数据）随作品变。上午那版 V1
+> （渐变域名条 + 页脚 Slogan）作废。`src/lib/exportTemplate.js` 重写：页眉 = 真 Logo +
+> 粉色网址胶囊（底 #FDECF1 / 实心粉圆 #FB6480 / 网址 #F93759）+ 右侧灰蓝 Slogan +
+> 粉黄绿蓝四色块；图纸区 = 浅蓝面板 #F8FCFE + 极淡粉描边 #FBE4EC + 细格线 + 每 10 格主格线，
+> 四边坐标带按设计稿约 4.6 格宽（新增 `exportRulerPx`，`render.js` 的 `chartGeometry`
+> 开始接受标尺宽度，`drawChart` 开始接受导出专用主题）；底部双卡 = 左「图案信息」粉色胶囊
+> + 六个像素图标（格网 / 钉板 / 叠层 / 立体方块 / 调色盘 / 标签），右「颜色清单」蓝色胶囊 +
+> 「（按色号排序）」+ 分栏色号用量。版面按设计稿比例缩放（`s = max(1, 图纸宽/1085)`），
+> 小图纸时页面比图纸宽、双卡仍是设计稿的完整宽度。数据全部真实：格子数量 / 钉板型号 /
+> 钉板数量 / 豆子总数 / 颜色数量 / 色卡品牌及型号按站内口径取值（空格不计豆、真实白豆计入、
+> 零用量色号不入清单、色号自然序 A2 在 A10 前）。**V3 没有页脚 Slogan**。
+> ⚠️ 顺手修掉 V1 留下的坑：`import logo from '*.webp'` 会让 Node 直接跑的自检脚本崩
+> （不认 .webp 后缀）⇒ `pnpm verify:export` 在 master 上从 `ef335b9` 起一直是红的；
+> 改成 `new URL('../assets/logo-douwan.webp', import.meta.url)`（Vite 照样重写成带哈希的资源）。
+> 自检：`pnpm verify:export-template`（真浏览器跑新手 + 专业两条链路，抓导出 Blob 按设计图
+> 逐区验收 9 项）、`pnpm verify:export` 三条脚本的数字同步到标版口径（整页尺寸、每格像素
+> 降档、封面图数 +1 张 Logo）、`pnpm verify` 84 页 0 错误、`verify-beginner` 217/217。
+> 前端 `pindoudou` `f99e506`（基于 `fbb6517` 在隔离 worktree `.tmp/wt-export` 做的），
+> 已上线，线上产物 `assets/index-BsdAjI2p.js`）；
+> 2026-10-29 上午（**换钉板不再裁画面**：画布编辑后换钉板，底板装不下原图时
+> 走「等比缩图」而不是「裁边」—— 10-28 那条「1:1 平移 + 越界裁掉」的实现，104 板换 52 板
+> 会丢掉 5824 颗、画面只剩中间一块，而没手改过的图是整张等比缩小，两边口径不一致。
+> 新增 `resampleArtCells`（块内多数色），`resizePreserveCells` 加 `scaleArt`（只给换钉板用，
+> 同板拖成品尺寸滑杆仍原地不动），`setCanvasCapacity → setCanvasSize` 只在换底板导致成品区域
+> 变小时传 true；顺带把 10-28 留的「只挪显示那份、底稿留在旧尺寸」的小口子一起修了。
+> 自检 `pnpm verify:board-resize` 扩到 8 场景 × 4 视口 + 新增 `pnpm verify:board-crop`
+> （真浏览器走真实用户路径：拖一笔 → 左栏下拉选 52 钉板 → 断言图案包围盒等比缩小）。
+> 前端 `pindoudou` `fbb6517`，已上线）；
+> 2026-10-29 上午（**导出图纸统一标版**：按 `Z:\拼豆\网站需求文档\图纸导出设计.zip` 的
+> 交付包把整图导出换成「豆玩标版 V1.0」，旧版图例版式删除。新增 `src/lib/exportTemplate.js`
+> （页眉 Logo + dw.sharyuke.com 渐变域名 / 图案信息卡 / 颜色清单卡 / 页脚 Slogan
+> 「所爱皆可拼，万物皆可造」的唯一口径；`templateExtraHeight` 与 `composeExportTemplate`
+> 同一套排版常量，dpiExportPlan 预检尺寸与实际文件不失配）；`exporters.js` 的
+> `buildPatternImageCanvas` 默认走标版（新手版第 ③ 步、专业版「图纸交付」、作品页 / 素材页 /
+> 拼制页的 PNG·JPG·DPI 高清全是一条链路一种版式）；分板 PDF 电子档与打印版封面加同一套页眉
+> 与 Slogan；分享卡上的旧网址 `douzao.ai` 换成 `dw.sharyuke.com`。自检
+> `pnpm verify:export-template`（真浏览器跑新手 + 专业两条导出链路，抓导出 Blob 逐字节验收
+> 标版四件套；⚠️ 本机无头 Chrome 对 blob: URL 的下载一律判 canceled，脚本靠拦截
+> `URL.createObjectURL` 抓 Blob，与落盘文件逐字节等价）。前端 `pindoudou` `ef335b9`
+> （基于线上 `6407cad` 在隔离 worktree `.tmp/wt-export`（分支 `feat/export-template`）做的，
+> 没带 `feat/smart-colors` 的 `d15cc7b`），已上线）；
+> 2026-10-28 下午（**左栏尺寸滑杆支持滚轮**：电脑端在左栏「画布与成品尺寸」那条滑杆上滚滚轮
+> 就能改大小 —— Chrome / Edge 默认不响应滑块上的滚轮（Firefox 会），原来滚轮纹丝不动，
+> 看着像功能坏了。新增 `src/lib/rangeWheel.js`：向上滚变大、向下滚变小，一格走量程的 1/20，
+> 按住 Shift 走最小步长；改完派发 input / change，走滑杆原有的重算链路（成品区域重算、留白收敛、
+> 提示文案都在那边），并吃掉默认滚动（页面不会跟着一起滚）。自检 `pnpm verify:range-wheel`（页面内断言）
+> + `scripts/audit-wheel-real.cjs`（CDP 真实滚轮输入）。前端 `pindoudou` `6407cad`，已上线）；
+> 2026-10-28 中午（**换钉板尺寸保留手改图纸**：专业工作台里被逐颗改过的图纸
+> （画笔 / 橡皮 / 换色），改钉板尺寸 / 成品尺寸时不再重新生成 —— 旧格子 1:1 挪进新画布
+> （放大居中落位、同板原地不动、越界的豆裁掉并提示；拼制进度与撤销栈只在格子挪位时重置），
+> `manualEdited` 标记随存档保存与恢复；未手改的图照旧按新尺寸重新生成，想重画点「恢复方案」。
+> 自检 `pnpm verify:board-resize`（7 场景 × 4 视口，线上全绿）。
+> 前端 `pindoudou` `d4c1e4d`（连同并行会话已提交未推送的 `c68c585` 分板 PNG/JPG 底注一起快进推上
+> `origin/master`），已上线）；
+> 2026-10-27 中午（**作品跨设备同步**：「我的作品」不再只存本机，按账号存到服务端，
+> 手机 / 平板 / 电脑登录同一账号看到同一份；删除也会同步。后端 `douwan-api` `a9e11a5`、
+> 前端 `pindoudou` `4ee537d`，已上线）；
+> 2026-10-26 深夜（**手机端第 ② 步预览放大**：新手版传图后的预览图提到「专业版工作台画布」的量级
 > （116 → 251 px @ 390×844），参数区改成自己滚，已上线（`pindoudou` `0ebad00`）；
 > 同日晚（**手机端操作台改成一屏工作台**：≤780px 的三步锁在一屏里，
 > 步骤条固定在顶、当前步骤自己滚、底部本步主按钮常显，平板 / 电脑版面没动，
@@ -145,7 +206,8 @@ ssh qq "echo $b | base64 -d | bash"
 | `src/lib/pattern.js` (1623 行) | 核心引擎：采样 → k-medoids 量化 → CIEDE2000 映射 → 后处理 → 评分 |
 | `src/lib/matte.js` (926 行) | 自动抠背景 + 去投影（经典图像处理，确定性、无模型） |
 | `src/lib/render.js` / `exporters.js` | 图纸绘制 / PNG·SVG·CSV·JSON·打印导出 |
-| `src/composables/useStudio.js` (1150 行) | 工作台状态中枢 |
+| `src/composables/useStudio.js` (1150 行) | 工作台状态中枢；作品存档的打包 / 解包与 `onProjectsPersisted()` 也在这里 |
+| `src/composables/useProjectSync.js` | **作品按账号同步**（2026-10-27）：登录 / 保存 / 删除时与服务端 `GET/PUT/DELETE /api/v1/projects` 双向同步；合并按存档 `updatedAt`，删除走本机墓碑；设计见 `docs/project-sync.md` |
 | `src/composables/useMembership.js` | 会员权益判定，**按钮永不隐藏**，点不动要给原因 + 升级路径 |
 | `src/data/palette.js`、`assets.js` | **脚本生成，勿手改**（`pnpm palette` / `assets`） |
 | `src/views/admin/AdminActivityView.vue` | 后台「用户活跃监控」页：总览 / **访问量** / 留存 / 使用频率 / 地区 / 功能使用 / 来源渠道 / 用户明细 / **排除名单**，调 13 个 `/admin/activity/*` |
@@ -165,6 +227,9 @@ ssh qq "echo $b | base64 -d | bash"
 | `src/views/BeginnerView.vue` | `/create`（**操作台** = 新手简化版）的容器：sr-only H1 + 「创作 · 操作台」面包屑 + 向导（工具页，不挂站点页脚）。**手机端容器锁高一屏**（`100dvh` − 顶栏 − 标签栏 − 安全区 − 键盘高度），`visualViewport` 量键盘高度写进 `--kb` |
 | `scripts/verify-beginner.cjs` | **操作台三端验收**：视口**手机三档（360×640 / 390×844 / 430×932）+ 平板 834 + 电脑 1440** 真浏览器跑完整链路（先验首页是带插画的主视觉 → 上传→调效果→拿图纸→切专业→切回新手→免费素材），带 `--url` 可直接验收线上（线上 228/228）。含**第 ② / ③ 步预览图占比断言**（≥781px 高度占 ≥85%、面积占比 ≥40%；手机端画布不超出预览区 105%）与**手机一屏断言**（整页不滚动、CTA 在标签栏之上、摘要 2 列、材料抽屉、素材列表自己滚） |
 | `scripts/verify-seo-v3.cjs` | **SEO V3.0 验收自检**：head 标签 / sitemap / robots / 首页主视觉与内容区 / 色卡页，电脑 + 平板 + 手机三档视口；`node scripts/verify-seo-v3.cjs --url https://dw.sharyuke.com`（线上 59/59） |
+| `scripts/verify-board-crop.cjs` | **换钉板不裁画面验收**（`pnpm verify:board-crop`）：真浏览器走真实用户路径（载素材 → 铺满 104 板 → 画布上真拖一笔 → 左栏「底板尺寸（实物）」下拉选 52 钉板），断言图案包围盒**等比缩小**（不是被裁掉一半）+ console 报错 0，前后各留一张截图；带 `--url` 可直接验收线上 |
+| `src/lib/exportTemplate.js` | **图纸导出标版 V3 的唯一口径**（2026-10-29 傍晚上线）：页眉 Logo + 粉色网址胶囊 + Slogan 与四色块 / 图纸面板 / 底部「图案信息」与「颜色清单」双卡。尺寸、坐标、颜色全部按 V3 最终设计图量出来的常量；`templateExtraHeight` 与 `composeExportTemplate` 共用同一套排版计算（预检尺寸与实际文件永不失配）；`exportRulerPx` 是导出专用的坐标带宽度（设计稿约 4.6 格宽），`exportChartTheme` 是导出专用的线色 / 坐标配色 |
+| `scripts/audit-export-template.cjs` | **导出标版验收**（`pnpm verify:export-template`）：真浏览器跑新手第 ③ 步与专业「图纸交付」两条导出链路，拦截 `URL.createObjectURL` 抓导出的 PNG，按 V3 设计图逐区验收 9 项（页眉 Logo / 网址胶囊 / Slogan / 四色块 / 格线 / 两个胶囊分居左右 / 六个像素图标 / 色块色号 / 底部无页脚 Slogan）；带 `--url` 可直接验收线上 |
 | `scripts/admin-audit-seo-keywords.js` | 关键词管理端到端探针（11 步），由 `admin-audit.cjs` 带 `ADMIN_EVAL_FILE` 调用 |
 | `scripts/audit.cjs` | 无头浏览器自检：21 页 × 4 视口 = 84 项，查报错 / 横向溢出 / 画布空白 |
 | `scripts/admin-audit.cjs` | 后台页无头自检（**真登录 + 真接口**，只读）：查白屏 / console 报错 / 溢出并留截图；`AUDIT_DIST=` 可指向私有构建目录 |
@@ -1021,6 +1086,151 @@ ssh pro 'curl -s -o /dev/null -w "https %{http_code} %{time_total}s\n" https://d
   现在每次都按「`vite build` → `node scripts/build-seo-pages.mjs` → 打包」的顺序做，
   发布后确认 `/var/www/dw.sharyuke.com/seo/pages.json` 在（61410 字节），再验 `/create` 是 200
 
+**已完成（2026-10-28 下午）——左栏尺寸滑杆支持滚轮（`pindoudou` `6407cad`，已上线）**
+
+- 需求原文：「电脑端用滚轮缩放大小不能用 修复一下」
+  （用户确认是**左栏「画布与成品尺寸」的滑杆**上滚滚轮，尺寸数值不变）
+- **根因**：Chrome / Edge 默认**不**响应 `<input type="range">` 上的滚轮（Firefox 会），
+  而滑杆两端只有 − / ＋ 两个按钮 —— 电脑端用户在滑杆上滚滚轮，数值纹丝不动，看着像功能坏了
+- **改法**：
+  - 新增 `src/lib/rangeWheel.js`：向上滚变大、向下滚变小；一格滚轮走「量程的 1/20」
+    （下限是滑块自己的 step）—— 52 钉板走 2 格、1000 格大板走 50 格，一次滚到位；
+    按住 Shift 走最小步长（一格一格抠）；改完派发 `input` / `change`，
+    **走滑杆原有的重算链路**（成品区域重算、留白收敛、提示文案都在 `EditorSidebar` 那边，不重复实现）；
+    同时 `preventDefault` 吃掉默认滚动，页面不会跟着一起滚
+  - `EditorSidebar.vue` 四条尺寸滑杆（宽屏长边 / 宽 / 高 + 手机版同款）各加 `@wheel="onRangeWheel"`
+  - 只动专业工作台左栏的尺寸滑杆；颜色数滑杆没动（每格都会触发一次重新量化，没必要）
+- **顺带查清的一件事**：用户说的「滚轮缩放」还有另一处 —— 工作台画布上的滚轮缩放**本来就是好的**
+  （真实滚轮输入实测 zoom 0.84 → 1.04 → 0.84，画布 556 → 722 → 556px），别再改它
+- **自检**：
+  - `scripts/audit-range-wheel.js`（页面内断言，6 个场景：向上变大 / 向下变小 / Shift 最小步长 /
+    上下限不再动 / 关闭等比后各自可调 / 滚轮被吃掉）+ `package.json` 的 `verify:range-wheel`
+  - `scripts/audit-wheel-real.cjs`：**CDP 真实滚轮输入**（`Input.dispatchMouseEvent` type=mouseWheel），
+    同时验画布缩放与尺寸滑杆 —— 页面里 `new WheelEvent(...)` 只是合成事件，
+    证明不了浏览器会不会把真实滚轮送进来，所以另写了一份走真实输入的（`verify:wheel-real`）
+  - 改前基线（线上实测）：画布缩放 `zoomedIn: true`，尺寸滑杆 `sliderResponds: false` ⇒ 复现成功
+  - 改后：本地与线上 `sliderResponds: true`（滑杆 52 → 50 → 52），画布缩放不受影响
+- 验证：本地全站自检 84 页 0 错误（`audit-exit=0`）、`verify-beginner.cjs` 217/217、
+  `verify:size-wide`（桌面 + 窄三栏）、`verify:size-live`（手机 + 平板）、
+  `verify:board-resize`（上一条改动的回归）全绿；**线上 `verify:range-wheel` 与真实滚轮脚本全绿，
+  console 报错 0**
+- 部署：在隔离 worktree `.tmp/wt-wheel`（master `d4c1e4d`）上改 + 构建；
+  qq 先备份 `/root/douwan-backups/dw-web-before-range-wheel-20261028-*.tar.gz` 再覆盖；
+  线上产物 `assets/index-BPOO707R.js`，`seo/pages.json`（61410 字节）已确认
+- ⚠️ 共享工作区里 `feat/smart-colors` 分支并行会话仍在改（智能减色 `d15cc7b` 已提交，
+  `src/lib/api.js` 还有未提交改动）—— 本次改动全部在隔离 worktree 里做，没碰他们的文件
+
+**已完成（2026-10-28 中午）——换钉板尺寸不再重画手改过的图纸（`pindoudou` `d4c1e4d`，已上线）**
+
+- 需求原文：「图纸转换后换钉板尺寸时，已经编辑好的图不要重置，只改钉板尺寸」
+- **根因**：专业工作台所有尺寸入口（档位按钮 / 滑块 / 自定义尺寸 / 恢复默认）最终都走
+  `useStudio.setCanvasSize`，它此前一律 `regenerate()`（从原图重新取样），手改的格子全被冲掉
+- **改法**：`setCanvasSize` 里加一条分支 —— `manualEdited`（这张图被逐颗改过）为真时改走新函数
+  `resizeVariantsPreserving`：旧格子按**底板中心锚点** 1:1 挪进新画布（换大板居中落位、同板
+  缩放成品区域时原地不动、缩板时越界的豆裁掉并在提示里报数量）；填的空不计入「抠图比例」；
+  撤销栈与拼制进度只在格子整体挪位时重置（旧进度对应的是另一张网格）；提示文案指路「恢复方案」
+  （想按新尺寸重画就走那条）。`manualEdited` 现在随存档 `saveProject` / `openProject` 保存与恢复
+  （老存档没有此字段按 false 处理），否则保存后重开再改尺寸又会把手改生成掉
+- 范围只在专业工作台：操作台 `/create`（新手版）保持原有「改参数重算 + 保护弹层」的行为
+- 新增自检 `pnpm verify:board-resize`（`scripts/audit-board-resize.js`，7 场景 × 4 视口）：
+  A 未手改照旧重生成、B 真 PointerEvent 画一笔立标记、C 手改后放大 52→104 居中落位且不重生成、
+  D 同板缩成品区域格子逐位不变、E 留白处可继续画、F 缩板裁 1 颗且统计吻合、
+  G 存档往返后 `manualEdited` 恢复且再放大仍保留
+- 验证：本地四档视口 + worktree 构建复跑全绿；全站 `pnpm verify` 84 页 0 错误、
+  `verify-beginner.cjs` 217/217；**线上 `--url https://dw.sharyuke.com` 四档视口 28/28 场景全绿、
+  console 报错 0**
+- 部署：在隔离 worktree `.tmp/wt-br`（master `c68c585`）上改 + 构建（避免把共享工作区里
+  `feat/smart-colors` 分支的未提交改动带上线）；qq 先备份
+  `/root/douwan-backups/dw-web-before-board-resize-20261028-124500.tar.gz` 再覆盖；
+  线上产物 `assets/index-k0PLB13z.js`，`seo/pages.json`（61410 字节）已确认
+- ⚠️ 这次推送把并行会话已提交未推送的 `c68c585`（分板 PNG/JPG 每张底部带色号与颗数）一起快进
+  推上了 `origin/master` —— 部署产物本来就包含它（基于 `c68c585` 构建）
+- ⚠️ 已知小口子（**2026-10-29 已修**，见下面那条）：`resizeVariantsPreserving` 只挪「当前展示的那份」方案（含 `.active`），
+  方案的底稿仍保持旧尺寸；`repadVariants` 是两份都补的。只有切回底稿展示时才可能碰到，
+  现有探针没覆盖，要动这里先把探针补上
+
+**已完成（2026-10-29 上午）——换钉板不再裁画面：底板装不下原图时等比缩图（`pindoudou` `fbb6517`，已上线）**
+
+- 需求原文：「画布编辑后切换钉板画面会裁掉，修复一下」
+- **根因**：10-28 那条「换钉板尺寸保留手改图纸」的实现是「旧格子 1:1 按底板中心平移 + 越界裁掉」。
+  底板换小到装不下原图时，平移只能保住中间一块 —— 实测 104 板换 52 板**丢掉 5824 颗**（共 8528 颗），
+  画面只剩中间那块（猫头连耳朵都没了），提示还写着「放不下的 5824 颗已裁掉」。
+  而**没手改过**的图走的是「按新尺寸重新取样」，整张图会等比缩小 —— 两边口径不一致才是用户觉得「坏了」的原因。
+- **改法**（`src/composables/useStudio.js`）：
+  - 新增 `resampleArtCells`：把旧成品区域等比缩到新成品区域，每格取覆盖它的那块旧格子里**出现最多的豆色**
+    （整块没豆就留空）；平手取先扫到的，结果稳定可复现
+  - `resizePreserveCells` 接受 `scaleArt`：底板装不下原图（旧成品区域 > 新成品区域）时走**缩图**而不是裁边；
+    画在成品区域之外（板面留白里）的豆子带不过去，如实报数
+  - `scaleArt` 只给「换钉板」用：`setCanvasCapacity` → `setCanvasSize` 只在**换底板导致成品区域变小**时传 true；
+    同一块板上拖成品尺寸滑杆仍然「原地不动」（10-28 定的口径不变）
+  - 顺带修掉 10-28 留的小口子：`resizeVariantsPreserving` 现在**底稿与「库存重配色」那份一起缩**
+    （以前只挪显示的那份，另一份留在旧尺寸上，切回底稿会看到旧图）
+  - 提示语改成「已按新底板把图案缩到 X × Y 格，手工修改保留（细节按块合并）；想按新尺寸重新转换请点「恢复方案」」
+  - 代价说清楚：缩图时几颗旧格并成一颗（取块内多数色），单颗手改的小细节可能被同色淹没
+- **自检**：
+  - `pnpm verify:board-resize` 扩到 **8 场景 × 4 视口**（F 从「缩板真被裁掉」改成「缩板等比缩图不裁画面」，
+    新增 H「满格图纸 + 手改 → 换钉板画面不裁」：断言图案包围盒跟着等比缩小，不只看豆子数）
+  - 新增 `pnpm verify:board-crop`（`scripts/verify-board-crop.cjs`）：**真浏览器走真实用户路径** ——
+    载素材 → 铺满 104 板 → 画布上真拖一笔 → 左栏「底板尺寸（实物）」下拉里选 52 钉板 → 断言包围盒等比缩小、
+    console 报错 0，并留下前后两张截图（`--url` 可直接验收线上）
+  - 回归：全站自检 84 页 0 错误、`verify:beginner` 217/217、`verify:size-wide` / `verify:size-live` /
+    `verify:mobile` / `verify:range-wheel` / `verify:export-template` 全绿
+- **上线**：隔离 worktree `pindoudou\.tmp\wt-boardcrop`（分支 `feat/board-crop`，基于 `origin/master` `ef335b9`）改 + 构建；
+  提交 `fbb6517` → 快进推上 `origin/master`；qq 先备份
+  `/root/douwan-backups/dw-web-before-boardcrop-20261029-*.tar.gz` 再覆盖；
+  线上产物 `assets/index-WZTqt50L.js`，`seo/pages.json`（61410 字节）已确认
+- **线上验证**：`verify:board-crop --url https://dw.sharyuke.com` 通过（104 板 8528 颗 / 包围盒 (0,10)-(103,93)
+  → 52 板 2144 颗 / 包围盒 (0,5)-(51,46)，正好一半）；`verify:board-resize --url` 8 场景 × 4 视口全绿；
+  全站自检 84 项 0 错误（只有 404 页自身那条 404，按设计）；`verify:seo-v3` 59/59；`verify:beginner --url` 245/245
+
+**已完成（2026-10-27 中午）——作品跨设备同步：同一账号三端看到同一份（`douwan-api` `a9e11a5`、`pindoudou` `4ee537d`，已上线）**
+
+- 需求原文：「三个端口登录后保存的作品不能同步，修复一下，同一账号的保存作品要同步」
+- **以前为什么不同步**：「我的作品」只写浏览器 `localStorage`（`douzao-projects-v2`）。
+  手机 / 平板 / 电脑各有各的那一份，登录只换令牌，作品列表还是本机数据；
+  服务端 `projects` / `project_variants` 两张表一直存在但没有任何接口读写。
+- **后端**（隔离 worktree `douwan-api\.tmp\wt-projects`，分支 `feat/project-sync`）：
+  - `projects` 表加 `client_id`（前端生成的 `p_xxx`，同一用户下唯一）、`client_updated_at`（毫秒）、
+    `payload`（`jsonb`，原样存前端紧凑存档）。`(user_id, client_id)` 唯一索引就是同步的幂等键；
+    存档结构以后变，同步层不用跟着改表
+  - 四个接口（都要登录，按 `user_id` 隔离）：`GET /api/v1/projects`、`GET/PUT/DELETE /api/v1/projects/:client_id`；
+    单条上限 8 MiB；`PUT` 是幂等覆盖；删除是**物理删除**（删掉后同一 id 能重新保存）
+  - 新文件 `internal/{repository,service,handler,dto}/project.go` + `handler/project_test.go`
+    （含「另一个账号看不到、删不掉」「非法 id / id 不一致 / 未登录 / 超 8 MiB」用例）；
+    `postgres_test.go` 补了 jsonb 写入 / 覆盖 / 列表回读 / 删除
+- **前端**（隔离 worktree `pindoudou\.tmp\wt-projects`）：
+  - `src/composables/useProjectSync.js`：登录 / 换账号 → 全量合并；保存 / 改参数 / 记进度 → 900ms 防抖后
+    只推有改动的作品；删除 → 本机墓碑 + 立即补发；退出登录前 flush。合并规则：同一 id 取
+    `updatedAt` 较新的一份；服务端没有且本机时间不晚于上次同步时间 ⇒ 判定「别的设备删了」；
+    匿名访客转真实账号时把本机作品带进账号，真实账号 A → B 不互相污染（换号前留小备份）
+  - `useStudio.js` 拆出 `packedProjects()` / `applySyncedProjects()` / `onProjectsPersisted()`，
+    `persist()` 写完本机后通知同步层；`App.vue` 启动后同步一次；`useUserAccount.logout()` 先 flush
+  - 「我的作品」页加同步状态行 + 「立即同步」；帮助 / 设置页文案同步改（作品进账号，库存与收藏仍是本机）
+  - 交付文档：**`pindoudou/docs/project-sync.md`**；接口写进 `douwan-api/docs/api.md`「作品存档同步」
+- **验证**：
+  - 后端 `go vet` + `go test -count=1 ./...` 全绿；真 PG（qq 上临时库 `douwan_pgtest_projects` + 本地隧道）
+    跑 `TestPostgres_Smoke` 通过（jsonb 往返正常），库用完已 `DROP`
+  - 前端真浏览器脚本 `scripts/verify-project-sync.cjs`：**对着本地真后端 14/14**、
+    **对着线上 14/14**（电脑登录保存 → 服务端 1 条 → 平板 / 手机清空 `localStorage` 重新登录自动下载 →
+    手机删除 → 服务端归零 → 电脑再登录看不到）。每次跑用随机新账号
+  - 线上 `audit.cjs` 84 项 0 错误（只有 404 页自身那条 404，按设计）、`verify-seo-v3.cjs` 59/59、
+    `verify-beginner.cjs` **245/245**（手机三档 + 平板 + 电脑，console 报错 0）
+- **部署**：后端先 `pg_dump` 备份（`/root/douwan-backups/douwan-before-projectsync-20261027-120055.dump`）
+  + 旧二进制 `.bak-20261027-120055`，迁移后重启；线上 `projects` 表新列与唯一索引已核对，
+  `GET/PUT /api/v1/projects` 未登录返回 401。前端备份
+  `/root/douwan-backups/dw-web-before-projectsync-20261027-120241.tar.gz`，线上产物 `assets/index-rs1REMUM.js`
+- 验证用的临时前台账号（`sync<时间戳>`，id 34）连同其会员 / 积分 / 访问记录已从线上删干净，
+  `users` 表只剩 3 个真实账号，`projects` 表 0 行
+- ⚠️ **并行会话的坑（这次差点回滚别人的功能）**：线上 11:31 那版是另一个会话部署的
+  「导出图不画板号角标」修复（基于 `8baeb69`），它**没带上 `0ebad00` 的手机端预览放大**；
+  而本机主工作区还有未推送的 `556f4fb` + `6a047a7`（分板交付下载电子档 PDF）。
+  所以前端**先把 `6a047a7` merge 进同步分支再构建**（`5d9e27f`），部署的产物同时包含两边的改动。
+  以后发布前一定先看线上 `assets/index-*.js` 与本机构建是否同哈希，不一致就说明线上有别的会话的提交
+- ⚠️ **自检脚本的固定 sleep 会误报**：`verify-beginner.cjs` 原来在导航后固定等 2.2~4 秒，
+  冷启动（第一次打开、要下 540KB bundle）时手机档会偶发「页面还没画出来 / 图纸还没算完」，
+  表现为 `mobile-s` 少几项。已加 `waitFor()` 等元素就绪再断言，并支持
+  `VERIFY_VIEWPORTS=mobile-s` 只跑某几档视口调试；改完线上 **245/245**
+
 **待办**
 
 1. **前端功能埋点还没接**：访问量（页面级）已经通了，但 `pattern.generate` / `pattern.export` /
@@ -1066,3 +1276,6 @@ ssh pro 'curl -s -o /dev/null -w "https %{http_code} %{time_total}s\n" https://d
     「拼豆操作台 · 豆玩 DOUWAN」）。要一次到位就在 `douwan-api` 的
     `internal/service/seo.go` 的 `appRouteTitle()` 里加一条 `/create` 分支；
     改后端必须用 `douwan-api\.tmp\wt-*` 隔离工作区，测试放 home 上跑（见 §2.2）
+17. **作品同步的冲突策略是「同一件作品后写覆盖」**（按存档 `updatedAt` 在客户端选较新的一份）。
+    两台设备同时改同一件作品时，后同步的一方会覆盖先同步的一方；要做真正的多端合并得拆到
+    格子级冲突消解，目前没这需求。另外同步只覆盖作品，**库存与收藏仍是本机数据**
