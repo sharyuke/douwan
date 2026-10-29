@@ -1,7 +1,39 @@
 # 豆玩 DOUWAN 工作区
 
 > 这个文件是给「以后在这个工作区干活的 AI」看的：先读这里，再看 [DEPLOY.md](DEPLOY.md)。
-> 最后更新：2026-10-29 深夜（**图纸区与底部双卡、左右双卡之间的留白统一到 15 px**）：
+> 最后更新：2026-10-29 深夜（**电脑端滚轮放大画布不再「跳回」**：用户说「电脑上用鼠标滚轮放大画布
+> 会跳回」。根因在 `EditorCanvas.vue` 的 `onWheel`：它直接调 `setZoom`，没有把 `autoFit` 关掉，
+> 而画布一放大就撑出滚动条 ⇒ 舞台的内容盒变窄（实测 680 → 670）⇒ ResizeObserver 以为容器变了、
+> 60ms 后再适配一次 ⇒ 刚放大的画布被打回「适应窗口」。实测缩放 0.82 → 1.02 → **0.78**。
+> 改法：滚轮走 `onUserZoom`（按钮 / 双指捏合都是这条路，它会把 `autoFit` 关掉）。
+> 这个 bug 只在**滚动条占位**时出现 —— 老的自检脚本带 `--hide-scrollbars`，滚动条不占位，
+> 所以一直没抓到；`audit-wheel-real.cjs` 已去掉这条标志，并新增断言「放大 1.5 秒后仍是放大后的那一档」
+> （`zoomSticks`）。周边流程一起核对过：适应 / 实际大小 / 加减按钮 / 左栏尺寸滑杆滚轮都正常。
+> 前端 `pindoudou` `5641385`（rebase 到并行会话的 `eb115d9` 之上），已上线，
+> 线上产物 `assets/index-CGVzF9lK.js`；qq 回滚包
+> `/root/douwan-backups/dw-web-before-wheelzoom-fix-20261029-212037.tar.gz`）；
+> 2026-10-29 深夜（**改成品尺寸先问「重新生成 / 保留手改」**：用户反馈
+> 「你在跟我开玩笑吗，放大缩小尺寸为什么会出现这样的情况」—— 拖「图案清晰度」滑杆放大后，
+> 画面是按块复制的马赛克。根因：手改过的图纸走「保留手工修改」那条路，成品区域变大时
+> 只能把旧格子按块复制（旧图没有更高清的底图）；而没手改过的图按原图重新取样，放大后是清晰的。
+> 改法：这个决定交给用户，且只问一次 —— `useStudio.setCanvasSize` 增加 `keepEdits`
+> （默认 true；传 false 跳过「保留手工修改」、按原图重新取样），左栏「图案清晰度」/ 成品尺寸快选
+> 在手改过的图上第一次改尺寸先弹 `BaseDialog`「改尺寸要重新生成图纸」：
+> 「重新生成」（按原图，更清晰，手改被覆盖）/「保留手改」（画面按块缩放，放大是马赛克）/
+> 「取消」（滑杆回位、画布不动）。选过之后同一张图不再问；图纸重新生成后
+> （`manualEdited` 归 false）下次再问。自定义尺寸面板跟着已定下的口径走、不弹层
+> （实时预览每改一格都问没法用）。自检新增 `pnpm verify:size-guard`（真浏览器、真滑杆事件、
+> 真点弹层按钮，四条路径：保留手改 mismatch=0 / 重新生成 mismatch≈5% 且 manualEdited 归 false /
+> 取消画面一格没动 / 没手改过不弹层），`verify:art-scale` 在弹层里点「保留手改」。
+> 验证：本地与线上 `verify:size-guard` / `verify:art-scale` / `verify:board-crop` /
+> `verify:board-resize`（9 场景 × 4 视口）/ `verify:size-live` / `size-wide` / `size-tips` /
+> `range-wheel` / `scale` / `actual` / `mobile` 全绿，全站自检 84 页 0 错误（线上只有 404 页
+> 自身那条 404），`verify:seo-v3` 59/59、`verify:beginner` 245/245。
+> 前端 `pindoudou` `eb115d9`（基于 `82e6980`，隔离 worktree `.tmp/wt-boardcrop`），
+> 已上线，线上产物 `assets/index-MUk6mKXF.js`；这次部署同时带上了并行会话已推 master 的
+> 智能抠图重做（`b9798c9`）与导出留白调整（`4005bf4` / `82e6980`）；qq 回滚包
+> `/root/douwan-backups/dw-web-before-size-guard-20261029-125551.tar.gz`）；
+> 2026-10-29 深夜（**图纸区与底部双卡、左右双卡之间的留白统一到 15 px**）：
 > 用户接着上一版说「缝隙间隔都保持15px」。上一版只把「图纸区 ↔ 底部双卡」那道留白
 > 改成 5 px，左右两张卡之间还是设计稿的 2 px，看着一宽一窄。这次两处取同一个设计常量
 > 15 px（`D.cardGap` / 新增 `D.cardColGap`），随整页缩放一起放大：104×104 那一档
@@ -349,7 +381,8 @@ ssh qq "echo $b | base64 -d | bash"
 | `scripts/export-case-preview.cjs` | **按尺寸 / 颜色数 / 钉板型号出标版整页图**（`pnpm export:preview`）：走真实导出链路，产物在 `.tmp/export-template-audit/`。颜色数可精确指定（照片量化会自己收敛，脚本按色值最近的真实 MARD 色号扩容），用于视觉验收与不同档位的样例图 |
 | `scripts/admin-audit-seo-keywords.js` | 关键词管理端到端探针（11 步），由 `admin-audit.cjs` 带 `ADMIN_EVAL_FILE` 调用 |
 | `scripts/audit.cjs` | 无头浏览器自检：21 页 × 4 视口 = 84 项，查报错 / 横向溢出 / 画布空白 |
-| `scripts/verify-art-scale.cjs` | **清晰度滑杆验收**（`pnpm verify:art-scale`）：真浏览器设底板 156 / 成品 156 → 真 PointerEvent 画一笔 → 真拖滑杆到 117，断言「底板仍是 156」「成品变 117×117」「画面四边按 117/156 等比缩放」「画面落在成品区域内」「标题里的颗数与实际一致」；带 `--url` 可直接验收线上 |
+| `scripts/verify-art-scale.cjs` | **清晰度滑杆验收**（`pnpm verify:art-scale`）：真浏览器设底板 156 / 成品 156 → 真 PointerEvent 画一笔 → 真拖滑杆到 117（弹层里点「保留手改」），断言「底板仍是 156」「成品变 117×117」「画面四边按 117/156 等比缩放」「画面落在成品区域内」「标题里的颗数与实际一致」；带 `--url` 可直接验收线上 |
+| `scripts/verify-size-guard.cjs` | **改尺寸保护弹层验收**（`pnpm verify:size-guard`）：真浏览器拖滑杆 → 弹层出现（画布先不动）→ 分别点「保留手改」（画面 = 旧图按块放大，mismatch=0）/「重新生成」（画面按原图重新取样，mismatch≈5%，manualEdited 归 false，顶栏颗数一致，再拖不再弹）/「取消」（滑杆回位、画面一格没动）；没手改过的图不弹层。带 `--url` 可直接验收线上 |
 | `scripts/admin-audit.cjs` | 后台页无头自检（**真登录 + 真接口**，只读）：查白屏 / console 报错 / 溢出并留截图；`AUDIT_DIST=` 可指向私有构建目录 |
 | `scripts/fidelity/` | 还原度与抠图精度跑分（改算法前后各跑一次比数字） |
 
