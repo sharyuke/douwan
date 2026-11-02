@@ -21,6 +21,9 @@ import {
   boardOf, beadLabel, boardOuterText, finishCmText
 } from '../../lib/boardSpec.js'
 import { MAX_TARGET_COLORS, MAX_SOURCE_SIDE, colorFloorForCells } from '../../lib/pattern.js'
+/* 滑杆支持滚轮：Chrome 默认不响应滑块上的滚轮（Firefox 会），
+   电脑端在「画布与成品尺寸」上滚滚轮没反应，看着像功能坏了 */
+import { onRangeWheel } from '../../lib/rangeWheel.js'
 import { buildStars, buildabilityLabel, similarityLabel, signedPct, num, timeAgo } from '../../lib/forge.js'
 import { toastOk, toastWarn, toast } from '../../composables/useToast.js'
 import { useImageFile } from '../../composables/useStudio.js'
@@ -313,7 +316,8 @@ const sizeRows = computed(() => {
      · 画布规格 = **底板**（canvasCapW/H）：你手上的板多大，决定滑块上限；
      · 成品尺寸 = **图案在底板上占的那块**（width/height，生成后四周留空）：
        在底板里缩放，分板与豆径都按底板算。
-   改成品尺寸要按新尺寸重新取样（setCanvasSize → regenerate），不能只缩预览图。 */
+   改成品尺寸落到 setCanvasSize：机器画的图按新尺寸重新取样（regenerate）；
+   被逐颗改过的图纸不重画，旧格子 1:1 挪进新画布（useStudio.resizeVariantsPreserving）。 */
 const wide = ref(typeof window !== 'undefined' && !!window.matchMedia
   ? window.matchMedia('(min-width:781px)').matches
   : true)
@@ -529,7 +533,7 @@ function flashSizeNote(text) {
   sizeNoteTimer = window.setTimeout(() => { sizeNote.value = '' }, 3200)
 }
 
-/** 立即把预览尺寸落到画布（会重新采样并重新生成） */
+/** 立即把预览尺寸落到画布（机器图重新采样生成；手改过的图保留格子只动画布，见 setCanvasSize） */
 function applySizeNow(w, h, token = ++sizeToken) {
   if (token !== sizeToken) return
   clearSizeNote()
@@ -1294,7 +1298,7 @@ function onSave() {
               <b>{{ a.name }}</b>
             </button>
           </div>
-          <RouterLink to="/library" class="btn soft sm block">全部 {{ ASSET_COUNT }} 个素材 ›</RouterLink>
+          <RouterLink to="/materials/" class="btn soft sm block">全部 {{ ASSET_COUNT }} 个素材 ›</RouterLink>
         </template>
 
         <div v-if="busy || generating" class="loading"><span class="spinner"></span>正在生成方案…</div>
@@ -1485,6 +1489,7 @@ function onSave() {
                 :aria-valuetext="previewCm"
                 :style="{ '--fill': longFillPct + '%' }"
                 @input="onLongInput" @change="onLongCommit"
+                @wheel="onRangeWheel"
               >
               <button
                 class="sizeStep" type="button" data-size-plus aria-label="放大成品尺寸"
@@ -1511,6 +1516,7 @@ function onSave() {
                 :aria-label="axis === 'w' ? '宽度' : '高度'"
                 :style="{ '--fill': sideFillPct(axis) + '%' }"
                 @input="onSideInput(axis, $event)" @change="onSideCommit(axis, $event)"
+                @wheel="onRangeWheel"
               >
               <button
                 class="sizeStep" type="button" :aria-label="axis === 'w' ? '放大宽度' : '放大高度'"
@@ -1636,6 +1642,7 @@ function onSave() {
                 :aria-valuetext="previewCm"
                 :style="{ '--fill': longFillPct + '%' }"
                 @input="onLongInput" @change="onLongCommit"
+                @wheel="onRangeWheel"
               >
               <button
                 class="sizeStep" type="button" data-size-plus aria-label="放大成品尺寸"
@@ -1662,6 +1669,7 @@ function onSave() {
                 :aria-label="axis === 'w' ? '宽度' : '高度'"
                 :style="{ '--fill': sideFillPct(axis) + '%' }"
                 @input="onSideInput(axis, $event)" @change="onSideCommit(axis, $event)"
+                @wheel="onRangeWheel"
               >
               <button
                 class="sizeStep" type="button" :aria-label="axis === 'w' ? '放大宽度' : '放大高度'"

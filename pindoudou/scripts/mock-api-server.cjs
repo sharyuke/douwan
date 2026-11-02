@@ -77,6 +77,9 @@ const tokens = {
   expires_at: '2026-10-22T23:00:00+08:00'
 }
 
+/* 作品同步自检用的内存库：同一账号两次登录（模拟两台设备）要看到同一份作品。 */
+const projectStore = new Map()
+
 /* ------------------------------------------------------------ 素材库假数据 */
 /* 只用于无头浏览器自检：字段与 /api/v1/assets 真实返回一致，标题 / 标签 / 时间
    都是固定的，方便断言排序和筛选结果。 */
@@ -302,6 +305,36 @@ function api(req, res, pathname, raw = '') {
       }
     })
   }
+  /* 作品同步（2026-10-27）：内存里按 id 存，模拟「同一账号换设备看到同一份」 */
+  if (pathname === '/api/v1/projects') {
+    if (req.method === 'DELETE') {
+      projectStore.clear()
+      return json(res, { code: 0, message: 'ok', data: { deleted: true } })
+    }
+    return json(res, { code: 0, message: 'ok', data: [...projectStore.values()] })
+  }
+  const projectMatch = /^\/api\/v1\/projects\/([^/]+)$/.exec(pathname)
+  if (projectMatch) {
+    const id = decodeURIComponent(projectMatch[1])
+    if (req.method === 'PUT') {
+      const body = readJSON(raw)
+      const saved = { ...body, id }
+      projectStore.set(id, saved)
+      return json(res, {
+        code: 0,
+        message: 'ok',
+        data: { client_id: id, updated_at: Number(body.updatedAt) || Date.now() }
+      })
+    }
+    if (req.method === 'DELETE') {
+      projectStore.delete(id)
+      return json(res, { code: 0, message: 'ok', data: { client_id: id } })
+    }
+    const found = projectStore.get(id)
+    if (!found) return json(res, { code: 10404, message: '作品不存在', data: null }, 404)
+    return json(res, { code: 0, message: 'ok', data: found })
+  }
+
   if (pathname === '/api/v1/orders') {
     return json(res, { code: 0, message: 'ok', data: { list: [], total: 0, page: 1, page_size: 50 } })
   }

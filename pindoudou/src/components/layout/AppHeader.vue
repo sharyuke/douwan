@@ -11,6 +11,7 @@ import logoDouwan from '../../assets/logo-douwan.webp'
 import { setPendingUpload } from '../../composables/usePendingUpload.js'
 import { libKeyword } from '../../composables/useAssets.js'
 import { toastErr } from '../../composables/useToast.js'
+import { isBeginner, requestSwitch } from '../../composables/useBeginnerMode.js'
 
 const loginOpen = ref(false)
 const uploadInput = ref(null)
@@ -27,7 +28,7 @@ const route = useRoute()
 const router = useRouter()
 
 /* 主导航在桌面 / 平板的左侧栏与手机底部标签栏，顶栏不放导航，避免双导航。 */
-const isLibrary = computed(() => route.name === 'library')
+const isLibrary = computed(() => route.name === 'materials-center' || route.name === 'material-category')
 
 /** 素材库顶栏的上传入口：沿用首页那条 pendingUpload → /editor 的链路 */
 function triggerUpload() {
@@ -45,8 +46,8 @@ function onUpload(e) {
   setPendingUpload(file)
   router.push('/editor').catch(() => {})
 }
-/* 首页现在只有一屏，没有可滚的板块了：顶栏在首页也用站内导航，
-   不再挂那组「滚到某个板块」的按钮（点不到东西的按钮比没有更糟）。 */
+/* 顶栏不放站内导航：桌面 / 平板在左侧栏，手机在底部标签栏。
+   首页（/）自己是一整屏主视觉，顶栏只留品牌、模式开关与账号。 */
 
 /**
  * 创作流程：创建 → 设计 → 完成。工作台页面用它替换主导航（对齐参考版顶栏版面）。
@@ -66,7 +67,7 @@ const STUDIO_STEPS = [
 const stepIndex = computed(() => {
   const p = route.path
   if (p.startsWith('/editor')) return hasPattern.value ? 2 : 1
-  if (p.startsWith('/materials')) return 2
+  if (p.startsWith('/project-materials')) return 2
   if (p.startsWith('/build')) return 3
   return 0
 })
@@ -107,6 +108,14 @@ function goStep(s) {
   const to = stepTo(s)
   if (to && route.path !== to) router.push(to).catch(() => {})
 }
+
+/* ---------------------------------------------------------------- 模式切换
+   操作台（/create，新手三步）和专业工作台（/editor）是同一件作品的两层界面，
+   切换按钮常驻顶栏（不藏在「更多」里）。需要保护时由 requestSwitch 弹层确认。 */
+function switchTo(target) {
+  if ((target === 'beginner') === isBeginner.value) return
+  requestSwitch(target, 'header')
+}
 </script>
 
 <template>
@@ -142,7 +151,23 @@ function goStep(s) {
       </label>
 
       <div class="topbar__actions">
-        <input ref="uploadInput" class="libFile" type="file" accept="image/*" @change="onUpload">
+        <input ref="uploadInput" class="libFile" type="file" accept="image/*" data-audit="header-file" @change="onUpload">
+        <div class="modeSwitch" role="group" aria-label="模式切换">
+          <button
+            type="button"
+            :class="{ on: isBeginner }"
+            :aria-pressed="isBeginner"
+            title="操作台：三步做出图纸"
+            @click="switchTo('beginner')"
+          >新手</button>
+          <button
+            type="button"
+            :class="{ on: !isBeginner }"
+            :aria-pressed="!isBeginner"
+            title="专业工作台：逐颗编辑、色板与高级参数"
+            @click="switchTo('pro')"
+          >专业</button>
+        </div>
         <button
           v-if="isLibrary"
           type="button" class="btn primary libUpload"
@@ -204,6 +229,17 @@ function goStep(s) {
 }
 .libSearch input::placeholder{color:var(--muted-2)}
 .libUpload{flex:0 0 auto}
+/* 模式切换：常驻顶栏，手机上也看得见（不藏在「更多」里） */
+.modeSwitch{
+  display:inline-flex;gap:3px;padding:3px;flex:0 0 auto;
+  background:var(--surface-3);border:1px solid var(--line);border-radius:var(--r-pill);
+}
+.modeSwitch button{
+  padding:5px 11px;border-radius:var(--r-pill);font-size:var(--fs-2xs);
+  font-weight:700;color:var(--muted);transition:var(--t);white-space:nowrap;
+}
+.modeSwitch button:hover{color:var(--ink)}
+.modeSwitch button.on{background:var(--primary);color:var(--primary-ink)}
 /* 素材库顶栏多了搜索框：中等宽度先收掉 slogan，给搜索留位置 */
 @media(max-width:1240px){.topbar--library .brand__slogan{display:none}}
 @media(max-width:1000px){

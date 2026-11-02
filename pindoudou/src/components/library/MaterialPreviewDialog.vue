@@ -36,7 +36,7 @@ async function onUse() {
   busy.value = false
   if (res.ok) {
     close()
-    router.push('/editor').catch(() => {})
+    router.push('/create').catch(() => {})
   }
 }
 </script>

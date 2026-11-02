@@ -56,7 +56,11 @@ export function denyReason(perm) {
     'admin.manage': '管理员管理',
     'log.view': '查看操作日志',
     'overview.view': '查看数据概览',
-    'activity.view': '查看用户活跃监控'
+    'activity.view': '查看用户活跃监控',
+    'feedback.view': '查看意见反馈',
+    'feedback.manage': '处理意见反馈',
+    'seo.view': '查看 SEO 管理',
+    'seo.manage': '执行 SEO 推送与文案修改'
   }
   const name = labels[perm] || perm
   if (!isLoggedIn.value) return '请先登录后台'

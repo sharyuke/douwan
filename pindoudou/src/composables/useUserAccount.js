@@ -224,6 +224,15 @@ export async function login({ account, password }) {
 /** 退出登录 */
 export async function logout() {
   const wasAnonymous = isAnonymousDevice.value
+  /* 先把还没推上去的作品改动补发一次：保存后有 900ms 防抖，
+     点完保存立刻退出登录时，不补发就会丢掉这次改动。
+     动态 import 避免与 useProjectSync 形成循环依赖。 */
+  try {
+    const sync = await import('./useProjectSync.js')
+    await sync.flushProjectSync()
+  } catch {
+    /* 同步失败也要让用户能退出 */
+  }
   const refresh = userTokens.refresh
   try {
     if (refresh) await api.post('/auth/logout', { refresh_token: refresh }, { auth: false })

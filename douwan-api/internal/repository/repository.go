@@ -31,6 +31,8 @@ type Repositories struct {
 	// 本地 AI 推理任务（异步队列）与输入图登记
 	AIJob    *AIJobRepository
 	AIUpload *AIUploadRepository
+	// 搜索引擎推送任务（队列 + 历史）
+	SeoTask *SeoTaskRepository
 }
 
 // New 基于给定连接（或事务）构造仓储集合。
@@ -54,6 +56,7 @@ func New(db *gorm.DB) *Repositories {
 		Visit:       &VisitRepository{db: db},
 		AIJob:       &AIJobRepository{db: db},
 		AIUpload:    &AIUploadRepository{db: db},
+		SeoTask:     &SeoTaskRepository{db: db},
 	}
 }
 

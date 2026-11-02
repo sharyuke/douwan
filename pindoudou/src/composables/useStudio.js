@@ -288,6 +288,201 @@ function repadVariants(cw, ch) {
 }
 
 /**
+ * 手工改过的图纸换尺寸：**不重新取样**，旧格子 1:1 挪进新画布。
+ *
+ * 为什么：setCanvasSize 原来一律 regenerate，按源图重新采样会把逐颗修改冲掉
+ * （2026-10-28 用户反馈：图纸转换后换钉板尺寸，已经编辑好的图不要重置）。
+ * 平移规则：**以底板中心为锚，整张图（含画到留白里的格子）一起挪** ——
+ * 换更大的板时图案居中落到新板正中、四周补空格；同一块板上改成品区域时图案原地不动
+ * （只是成品区域框变小）；越出底板放不下的格子裁掉。
+ * 成品区域（artW/artH）落成新尺寸，底板口径（分板 / 豆径）跟着画布规格走。
+ * 想按新尺寸重新转换仍走「恢复方案」。
+ *
+ * scaleArt = true 时，**底板已经装不下原来的图**（旧成品区域比新成品区域大）
+ * 走「等比缩小」而不是「裁边」：整张图缩到新成品区域里，手改的格子按块合并。
+ * 这条只给「换钉板（底板变小）」用 —— 同一块板上拖成品尺寸滑杆时图案仍然原地不动。
+ *
+ * @returns {{ next: object, moved: boolean, croppedBeads: number, keptArtEmpty: number, scaled: boolean }}
+ *          moved = 格子整体挪过位（下标失效，进度与撤销栈要清）
+ *          croppedBeads = 裁掉的豆子颗数（底板缩小时 > 0）
+ *          keptArtEmpty = 幸存下来的「去背景空格」（只数新旧成品区域都盖住的）
+ *          scaled = 走的是「等比缩小」而不是 1:1 平移
+ */
+function resizePreserveCells(p, bw, bh, aw, ah, bs, bk, { scaleArt = false } = {}) {
+  const oldW = p.width
+  const oldH = p.height
+  const oldArtW = Math.max(1, Math.min(oldW, p.artW || oldW))
+  const oldArtH = Math.max(1, Math.min(oldH, p.artH || oldH))
+  const sx = Math.floor((oldW - oldArtW) / 2)
+  const sy = Math.floor((oldH - oldArtH) / 2)
+  const ox = Math.floor((bw - aw) / 2)
+  const oy = Math.floor((bh - ah) / 2)
+  /* 底板中心差就是成品区域中心差（成品区域始终居中在底板上） */
+  const dx = Math.round(bw / 2 - oldW / 2)
+  const dy = Math.round(bh / 2 - oldH / 2)
+  const cells = new Int32Array(bw * bh).fill(EMPTY)
+  let croppedBeads = 0
+  let keptArtEmpty = 0
+  /* 底板装不下原图了 → 缩图，不裁图 */
+  const scaled = scaleArt && (oldArtW > aw || oldArtH > ah)
+  if (scaled) {
+    const art = resampleArtCells(p, sx, sy, oldArtW, oldArtH, aw, ah)
+    for (let y = 0; y < ah; y++) {
+      const dstRow = (oy + y) * bw
+      for (let x = 0; x < aw; x++) {
+        const v = art[y * aw + x]
+        cells[dstRow + ox + x] = v
+        if (v < 0) keptArtEmpty++
+      }
+    }
+    /* 画在成品区域之外（板面留白里）的豆子这次带不过去，要如实报数 */
+    for (let y = 0; y < oldH; y++) {
+      const row = y * oldW
+      const inArtY = y >= sy && y < sy + oldArtH
+      for (let x = 0; x < oldW; x++) {
+        if (inArtY && x >= sx && x < sx + oldArtW) continue
+        if (p.cells[row + x] >= 0) croppedBeads++
+      }
+    }
+  } else {
+    for (let y = 0; y < oldH; y++) {
+      const ny = y + dy
+      const srcRow = y * oldW
+      const yInOldArt = y >= sy && y < sy + oldArtH
+      if (ny < 0 || ny >= bh) {
+        for (let x = 0; x < oldW; x++) if (p.cells[srcRow + x] >= 0) croppedBeads++
+        continue
+      }
+      const dstRow = ny * bw
+      const yInNewArt = ny >= oy && ny < oy + ah
+      for (let x = 0; x < oldW; x++) {
+        const v = p.cells[srcRow + x]
+        const nx = x + dx
+        if (nx < 0 || nx >= bw) {
+          if (v >= 0) croppedBeads++
+          continue
+        }
+        cells[dstRow + nx] = v
+        if (v < 0 && yInOldArt && yInNewArt && x >= sx && x < sx + oldArtW && nx >= ox && nx < ox + aw) keptArtEmpty++
+      }
+    }
+  }
+  const next = {
+    ...p,
+    width: bw,
+    height: bh,
+    artW: aw,
+    artH: ah,
+    cells,
+    boardSize: bs,
+    beadKey: bk
+  }
+  recalcStats(next)
+  /* 去背景空格只数「原来就是去背景空格」的那些：放大补进来的留白不是抠图结果，
+     recalcStats 按新成品区域数会把它们也算进去，抠图提示就虚高。 */
+  const artCells = aw * ah
+  next.stats.emptyCount = keptArtEmpty
+  next.stats.emptyRatio = artCells ? Math.round((keptArtEmpty / artCells) * 1000) / 1000 : 0
+  return {
+    next,
+    moved: scaled || dx !== 0 || dy !== 0 || oldW !== bw || oldH !== bh,
+    croppedBeads,
+    scaled
+  }
+}
+
+/**
+ * 把旧成品区域等比缩到新成品区域：每个新格子取覆盖它的那块旧格子里
+ * **出现最多的豆色**（整块没豆就留空）。
+ *
+ * 为什么需要它（2026-10-29 用户反馈「画布编辑后切换钉板画面会裁掉」）：
+ * 底板换小到装不下原来的图时，1:1 平移只能把图裁掉一半 —— 画面少一大半，
+ * 看着像坏了。而没手改过的图走的是「按新尺寸重新取样」，整张图会等比缩小；
+ * 手改过的图也得等比缩小，只是缩的是**改过的网格**而不是原图。
+ *
+ * 代价：缩图时几颗旧格会并成一颗（取块内多数色），单颗手改的小细节可能被同色淹没。
+ */
+function resampleArtCells(p, sx, sy, oldArtW, oldArtH, aw, ah) {
+  const cells = new Int32Array(aw * ah).fill(EMPTY)
+  for (let ny = 0; ny < ah; ny++) {
+    const y0 = sy + Math.floor(ny * oldArtH / ah)
+    const y1 = Math.min(sy + oldArtH, sy + Math.max(Math.floor(ny * oldArtH / ah) + 1, Math.ceil((ny + 1) * oldArtH / ah)))
+    for (let nx = 0; nx < aw; nx++) {
+      const x0 = sx + Math.floor(nx * oldArtW / aw)
+      const x1 = Math.min(sx + oldArtW, sx + Math.max(Math.floor(nx * oldArtW / aw) + 1, Math.ceil((nx + 1) * oldArtW / aw)))
+      /* 块内颜色最多的是这一格的颜色；平手时取先扫到的那个（结果稳定可复现） */
+      const counts = new Map()
+      for (let y = y0; y < y1; y++) {
+        const row = y * p.width
+        for (let x = x0; x < x1; x++) {
+          const v = p.cells[row + x]
+          if (v < 0) continue
+          counts.set(v, (counts.get(v) || 0) + 1)
+        }
+      }
+      let best = EMPTY
+      let bestN = 0
+      for (const [v, n] of counts) {
+        if (n > bestN) { bestN = n; best = v }
+      }
+      cells[ny * aw + nx] = best
+    }
+  }
+  return cells
+}
+
+/**
+ * 全部方案做「保留手工修改」的尺寸调整（setCanvasSize 的手工编辑分支）。
+ * 方案基底与 active 各自平移；进度 / 撤销栈按下标是否失效处理；
+ * 裁掉了豆子时即使 silent 也要说一声 —— 丢数据不能没有解释。
+ *
+ * scaleArt：底板换小到装不下原图时走「等比缩图」（不裁画面），见 resizePreserveCells。
+ */
+function resizeVariantsPreserving(aw, ah, { silent = false, scaleArt = false } = {}) {
+  const max = maxCells.value
+  const bw = Math.max(1, Math.min(max, canvasCapW.value))
+  const bh = Math.max(1, Math.min(max, canvasCapH.value))
+  const bs = boardProfile(bw, bh)
+  const bk = options.beadKey || autoBeadKey(bw, bh)
+  let moved = false
+  let croppedBeads = 0
+  let scaled = false
+  variants.value = variants.value.map(v => {
+    /* 底稿与「库存重配色」那份**都要**挪：只挪显示的那一份，
+       另一份会留在旧尺寸上（切回底稿时又看到旧图，等于「换板只换了一半」）。 */
+    const r = resizePreserveCells(v, bw, bh, aw, ah, bs, bk, { scaleArt })
+    moved = moved || r.moved
+    croppedBeads += r.croppedBeads
+    scaled = scaled || r.scaled
+    if (!v.active) return r.next
+    const ra = resizePreserveCells(v.active, bw, bh, aw, ah, bs, bk, { scaleArt })
+    moved = moved || ra.moved
+    croppedBeads += ra.croppedBeads
+    scaled = scaled || ra.scaled
+    return { ...r.next, active: ra.next }
+  })
+  let progressReset = false
+  if (moved && buildProgress.value.size) {
+    /* 下标整体挪了：旧进度对应的是另一张网格，留着会显示一个假百分比 */
+    buildProgress.value = new Set()
+    progressReset = true
+  }
+  if (moved) clearUndoStacks()
+  saveStatus.value = '未保存'
+  let text = scaled
+    ? `已按新底板把图案缩到 ${aw} × ${ah} 格，手工修改保留（细节按块合并）`
+    : `已保留手工修改，画布调整为 ${aw} × ${ah} 格`
+  if (croppedBeads > 0) text += scaled ? `，画在成品区域外的 ${croppedBeads} 颗没带过去` : `，放不下的 ${croppedBeads} 颗已裁掉`
+  if (progressReset) text += '，拼制进度已重置'
+  text += '；想按新尺寸重新转换请点「恢复方案」'
+  if (croppedBeads > 0) toastWarn(text)
+  else if (scaled || !silent) toastOk(text)
+  /* runWithBusy 会先把 generating 置 true 等一帧，等的是 regenerate 来收尾；
+     这条路不跑 regenerate，得自己复位，否则「生成中」永远转。 */
+  generating.value = false
+}
+
+/**
  * 当前画布该用哪种豆径。
  * 自动时按**分板规格**判断（见 boardSpec.js 的 autoBeadKey）：52 / 78 / 104 / 120 钉画线板 → 2.6mm 小豆，
  * 退到 29 格老规格（29 / 58 / 116 / 464…）→ 5mm 中号豆；
@@ -639,6 +834,17 @@ function historyLimit() {
 
 export const canUndo = ref(false)
 export const canRedo = ref(false)
+/**
+ * 这张图纸有没有被**手工改过**（画笔 / 橡皮 / 填充 / 吸色 / 镜像 / 换色）。
+ *
+ * 干什么用：新手版调尺寸或改颜色数会重新生成图纸，把手工改的格子冲掉。
+ * 模式切换与参数重算前要拿它当保护条件（见 composables/useBeginnerMode.js）。
+ *
+ * 为什么不用 undoDepth 判断：重新生成会清空历史栈，undoDepth 归零，
+ * 但「这张图被手改过」这件事本身不会因为重新生成而消失（用户还是想保留那份结果）。
+ * 重新生成 / 换方案 / 打开存档时由 clearHistory() 复位。
+ */
+export const manualEdited = ref(false)
 /** 可撤销 / 可重做的步数：按钮 tooltip 上直接告诉用户攒了几步 */
 export const undoDepth = ref(0)
 export const redoDepth = ref(0)
@@ -714,6 +920,8 @@ export function endEdit() {
   if (undoStack.length > historyLimit()) undoStack.shift()
   redoStack.length = 0
   saveStatus.value = '未保存'
+  /* 真的改动了 ⇒ 这张图纸带手工修改，模式切换 / 参数重算要拿它做保护判断 */
+  manualEdited.value = true
   syncHistoryFlags()
   return true
 }
@@ -747,13 +955,20 @@ export function revertEdit() {
   return restored
 }
 
-/** 清空历史（重新生成 / 换方案 / 打开存档时用：图纸换了，旧步骤没有意义） */
-function clearHistory() {
+/** 只清撤销 / 重做栈。格子整体挪位但图纸仍是用户手改的那张时用它（manualEdited 必须保留） */
+function clearUndoStacks() {
   undoStack.length = 0
   redoStack.length = 0
   editDepth = 0
   pendingSnap = null
   syncHistoryFlags()
+}
+
+/** 清空历史（重新生成 / 换方案 / 打开存档时用：图纸换了，旧步骤没有意义） */
+function clearHistory() {
+  clearUndoStacks()
+  /* 重新生成出来的图是「机器画的」，不带任何手工修改 */
+  manualEdited.value = false
 }
 
 /** 挂起的统计重算（哪一份方案还没算），见 replaceCells 的说明 */
@@ -1486,6 +1701,8 @@ export async function useImageFile(file) {
      只有抠背景没生效这种需要用户知道的失败才补一条短提示。 */
   const mobile = isMobileViewport()
   const ok = regenerate({ silent: mobile })
+  /* 生成失败时撤掉提示卡：卡上写的是「已生成图纸」，不能和失败 toast 同时出现。 */
+  if (mobile && !ok) fitNotice.value = null
   if (mobile && ok && options.removeBg) {
     const m = variants.value[0] && variants.value[0].matte
     if (m && !m.applied) toastWarn(`没能去背景：${m.reason || '未检测到明显背景'}`)
@@ -1646,27 +1863,86 @@ export async function useAsset(asset) {
 
 /* ------------------------------------------------------------------ 项目存档 */
 
+/* 存档是紧凑格式（见 lib/archive.js）：进度是位图字符串，这里还原成下标数组；
+   老存档里本来就是数组，unpackProgress 原样返回。
+   progressBeforeFinish（完成前的进度快照）也走同一套：1000×1000 完成一次是 100 万个下标，
+   按 JSON 数组存约 5 MB，比图纸本身还大 —— 必须一起压。 */
+function unpackProjectRecord(p) {
+  if (!p) return p
+  let out = p
+  if (typeof out.buildProgress === 'string') out = { ...out, buildProgress: unpackProgress(out.buildProgress) }
+  if (typeof out.progressBeforeFinish === 'string') out = { ...out, progressBeforeFinish: unpackProgress(out.progressBeforeFinish) }
+  return out
+}
+
+/* 落盘 / 上传那一刻才打包进度位图：内存里始终是下标数组（Build Mode 每标一颗都要改），
+   只在写 localStorage 与同步到账号时各压一次，两边不用各自记两套格式。 */
+function packProjectRecord(p) {
+  if (!p) return p
+  let out = p
+  if (Array.isArray(out.buildProgress) && out.buildProgress.length) out = { ...out, buildProgress: packProgress(out.buildProgress) }
+  if (Array.isArray(out.progressBeforeFinish) && out.progressBeforeFinish.length) out = { ...out, progressBeforeFinish: packProgress(out.progressBeforeFinish) }
+  return out
+}
+
 function readProjects() {
   try {
     const raw = JSON.parse(localStorage.getItem(LS_PROJECTS) || '[]')
     if (!Array.isArray(raw)) return []
-    /* 存档是紧凑格式（见 lib/archive.js）：进度是位图字符串，这里还原成下标数组；
-       老存档里本来就是数组，unpackProgress 原样返回。
-       progressBeforeFinish（完成前的进度快照）也走同一套：1000×1000 完成一次是 100 万个下标，
-       按 JSON 数组存约 5 MB，比图纸本身还大 —— 必须一起压。 */
-    return raw.map(p => {
-      if (!p) return p
-      let out = p
-      if (typeof out.buildProgress === 'string') out = { ...out, buildProgress: unpackProgress(out.buildProgress) }
-      if (typeof out.progressBeforeFinish === 'string') out = { ...out, progressBeforeFinish: unpackProgress(out.progressBeforeFinish) }
-      return out
-    })
+    return raw.map(unpackProjectRecord)
   } catch {
     return []
   }
 }
 
 export const projects = ref(readProjects())
+
+/* 存档写盘 / 同步的观察者。useProjectSync 在应用启动时注册，
+   保存、删除、完成作品、记进度都会走 persist()，同步层据此把改动推到服务端。
+   用回调而不是让 useStudio 直接 import 同步模块：同步模块要读 currentUser，
+   反过来 import 会形成循环依赖。 */
+let projectsPersistedListener = null
+export function onProjectsPersisted(fn) {
+  projectsPersistedListener = typeof fn === 'function' ? fn : null
+}
+
+/** 当前作品列表的「落盘格式」（进度已压成字符串），同步到服务端时用它。 */
+export function packedProjects() {
+  return projects.value.map(packProjectRecord)
+}
+
+/**
+ * 用服务端 / 另一台设备的作品列表替换本机存档。
+ *
+ * 传入的记录必须是落盘格式（进度是字符串）——服务端存的就是这个格式。
+ * 写盘失败时回滚内存里的列表，避免「界面显示有、刷新就没了」。
+ */
+export function applySyncedProjects(records) {
+  const incoming = (Array.isArray(records) ? records : []).map(unpackProjectRecord)
+  /* 服务端可能攒了多台设备加起来的作品，超过本机 localStorage 配额时不能整份写：
+     按列表顺序（服务端已按 updatedAt 倒序）装到装不下为止，至少让用户先看到最近的作品。 */
+  let list = incoming
+  if (charsOf(incoming.map(packProjectRecord)) > LS_SAFE_CHARS) {
+    list = []
+    let used = 2
+    for (const p of incoming) {
+      const size = charsOf(packProjectRecord(p)) + 1
+      if (used + size > LS_SAFE_CHARS) break
+      list.push(p)
+      used += size
+    }
+  }
+  const before = projects.value
+  projects.value = list
+  if (!persist()) {
+    projects.value = before
+    return false
+  }
+  if (currentProjectId.value && !list.some(p => p && p.id === currentProjectId.value)) {
+    currentProjectId.value = ''
+  }
+  return true
+}
 
 /** 数据量较大（116×116 = 13456 格，1000×1000 = 100 万格），限制内存里的项目数 */
 const MAX_PROJECTS_FREE = 3
@@ -1717,17 +1993,7 @@ function trimVariantsToFit(list, keepId) {
 function persist() {
   let text
   try {
-    /* 落盘那一刻才打包进度位图：内存里始终是下标数组（Build Mode 每标一颗都要改），
-       只在写 localStorage 时压一次，读回来再还原，两边不用各自记两套格式。
-       progressBeforeFinish 同理（1000×1000 是 100 万个下标，数组存不下）。 */
-    const payload = projects.value.map(p => {
-      if (!p) return p
-      let out = p
-      if (Array.isArray(out.buildProgress) && out.buildProgress.length) out = { ...out, buildProgress: packProgress(out.buildProgress) }
-      if (Array.isArray(out.progressBeforeFinish) && out.progressBeforeFinish.length) out = { ...out, progressBeforeFinish: packProgress(out.progressBeforeFinish) }
-      return out
-    })
-    text = JSON.stringify(payload)
+    text = JSON.stringify(packedProjects())
   } catch (e) {
     toastErr('作品数据序列化失败，请把这句话反馈给开发者')
     return false
@@ -1738,6 +2004,14 @@ function persist() {
     /* 把真实体积说出来：用户才知道"删一件旧作品"够不够 */
     toastErr(`本机存储空间不足（这次要写约 ${(text.length / 1048576).toFixed(1)} MB，浏览器上限约 5 MB），请删除一些旧作品再保存`)
     return false
+  }
+  /* 本机写成功之后再通知同步层：写盘失败时不该把「没存下」的版本传到服务端。 */
+  if (projectsPersistedListener) {
+    try {
+      projectsPersistedListener()
+    } catch {
+      /* 同步失败不影响本机存档 */
+    }
   }
   return true
 }
@@ -1777,6 +2051,10 @@ export function saveProject(name) {
     brandId: options.brandId,
     targetColors: options.targetColors,
     activeKey: activeKey.value,
+    /* 手工编辑标记跟着存档走：改过格子再保存的作品，重新打开后换尺寸
+       仍走「保留手工修改」那条路（没有这个标记，打开存档就被当成机器画的）。
+       老存档没有这个字段，读取端按 false 处理，行为与以前一致。 */
+    manualEdited: manualEdited.value,
     variants: variants.value.map(v => ({
       key: v.key,
       label: v.label,
@@ -1934,6 +2212,10 @@ export function openProject(id) {
       buildProgress.value = allBuildIndexes(pattern.value)
     }
     clearHistory()
+    /* 手工编辑标记从存档恢复（saveProject 存的；老存档没有按 false 算）：
+       clearHistory 只负责「旧撤销步骤失效」，不能把「这张图被手改过」一起忘掉，
+       否则重新打开的作品换尺寸会把手工修改重新生成掉。 */
+    manualEdited.value = !!proj.manualEdited
     saveStatus.value = '已打开存档'
     // 恢复预览：用图案自己画一张，不依赖原图
     rebuildThumbSource()
@@ -1991,6 +2273,11 @@ export function deleteProject(id) {
   projects.value = projects.value.filter(p => p.id !== id)
   persist()
   if (currentProjectId.value === id) currentProjectId.value = ''
+  /* 删除要同步到账号：否则另一台设备下次同步会把这件作品又带回来。
+     动态 import 避免 useStudio ↔ useProjectSync 的循环依赖。 */
+  import('./useProjectSync.js')
+    .then(m => m.queueProjectDelete(id))
+    .catch(() => { /* 同步层没加载成功时，本机删除仍然生效 */ })
   toastOk('已删除作品')
 }
 
@@ -2498,8 +2785,11 @@ export function zoomBy(d) {
  * silent 给「自定义尺寸实时预览」用：用户每改一次块数都会套用画布，每次都弹
  * 「已生成 N 个方案」会把提示栏刷满，而实时预览的反馈应该由输入框旁边那行字承担。
  * 失败（生成异常 / 无图）仍然会提示，不吞错误。
+ *
+ * scaleArt 只给「换钉板（底板变小）」用：底板装不下原图时，手改过的图按比例缩到
+ * 新成品区域，而不是把画面裁掉一半（2026-10-29 用户反馈）。
  */
-export function setCanvasSize(w, h, { silent = false } = {}) {
+export function setCanvasSize(w, h, { silent = false, scaleArt = false } = {}) {
   const max = maxCells.value
   /* 画布规格（容量）是这次的上限：成品尺寸只能在容量里缩，不能缩到比容量还大。
      容量由 ②「画布规格」写入（见 setCanvasCapacity），老存档容量 = 画布本身。 */
@@ -2515,6 +2805,16 @@ export function setCanvasSize(w, h, { silent = false } = {}) {
   if (cw === options.canvasW && ch === options.canvasH) return
   options.canvasW = cw
   options.canvasH = ch
+
+  /* 这张图纸被逐颗改过：换尺寸**不重新生成** —— regenerate 会按源图重新取样，
+     手工修改全被冲掉（2026-10-28 用户反馈：图纸转换后换钉板尺寸，
+     已经编辑好的图不要重置，只改钉板尺寸）。
+     旧格子 1:1 居中挪进新画布：放大补空格、缩小裁掉放不下的边；
+     想按新尺寸重新转换仍可点「恢复方案」。 */
+  if (manualEdited.value && variants.value.length) {
+    resizeVariantsPreserving(cw, ch, { silent, scaleArt })
+    return
+  }
 
   /* 改完画布尺寸必须重新生成。
      图案自己的 width/height 是生成那一刻定下来的，只改 options 的话
@@ -2543,7 +2843,10 @@ export function setCanvasCapacity(w, h, { silent = false } = {}) {
   const aw = Math.min(options.canvasW, cw)
   const ah = Math.min(options.canvasH, ch)
   if (aw !== options.canvasW || ah !== options.canvasH) {
-    setCanvasSize(aw, ah, { silent })
+    /* 底板换小了，原来的图放不下：手改过的图按比例缩到新的成品区域
+       （scaleArt），没手改过的图照旧按新尺寸重新取样 —— 两边画面大小一致，
+       不会一个缩小一个被裁掉（2026-10-29 用户反馈「切换钉板画面会裁掉」）。 */
+    setCanvasSize(aw, ah, { silent, scaleArt: true })
   } else if (!sourceUrl.value) {
     setCanvasSize(cw, ch, { silent: true })
   } else {

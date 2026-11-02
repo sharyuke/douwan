@@ -1,7 +1,334 @@
 # 豆玩 DOUWAN 工作区
 
 > 这个文件是给「以后在这个工作区干活的 AI」看的：先读这里，再看 [DEPLOY.md](DEPLOY.md)。
-> 最后更新：2026-10-29 深夜（**电脑端滚轮放大画布不再「跳回」**：用户说「电脑上用鼠标滚轮放大画布
+> 最后更新：2026-11-01 晚上（**首页关键词优化（品牌变体归首页）+ 百度推送卡在 token**：
+> 用户「优化关键词：豆玩图纸生成器，图纸生成器，豆玩，douwan，拼豆图纸生成器，豆玩拼豆图纸生成器。
+> 优化后推送给百度seo」。改法（`pindoudou` 的 `src/data/seo.js`）：首页 title 改成
+> 「豆玩图纸生成器 - 免费拼豆图纸生成器｜图片转拼豆图纸在线制作」、H1 改成「豆玩拼豆图纸生成器」、
+> description 与 lead 里带「豆玩 DOUWAN / 豆玩图纸生成器」、`SITE_SEO.keywords` 与首页 `related`
+> 补上 `douwan` / `豆玩图纸生成器` / `豆玩拼豆图纸生成器` / `图纸生成器`（全部指向 `/`，不另建页面）；
+> `HomeView.vue` 的 sr-only H1、`router` 的兜底 title、`/colors/` 与帮助页的站内锚文本同步改成
+> 「豆玩拼豆图纸生成器」，`verify-seo-v3.cjs` 的 H1 断言跟着改。已上线（`assets/index-CwZR1UcG.js`），
+> 线上 head 已核对、`verify-seo-v3 --url` 62/62（新增「浏览器标题与 SEO 文案一致」断言，
+> 顺手修掉探针里 `t(document.title)` 永远取到空串的老 bug）；前端 `pindoudou` `81564c7`+`db7a977`；
+> qq 回滚包 `/root/douwan-backups/dw-web-before-seokw-20261101-192603.tar.gz`。
+> 关键词库已同步进库（新增 4 条：douwan / 豆玩图纸生成器 / 豆玩拼豆图纸生成器 / 图纸生成器，
+> 首页共 10 条；意图冲突 0、页面字段自检 0）。
+> ⚠️ **百度推送没发出去**：`/etc/douwan/api.env` 里的 `DOUWAN_SEO_BAIDU_TOKEN` 是**空值**
+> （`awk` 量长度 = 0，之前只看「有没有这一行」误判成已配置），后台 `/admin/seo/config` 三个引擎
+> 全是 `configured:false`，`POST /admin/seo/push` 返回 `created:0 / skipped:0`。
+> 要推必须先拿到百度搜索资源平台的普通收录 token（ziyuan.baidu.com → 普通收录 → API 提交），
+> 填进 api.env 后 `systemctl restart douwan-api`，再调 push。临时管理员 `tmp_kw_seo`（id 37）
+> 用完已停用并软删，线上只剩真实管理员 `douwan`）；
+> 2026-11-01 晚上（**robots.txt 优化：显式放行主流搜索引擎与 AI 爬虫**：用户「优化robot.txt，
+> 允许爬虫来扫我」。改法（`douwan-api` 的 `internal/service/seo.go`）：把 robots 拆成三组 ——
+> `*`（其它爬虫）、主流搜索引擎（Baiduspider / Googlebot / Bingbot / Slurp / Sogou web spider /
+> 360Spider / HaosouSpider / YisouSpider / PetalBot / Applebot / DuckDuckBot）、
+> AI 爬虫（GPTBot / OAI-SearchBot / ClaudeBot / Claude-SearchBot / PerplexityBot /
+> Google-Extended / CCBot / Bytespider），全部 `Allow: /`。
+> **顺手修掉一个真 bug**：旧版给 Baiduspider / Googlebot / Bingbot 单独开的分组只有 `Allow: /`、
+> 没有 Disallow —— 按 robots 规范爬虫只认与自己名字匹配的那一组、`*` 组对它不再生效，
+> 等于这三家被「放行」到 /admin 与 /api/ 里去了。现在私有路径清单（`robotsPrivatePaths`，
+> 新增 `/project-materials`）在每一组里原样重复，`seo_test.go` 的 `TestSeoRobots` 解析分组、
+> 断言「每组 Disallow 与 `*` 完全一致」+「公开页面不被任何组挡住」。
+> 另加 `HEAD /robots.txt` 与 `HEAD /sitemap.xml`：以前 HEAD 落到 NoRoute 回 404，站长工具 / 监控
+> 用 HEAD 探测会以为站点没有 robots.txt。nginx 没有屏蔽任何爬虫 UA，robots 是唯一入口。
+> 验证：`go vet` + `go test ./...` 全绿（handler 的 `TestSmsCodeExpiresAndAttempts` 并发下偶发超时，
+> 单独跑通过，与本次无关）、线上 `curl /robots.txt` 三组齐全、HEAD 200 且 `Content-Type: text/plain`、
+> `verify-seo-v3.cjs --url` 59/59。后端 `douwan-api` `0906c1a`，已上线，
+> qq 回滚包 `/opt/douwan-api/bin/server.bak-robots-20261101-191622`）；
+> 2026-11-01 下午（**网站升级公告弹窗上线**：用户「做个网站升级的公告弹窗，首次打开时弹出」。
+> 交付包 `Z:\拼豆\网站升级公告\` 实际只有 07 命令与 04 视觉索引两张，其余 6 个文件缺失。
+> 新增 `src/components/notice/UpgradeNotice.vue`（标题 / 正文 / 按钮都是真实 DOM，不是整图）；
+> `BaseDialog.vue` 加 `bare` / `dialogClass` 与默认插槽的 `close`（默认行为不变），`App.vue` 只挂一处；
+> `sessionStorage['douwan-upgrade-notice']` 关闭后同会话不再弹。
+> 「继续使用」= 关闭 + 不在 `/editor` 时 `router.push('/create')`；「我知道了」/ X / Esc / 遮罩只关闭，
+> 编辑器里路由与作品都不动。PC 620px 居中、手机收窄到 `100vw - 24px`。
+> 自检 `pnpm verify:upgrade-notice`（24 项：文案逐字、居中、按钮可用、继续使用进 /create、刷新不再弹、
+> 编辑器 Esc/X 只关闭、手机 390×844、既有弹窗标题栏仍在），本地与线上全绿；
+> 线上全站 84 页 0 错误（只有 404 页自身那条 404）。前端 `pindoudou` `09d27f6`，已上线，
+> 线上产物 `assets/index-Ddi-IzP_.js`；qq 回滚包
+> `/root/douwan-backups/dw-web-before-upgrade-notice-20261101-131426.tar.gz`。
+> 差异：左下装饰用站点现有 `hero-bean-smiley.png`（白底，CSS `mix-blend-mode:multiply` 并进卡面），
+> 右下气泡里用 `brush.png` 替代扳手，徽章用圆角替代切片的像素阶梯描边）。
+> 2026-11-01 中午（**换尺寸分两部分缩放：原图按原图、手改按修改时的尺寸**：
+> 用户「缩放的时候，分为2部分，一部分是原图缩放，一部分是修改过后的部分缩放，原图部分的缩放不要变，
+> 不管是那个尺寸都按照原图来缩放，保证在各个尺寸下的效果都是按照原图来的，然后修改的部分，
+> 要按照修改时候所在的尺寸进行缩放」。改法（`useStudio.js`）：新增**修改层 `editLayer`**
+> （`{ w, h, mask, cells, palette }`，分辨率 = 改那一刻的成品网格）；`recordEdits` 把每一笔改动按
+> 成品区域相对坐标写进层里（层不够大才按块放大，`growEditLayer`）；`setCanvasSize` 有**真原图**
+> （`sourceUrl && !sourceFromPattern`）时**每次换尺寸都 `regenerate()` 按原图重新取样**，再把修改层
+> 投影回去（`applyEditLayer` 面积加权投票：放大一颗铺满对应块、缩小块内多数者胜）——
+> 原图部分永远来自原图，手改保留改那一刻的精度（104 上改的一颗，缩到 52 再放回 104 仍是那一颗；
+> 52 上改的一颗，放大到 104 是 2×2）。老存档的源图是按图纸重建的（`sourceFromPattern`）不算原图，
+> 保持原来的按块缩放（`resizeVariantsPreserving` + 底稿），不去假装重新取样。
+> 修改层随快照 / 撤销走；存档只在「层比保存时的网格更细」时写 `extra.layer`（`[w, h, x, y, id, …]`，
+> null = 擦掉），`openProject` 读回；同分辨率时 `editMap` 已能完整复原，不重复存。
+> 左栏尺寸说明行改成「画面已按原图缩放到 X × X 格（手工修改按原尺寸保留）」。
+> 自检：`verify:size-guard` 重写为 8 条路径（原图重新取样 + 修改层投影；104→52→104 仍是那一颗；
+> 52 上改的一颗放大成 2×2；存档往返；老存档仍按块缩放），桌面 + 手机；
+> `audit-board-resize` 11 场景 × 4 视口改成断言 `regenerated === true`（C2 只换钉板仍是 1:1 平移）
+> 并用 `projectEditKeys` 按修改层投影算期望格子。
+> 验证：本地与线上 `verify:size-guard`（桌面 + 手机）/ `verify:art-scale` / `verify:board-crop` /
+> `verify:board-resize`（11 场景 × 4 视口）全绿，全站 84 页 0 错误（只有 404 页自身那条）、
+> `verify:beginner` 本地 217/217 / 线上 245/245、`verify:pattern` 指纹不变、`verify-archive` 全过。
+> 前端 `pindoudou` `7b88ca3`（隔离 worktree `.tmp/wt-split`，分支 `feat/split-scale`，rebase 到 `fb6cd93`），
+> 已上线，线上产物 `assets/index-BjOBgeZR.js`；qq 回滚包
+> `/root/douwan-backups/dw-web-before-split-scale-20261101-123618.tar.gz`）；
+> 2026-11-01 上午（**手机验证码登录入口先隐藏，等短信资质审核通过再放出**：
+> 用户「把手机登录的功能先隐藏，审核通过后再放出来」。`LoginDialog.vue` 加开关
+> `SMS_LOGIN_ENABLED = false`：弹窗不再问 `/auth/sms/status`、不渲染手机号 / 验证码表单与
+> 「手机号登录 / 邮箱登录」页签，只留微信 + 邮箱；隐私说明里那句手机号也一起收起。
+> 审核通过后把这个常量改成 true 即可恢复（表单、`loginWithSmsCode`、后端接口都在）。
+> `scripts/verify-sms-login.cjs` 默认改验「入口确实不出现」（服务端配没配短信都不出现、
+> 没有手机号输入框、不发 `/auth/sms/*` 请求），完整流程用 `SMS_LOGIN_RELEASED=1` 跑。
+> 验证：本地 mock 自检 10/10、全站 84 页 0 错误（只有 404 页自身那条）、
+> `audit-login-public` 桌面 / 平板 / 手机全过（邮箱注册登录、微信入口都正常）；
+> 线上真浏览器复核首页与账号页登录弹窗（4 档视口）：无页签、无手机号表单、邮箱表单可见、
+> 0 条 `/auth/sms/*` 请求、console 报错 0；`/` `/create` `/editor` `/account` `/colors/` 全 200。
+> 前端 `pindoudou` `fb6cd93`，已上线，线上产物 `assets/index-C9Rp1uue.js`；
+> qq 回滚包 `/root/douwan-backups/dw-web-before-smsoff-20261101-115921.tar.gz`）；
+> 2026-10-31 深夜（**缩小再放大不再丢细节：每个方案留一份最大网格的底稿**：
+> 用户「缩小之后再放大，细节全部丢失了…应该把修改的数据按原图尺寸贴上数据之后，再根据这个数据缩放」。
+> 改法（`useStudio.js`）：每个方案（底稿与 `active` 各一份）在内存里留 `master = { artW, artH, cells, palette }`，
+> **只存成品区域**；生成 / 打开存档后第一次换尺寸时由当前画面懒建（`ensureMaster` / `masterFromPattern`）。
+> 换尺寸一律 `projectMasterArt()` 从底稿投影（每格取覆盖块内多数色；放大时块落在一格内 ⇒ 按比例铺满），
+> 缩到 52 再放回 104 时 `aw === master.artW` ⇒ 原样返回、**细节一颗不少**；放大到比底稿还大时
+> 把投影结果升格成新底稿。在更小尺寸上逐颗改的格子由 `bakeEditsIntoMaster` 按比例写回底稿对应的那一块
+> （擦掉 = EMPTY、新色号补进底稿色板），换回大尺寸时修改还在原处；快照 `snapshotOf` / `applySnapshot`
+> 带 `master` 引用（底稿不可变），撤销连底稿一起回退。**底稿不进存档**（体积翻倍），打开存档时底稿 = 存档网格。
+> 说明行：放大「从留底细节还原，颜色不变」/ 缩小「细节按块合并，留底不变，放大回来会恢复」。
+> 自检：`verify:size-guard` 新增第 ⑦ 条（104→52→104 逐格一致、`detailDiff=0`、缩小尺寸上改一格放回 104 后
+> 原图对应那块是改过的色），桌面 + 手机；`verify:board-resize` 新增 J 场景（11 场景 × 4 视口）。
+> 验证：本地与线上 `verify:size-guard` / `verify:board-resize` / `verify:art-scale` / `verify:board-crop` 全绿，
+> 全站 84 页 0 错误、`verify:beginner` 245/245、`verify:pattern` 指纹不变、`verify-archive` 全过。
+> 前端 `pindoudou` `239448c`，已上线，线上产物 `assets/index-dyT1hSwb.js`；
+> qq 回滚包 `/root/douwan-backups/dw-web-before-master-20261031-215343.tar.gz`）；
+> 2026-10-31 晚（**换尺寸只缩放工作区当前图纸，不回源图**：
+> 用户「改变尺寸缩放的时候，从工作区读取最新的数据进行缩放，不要用源文件进行缩放」。
+> 改法（`useStudio.js`）：`setCanvasSize` **不再调用 `regenerate()`**，一律走
+> `resizeVariantsPreserving` —— 放大 = `resampleArtCells` 每颗旧豆按比例复制（颜色一颗不变）；
+> 缩小 = 每格取覆盖它的旧格里出现最多的色（块合并，允许少色、绝不长新色）；
+> 手改记录 `editMap` 由 `remapEditMap` 跟着格子按比例映射；只换钉板仍 1:1 平移；
+> 想按原图重新转换走「恢复方案」。当天前两版（锁色号 `lockedPalettes`、放大锚旧豆
+> `anchorOldCells`）连同 `lib/pattern.js` 的 `lockedPalette` 分支一并删除 ——
+> 它们都要先回源图取样。说明行：放大「每颗豆按比例复制，颜色不变」、缩小「细节按块合并」。
+> 自检：`verify:size-guard` 的 ①③④⑤ 改成「mismatch ≈ 0（按当前图纸复制）」+ 色号不变 +
+> `anchorsMatch`；缩小改成「不长出新颜色」；`audit-board-resize` 的 A/C/G 改成断言
+> `regenerated === false`（不回源图重生成）。
+> 验证：本地与线上 `verify:size-guard`（桌面 + 手机）/ `verify:art-scale` / `verify:board-crop` /
+> `verify:board-resize`（10 场景 × 4 视口）全绿，全站 84 页 0 错误、`verify:pattern` 指纹不变。
+> 前端 `pindoudou` `6357313`，已上线，线上产物 `assets/index-C9-b453p.js`；qq 回滚包
+> `/root/douwan-backups/dw-web-before-scale-live2-20261031-*.tar.gz`）；
+> 2026-10-31 晚（**新拖进来的图保存成新作品，不再覆盖已打开的作品**：
+> 用户「新拖进来的作品保存不要替换旧作品」。根因：`saveProject` 按 `currentProjectId`
+> 判断覆盖还是新建，而「打开一件作品 → 再拖一张新图进来」时这个 id 还指着旧作品 ⇒
+> 点保存把新图写进旧作品，旧作品的图纸 / 名字 / 缩略图全被换掉，且没有任何提示。
+> 改法（`useStudio.js` 的 `loadImageSource`，本地上传 / 素材库素材 / AI 素材的共同入口）：
+> 载入新图时先解除 `currentProjectId` 关联、状态置回「未保存」、清掉旧图纸的拼制进度；
+> 保存走新建分支，旧作品原样留在「我的作品」里。打开存档走 `openProject`（不经过
+> `loadImageSource`），改存档再保存仍更新同一件。⚠️ 不做「覆盖当前作品」的开关，
+> 想改已有作品请打开它再改；新图想接着旧作品用「另存」目前没有入口（用户没要）。
+> 自检：新增 `scripts/audit-new-save.js`（`verify:new-save`），走真实上传 + 真实保存按钮
+> （桌面顶栏「保存」/ 手机「更多 → 保存作品 → 弹层确认」），30 项钉住：新图不挂旧作品、
+> 旧作品本机存档逐字节不变、打开旧作品图纸指纹（宽高/色号数/豆子数/逐格哈希）一致、
+> 改一格保存仍更新同一件、打开旧作品后拖新图再另建一件；桌面 + 手机两档视口。
+> 对着改动前的构建复跑：11 项失败（旧作品被新图覆盖）—— 探针确实能抓住这个 bug。
+> 验证：本地与线上 `verify:new-save` 全绿（3 个 editor 页面 × 2 视口，console 报错 0）、
+> 全站 84 页 0 错误（线上只有 404 页自身那条）、`verify:beginner` 217/217（线上 245/245）、
+> `verify:create` / `drop` / `photo` / `mobile` / `finish` 全绿；线上 `verify:size-guard`
+> 用 `6357313` 那版脚本跑过（本机旧脚本对不上新口径，别用旧版验收）。
+> 前端 `pindoudou` `e5992c5`，已上线（并行会话的 `6357313` 叠在上面一起发布，
+> 线上产物 `assets/index-C9-b453p.js`）；qq 回滚包
+> `/root/douwan-backups/dw-web-before-newsave-20261031-210708.tar.gz`）；
+> ⚠️ 顺带记录：`verify:home`（`scripts/audit-home-upload.js`）在改动前后**都**超时
+> （探针按「点上传按钮就跳 /editor」写的，现在按钮是触发文件选择），是旧探针失配，
+> 与本次改动无关；要修得先重写那条探针的入口假设。
+> 2026-10-31 晚（**放大只加细节，旧豆颜色一颗不变**：
+> 用户接着反馈「还是没改到，保存的作品再编辑时，放大尺寸有些像素的颜色发生了变化，
+> 我的唯一要求是可以另加细节，但是保持原有颜色不变」。只锁色号挡不住「同一颗豆从 A9
+> 换成邻近的 G12」—— 重新取样会改个别格子。改法（`useStudio.js`）：
+> `setCanvasSize` 重新取样前 `capturePatterns()` 记下每个方案的旧图纸；取样后
+> `anchorOldCells()` 把每颗旧豆按**旧格中心**落到新网格（`nx = floor((x+0.5)*新宽/旧宽)`），
+> 颜色按色号 id 找回（新方案缺就补进调色板）；新网格其余格子用取样结果补细节。
+> 缩小不锚（几颗并成一颗，必然合并）。顺序：先锚旧豆、再落手改（手改优先）。
+> 说明行新增「（颜色保持不变）」。
+> 自检：`verify:size-guard` 的 ①③⑤ 新增 `anchorsMatch`（逐颗旧豆比对新网格锚点颜色）。
+> 前端 `pindoudou` `07d93f1`，已上线，线上产物 `assets/index-Dyj52F_N.js`；qq 回滚包
+> `/root/douwan-backups/dw-web-before-anchor-20261031-*.tar.gz`）；
+> 2026-10-31 晚（**换尺寸锁色号：只调图案大小，不自动改颜色**：
+> 用户「保存过的作品再改变尺寸大小不要自动改变颜色，保留保存时的色彩，只调整图案大小」。
+> 改法：`setCanvasSize` 在重新取样前把每个方案当前的 `palette` 收成 `lockedPalettes` 传给
+> `regenerate`；`lib/pattern.js` 的 `generateFromCells` 收到 `lockedPalette` 后**跳过 `quantize`
+> 选色**，直接把每格映射到这套色号里最近的一个，并**跳过智能减色 / mergeRare**（合并会吃掉色号）；
+> 几何仍按源图重新取样（放大长细节、缩小块合并），色号集合逐格不变。
+> 主动改「颜色数量 / 色板」不带锁，照旧重新选色。
+> 自检：`verify:size-guard` 的 ①②③⑤ 全部新增「色号集合完全相同」断言（`sameColors`），
+> 放大 mismatch 仍 ≈ 0.04~0.05（细节还在）。与并行会话的智能减色 `761e01a` rebase 合并，
+> 锁色号时智能减色不参与；`verify:pattern` 指纹不变。
+> 前端 `pindoudou` `61d19a1`，已上线，线上产物 `assets/index-D3bVPEcB.js`；qq 回滚包
+> `/root/douwan-backups/dw-web-before-palette-lock2-20261031-*.tar.gz`）；
+> 2026-10-31 深夜（**智能减色上线 + 去杂色 / 相近色合并优化**：
+> 用户要求「优化一下自动去除孤立豆和相近色自动合并，去掉杂色，减少色彩数量的问题」。
+> ① **合并 `feat/smart-colors`**（2026-10-28 的 `d15cc7b`，一直没合进 master）：
+> 按图片复杂度 + 画布大小建议色数（用户目标色数只当上限），映射后用并查集合并
+> 视觉相近色号，轮廓 / 五官 / 结构色有感知护栏；专业版 ④ 与新手版第 ② 步各有开 / 关
+> （`options.smartColors`，默认开、随设置持久化）；关闭时与旧算法逐位一致。
+> 合并时 `useStudio.js` / `EditorSidebar.vue` 有冲突，均按 master 新版保留 +
+> 补 `smartColors` 选项与两处 `smart: options.smartColors`。
+> ② **去杂色**（`pattern.js` 新增 `cleanupSpecks`）：按 4 邻接连通块处理 1~2 颗碎点，
+> 整块并进四周主色（ΔE00 ≤ 18），每轮快照判定、改完整体替换，最多 3 轮收敛 ——
+> 旧 `cleanupIsolated` 只扫一遍、只认单颗，成对 / 链式杂点会漏掉。
+> 智能减色开启且勾选「去孤立豆」时走它，关闭时保持旧算法（指纹逐位一致）。
+> ③ **结构护栏修正**（`smartReduce.js`）：结构占比只统计 **≥4 颗的连通块** ——
+> 1~2 颗的碎点四邻天生全是别的颜色，按逐格算永远是 100% 结构色，旧口径反而给杂色
+> 发了免死金牌；新增第④档「整色碎点」：≥60% 的豆落在 1~2 颗小块、用量 ≤2%、
+> 结构占比 <25% 的色号允许并到 ΔE00 ≤ 12；合并后实时维护 dst 的碎点占比。
+> **实测**（`bench-smart`，5 图 × 58/116 格 × 16/48 色 × easy/high）：
+> 色号总数 435 → **262（−40%）**（优化前 290 / −33%）；dEcell 平均 +0.3%，
+> dEview 平均 +0.2%、最差单条 +0.619（ΔE00 < 1 肉眼不可见）；孤立豆天空 20→5、
+> 平涂卡通 43→0；豆子总数逐条不变。1000 格：smart 开 809ms / 关 677ms、
+> 色号 19→15、孤立豆 5→1。
+> 验证：`pattern-fingerprint` 对比 master 基线逐位一致（关闭路径）、`bench-smart`
+> 确定性断言、`audit-smart`（12 页 × 18 项）、`audit-smart-beginner`（4 视口 × 11 项）、
+> `verify-beginner` 本地 217/217 / 线上 245/245、全站 84 页 0 错误（线上只有 404 页
+> 自身那条按设计的 404）、线上 `verify-size-guard` 与 `board-resize` 全绿；外网 200。
+> 前端 `pindoudou` `761e01a`（合并 `8549198` 后成 `8ab5634`），已随并行会话的
+> `61d19a1` 上线，线上产物 `assets/index-D3bVPEcB.js`；qq 回滚包
+> `/root/douwan-backups/dw-web-before-smartcolors-*.tar.gz`）；
+> 2026-10-31 晚（**工作台禁用文字选择**：用户要求「工作台禁用文字选择」。
+> `src/styles/global.css` 里给 `.studio`（专业工作台根节点）及其后代统一 `user-select:none` ——
+> 画布上拖笔、连点工具、拖滑杆、手机长按都不会再顺手选中界面文字；输入框 / textarea /
+> 可编辑区域显式恢复 `user-select:text`，改名与填尺寸照旧能选中内容。规则只挂在 `.studio` 上，
+> 操作台 `/create`、首页与其它页面不受影响。
+> 验证：真 Chrome + 真鼠标拖拽（CDP `Input.dispatchMouseEvent`）对着线上跑 7 项断言全过 ——
+> 工作台根节点与文字节点 `user-select=none`、左栏拖拽后选中为空、输入框仍是 `text` 且能选中、
+> 手机视口（390×844）拖拽为空、对照页 `/help` 文字仍可选中；线上 `/editor` / `/editor?tab=library` /
+> `/editor/p_*` / `/create` 四档视口自检 16 项 0 报错、无横向溢出。
+> 前端 `pindoudou` `8549198`（隔离 worktree `.tmp/wt-select`，分支 `feat/no-text-select`），已上线，
+> 线上产物 `assets/index-B1yrk6Lb.js`；qq 回滚包
+> `/root/douwan-backups/dw-web-before-noselect-20261031-195813.tar.gz`）；
+> 2026-10-31 晚（**改尺寸不再弹层：重新取样 + 手改按比例落回**：
+> 用户贴「放大要重新生成图纸」弹层说「我不要这样，也不要放大了就变模糊……改过的图放大缩小
+> 就只是放大缩小……放大后会增加细节，但不要遮盖改过的豆子，也不要重新生成，放大图案的最大值
+> 放到选择画布的边界的最大值」。改法（`useStudio.js` + `EditorSidebar.vue`）：
+> ① 图纸新增**手改记录 `editMap`**（`Map<格子下标, {id,color}|null>`，null = 擦掉）——
+> `endEdit` 用**手势前的快照**逐格比对得出（必须在 `flushPendingStats()` 之前，否则 palette
+> 重排后下标对不上），快照 / 撤销 / 重做 / 存档都带着它走；
+> ② `setCanvasSize` **有源图一律重新取样**，再把 `collectEditsByKey()` 取出的手改按
+> `floor(x*新宽/旧宽)` 落回（颜色按色号 id 找回，方案里没有就补进调色板）；
+> 落回成功 `manualEdited = true`、说明行写「手工修改已保留」；
+> ③ **弹层整个删掉**（`sizeGuard` / `sizeMode` / `keepEdits` / `BaseDialog` 全删）——
+> 只换钉板（成品区域不变）仍 1:1 平移、不重生成；没有源图 / 老存档没记手改 → 按块缩放兜底
+> （`remapEditMap` 按比例映射）；
+> ④ **滑杆上限 = 画布规格**（`capLong` / `canvasCapW/H`）：图案放到最大正好撑满底板，不超出不被裁；
+> ⑤ 存档把 `editMap` 稀疏打包成 `[x, y, id, …]`（上限 20000 条）存进 `packPattern` 的 `edits`，
+> `openProject` 读回；老存档没有此字段 = 没手改过。
+> 自检：`verify:size-guard` 重写成 6 条路径（手改放大不弹层且落回原位同色号、mismatch ≈ 0.05
+> 证明细节变多 / 缩小落回 / 存档往返 / 没手改过 / 老存档 / 滑杆 max = 底板且拖满撑满），
+> 桌面 + 手机两种视口；`verify:art-scale` 清掉旧弹层点击；`audit-board-resize` 10 场景 × 4 视口
+> 改成断言 `editMap` 键位按比例映射 + 包围盒等比缩放。
+> 验证：本地与线上 `verify:size-guard` / `verify:art-scale` / `verify:board-crop` /
+> `verify:board-resize`（10 场景 × 4 视口）全绿，全站 84 页 0 错误（只有 404 页自身那条 404）、
+> `verify:beginner` 217/217。
+> 前端 `pindoudou` `2256526`（隔离 worktree `.tmp/wt-size`，分支 `feat/size-no-guard`），已上线，
+> 线上产物 `assets/index-DK-8jDnT.js`；qq 回滚包
+> `/root/douwan-backups/dw-web-before-size-no-guard-20261031-*.tar.gz`）；
+> 2026-10-31 深夜（**放大不再发虚：带源图快照的存档同享「落色 + 最近邻」**：
+> 用户反馈「从保存作品里点出来的图放大后仍然分辨率不清晰」—— 上一轮（`4e2cc53`）只修了
+> 老存档（没带源图、按图纸重建源图）那条路；带 512px 源图快照的存档（`openProject` 的
+> `proj.source` 分支）走的是原样双线性插值 + 面积平均采样，放大后边缘混出中间色，
+> 量化长出原图没有的邻近色（临时探针实测 51×63 → 70×87 多出 17 个色号）。
+> 改法（都在 `useStudio.js`）：① 快照打开时在内存里平滑插值到 `REBUILD_SOURCE_SIDE` 并
+> **落色到当前方案自己的调色板**（`active.palette` 的 code/hex），再当源图；存档里那份
+> 512px 快照原样保留（`sourceSnapshot` 不动，localStorage 体积不涨）——
+> `sourceFromPattern` 保持 false，`saveProject` 照旧带快照；
+> ② `rebuildSourceGrid` 在快照分支也置位，`sourceNearestOpt` 删掉
+> `sourceFromPattern === true` 的条件（它在这条路上本来就是 false，把最近邻挡死了）；
+> ③ **落色目标只用当前方案的调色板**：用所有方案的并集会让放大后的最近邻采样从别的
+> 方案的颜色里投票，长出当前方案没有的色号（实测并集时 70×87 多出 7 色：
+> E21/F18/G1/G16/G2/G9/M4）。
+> 探针实测（临时脚本 `probe-snap.cjs`，已删）：放大后色号 33 → 33、extra/missing 均空。
+> `verify:size-guard` 的 ④（存档往返）判据从 mismatch 改成「颜色集合不涨」，与 ⑤⑦ 一致。
+> 验证：本地与线上 `verify:size-guard`（7 条路径）/ `verify:art-scale` / `verify:board-crop` /
+> `verify:board-resize`（9 场景 × 4 视口）全绿、全站 84 页 0 错误、`verify:beginner`
+> 本地 217/217 / 线上 245/245；外网复核 https 200。
+> 前端 `pindoudou` `b545fa5`（接在 `4e2cc53` 之上），已上线，
+> 线上产物 `assets/index-BKpAWnyq.js`；qq 回滚包
+> `/root/douwan-backups/dw-web-before-snapfix3-*.tar.gz`）；
+> 2026-10-31 深夜（**放大不再发虚：图纸重建源图「落色 + 最近邻」，颜色一格不错**：
+> 用户上午贴「放大只能按块复制」弹层、下午贴工作台截图问「为什么这个尺寸变大了之后就变模糊了」
+> （作品「131」，老存档 51×63 放大到 70×87，三连反馈：①不能一块一块 ②不能发虚
+> ③「像以前一样放大后分辨率不变，细节更细」）。最终口径（`useStudio.js` + `lib/pattern.js`）：
+> **插值管几何、落色管颜色、最近邻管采样** ——
+> ① `rebuildThumbSource()` 底子**透明**（逐格画非空格色，不铺 `patternBitmap` 的灰底，
+> 否则去背景空格放大后全变白豆）；
+> ② 双线性插值到 `REBUILD_SOURCE_SIDE = 1024` 后**落色**：每像素收回图案本来的色
+> （15-bit 色桶 → 最近色 LUT）+ **alpha 二值化**（半透明像素泛白，最近邻采到就镶白边）；
+> ③ 落过色的源图必须存**无损 PNG**：有损 WebP 0.9 会扰动色值，重新取样被量化到邻近色号
+> （实测 33 色又长出 9 个邻近色，这个坑是靠对比色号集合抓出来的）；
+> ④ `resampleRGBA` 加 `nearest` 参数 + `generateFromPixels` 认 `opts.sourceNearest`
+> （`useStudio.sourceNearestOpt`：源图是图纸重建的、且这次网格 ≥ 重建时网格 ⇒ true；
+> 缩小不传，块合并靠面积平均）+ 投票门槛降到 `1/(SS·SS)`（平票取真色，绝不混中间色）。
+> 实测「131」放大到 70×87：**33 色一个不多一个不少、空格 2637（≈等比缩放）、脆边**。
+> 验证：`verify:size-guard` 判据改了 —— ⑤⑦（老存档放大）从「mismatch ≥ 0.02」改成
+> 「颜色集合不涨（≤ 旧色数 + 2）+ mismatch ≤ 0.5」，本地与线上全绿；
+> `verify:art-scale` / `verify:board-crop` / `verify:board-resize`（本地 + 线上）、
+> 全站 84 页 0 错误、`verify:beginner` 217/217；线上复现「131」场景 4 项断言全过
+> （色号集合逐个比对完全一致）。前端 `pindoudou` `4e2cc53`，已上线，
+> 线上产物 `assets/index-C4Qimq3t.js`（当天第 3 版：`C0RWGiFO` → `BjdH4_O6` → 这版）；
+> qq 回滚包 `/root/douwan-backups/dw-web-before-blurfix2-*.tar.gz`）；
+> 2026-10-31 下午（**放大成品尺寸一律重新取样，老存档源图按图纸平滑重建**：
+> 用户贴「放大只能按块复制」弹层截图说「不管是不是作品存档打开的，放大了画面细节就要变多，
+> 绝对不能出现一块一块的情况」。改法：
+> ① `rebuildThumbSource()` 只取**成品区域**（把整块底板当源图的话放大后画面会缩进中间一小块、
+> 四周全是留白灰，第一次跑验收就栽在这）、双线性插值到 `REBUILD_SOURCE_SIDE = 1024` 当源图 ——
+> 采样口径是「源图 ≥ 成品网格 ⇒ 面积平均；源图 < 网格 ⇒ 最近邻（变块）」（`lib/pattern.js`
+> 的 `maxUsefulSupersample`），1024 保证 936 格以内怎么放大都落在面积平均那一侧，
+> 格子边界变成过渡带，放大长出过渡色；data URL 优先 WebP 0.9，iOS Safari 回退 PNG；
+> ② 新存档的 512px 源图快照在 `openProject` 时**内存里**平滑插值到 1024（存档里那份 512 快照
+> 原样保留，localStorage 体积不涨），512 格以上的放大不再退化成最近邻；
+> ③ `setCanvasSize` 删掉 `sourceFromPattern` 例外，放大一律重新取样 —— 老存档的手改就画在
+> 源图里，平滑放大什么都不丢；④ 删掉「放大只能按块复制」弹层与「按块放大」按钮，
+> 保护弹层只剩「真原图 + 手改过」一种；缩小保留手改（按块合并）不变；
+> ⑤ 老上传的小图（< 成品网格）没动（抠图输入不能变，`verify:matte` 的 IoU 判据在盯着）。
+> 自检 `pnpm verify:size-guard` ⑤⑦ 改判「不弹层 + 平滑放大（mismatch 0.02~0.5）」。
+> 验证：本地与线上 `verify:size-guard` / `verify:art-scale` / `verify:board-crop` /
+> `verify:board-resize`（9 场景 × 4 视口）全绿，全站自检 84 页 0 错误（只有 404 页自身那条 404）、
+> `verify:beginner` 245/245、`verify:seo-v3` 59/59。
+> 前端 `pindoudou` `0dbbb8e`（基于线上 `84471f3` 在隔离 worktree `.tmp/wt-zoomdetail` 做的，
+> 分支 `feat/zoom-resample`），已上线，线上产物 `assets/index-C0RWGiFO.js`；
+> qq 回滚包 `/root/douwan-backups/dw-web-before-zoom-smooth-20261031.tar.gz`）；
+> 2026-10-29 深夜（**统一创作工作台（未发布，分支 `feat/unified-workbench`）**：
+> 按 `Z:\拼豆\网站需求文档\DouWan_Grok交互整改.zip` 把「新手三步 + 专业三栏」两套界面收成一套 ——
+> `/create` 跳 `/editor`，删掉 `BeginnerView` / `BeginnerWizard` / `BeginnerSelect` / `BeginnerAdjust` /
+> `BeginnerExport` / `ModeSwitchDialog` / `useBeginnerMode` 与顶栏模式开关；顶栏三主线常驻
+> （上传/换图 · 编辑图纸 · 导出图纸），画布占中间，右栏「当前作品」（预览 + 成品尺寸/豆子数量/颜色种类 +
+> 色卡 + 保存），精细设置固定四类（图片处理 / 尺寸与画板 / 颜色与色卡 / 图纸与分板；电脑右侧面板、
+> 平板右侧抽屉、手机底部抽屉四标签），点分类就地出控件、开关面板不重算图纸；手改过的图重算前先问
+> 「保留当前图纸 / 重新生成」。交付文档 `pindoudou/docs/unified-workbench.md` + 三端实拍截图
+> `pindoudou/docs/unified-workbench/`；新增 `scripts/verify-unified-workbench.cjs`（33 项），
+> 旧 `scripts/audit-mobile.js` 随旧版面退休（`verify:mobile` 改指统一工作台自检）。
+> ⚠️ 上游 `eb115d9` 的尺寸保护弹层与本次的 `useEditGuard` 是同类提醒的两个入口，触发条件不同、互不冲突，
+> 但文案可再统一。**没有发布**：没推 origin、没动 qq。本地预览 `http://127.0.0.1:4173/editor`）；
+> 2026-10-29 深夜（**放大成品尺寸一律按原图重新取样**：用户第二次贴同一张
+> 「104 × 104 的马赛克图纸」问「放大缩小尺寸为什么会出现这样的情况」。两个来源都堵掉：
+> ① 手改过的图纸放大时走「保留手改 = 按块复制」，出来就是一片块；
+> ② 从「我的作品」打开的作品**没有原图**，`rebuildThumbSource()` 只能拿图纸重建一张
+> 低分辨率位图当源图，所以「重新生成」等于把画面按块放大 —— 而且没手改时**完全不提示**，
+> 用户只会看到画面突然变块。改法：`setCanvasSize` 里按方向分流 —— **放大 = 按原图重新取样**
+> （手改过的图先弹层确认「要清晰就得放弃手改，想留住手改先保存作品」），
+> **缩小 = 保留手改、按块合并**（不弹层）；`saveProject` 往存档里带一份**源图快照**
+> （最长边 512 px，透明图存 PNG、照片存 JPEG；体积撑不下时先丢快照、不裁方案），
+> `openProject` 用它还原 `sourceImg` / `sourceAspect`；老存档没有快照时
+> （`sourceFromPattern`）放大也弹层说明「只能按块复制」，**不再静默变马赛克**。
+> 自检：`pnpm verify:size-guard` 扩到 7 条路径（新增「老存档 + 没手改过」），
+> 桌面 + 手机视口、本地与线上全绿；`verify:board-resize` 的 C 改成「手改放大 = 重新生成」、
+> 新增 C2「只换钉板 = 1:1 平移不重生成」，4 档视口全绿；线上全站 84 页 0 错误、
+> `verify:seo-v3` 59/59、`verify:beginner` 245/245。前端 `pindoudou` `84471f3`
+> （基于线上 `5641385` 的 rebase），已上线，线上产物 `assets/index-zpgjkMxv.js`；
+> qq 回滚包 `/root/douwan-backups/dw-web-before-zoom-regen-20261029-214537.tar.gz`）；
+> 2026-10-29 深夜（**电脑端滚轮放大画布不再「跳回」**：用户说「电脑上用鼠标滚轮放大画布
 > 会跳回」。根因在 `EditorCanvas.vue` 的 `onWheel`：它直接调 `setZoom`，没有把 `autoFit` 关掉，
 > 而画布一放大就撑出滚动条 ⇒ 舞台的内容盒变窄（实测 680 → 670）⇒ ResizeObserver 以为容器变了、
 > 60ms 后再适配一次 ⇒ 刚放大的画布被打回「适应窗口」。实测缩放 0.82 → 1.02 → **0.78**。

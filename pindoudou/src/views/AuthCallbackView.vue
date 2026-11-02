@@ -2,9 +2,14 @@
 /* =========================================================================
    微信登录与绑定回调页（需求 §1.3 / §2.4）
    服务端在第三方回调完成后 302 到这里，令牌放在 hash query 里：
-     /#/auth/callback?access_token=...&refresh_token=...&provider=wechat
+     /auth/callback#/auth/callback?access_token=...&refresh_token=...&provider=wechat
    hash 不会随请求发给服务端，不会进 nginx access log。
    页面读完参数后立刻把令牌从地址栏抹掉，避免留在浏览历史里。
+
+   为什么参数在 hash 而不是 query：
+   query 会随请求发给服务器，也就一定会进 nginx access log ——
+   令牌落进日志等于令牌公开。站点改成 history 路由后，
+   老地址 /#/auth/callback 会被自动搬到 /auth/callback，hash 原样保留。
    ========================================================================= */
 import { onMounted, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
@@ -21,17 +26,38 @@ const status = ref('working') // working | success | error
 const message = ref('正在完成登录…')
 const detail = ref('')
 
+/**
+ * 回调参数：优先看 query（服务端改成 ?token=… 时也能用），
+ * 没有再看 hash（#/auth/callback?token=…）。
+ */
+function callbackParams() {
+  const out = {}
+  const fromQuery = route.query || {}
+  for (const k of Object.keys(fromQuery)) {
+    const v = fromQuery[k]
+    out[k] = Array.isArray(v) ? v[0] : v
+  }
+  if (out.access_token) return out
+  const raw = (route.hash || window.location.hash || '').replace(/^#/, '')
+  const qIndex = raw.indexOf('?')
+  if (qIndex < 0) return out
+  const params = new URLSearchParams(raw.slice(qIndex + 1))
+  for (const [k, v] of params.entries()) {
+    if (out[k] === undefined) out[k] = v
+  }
+  return out
+}
+
 function stripTokensFromURL() {
   try {
-    const clean = window.location.pathname + window.location.search + '#/auth/callback'
-    window.history.replaceState(null, '', clean)
+    window.history.replaceState(null, '', window.location.pathname)
   } catch {
     /* 隐私模式 / 老浏览器忽略：令牌仍会在下面被消费 */
   }
 }
 
 onMounted(async () => {
-  const q = route.query
+  const q = callbackParams()
   const oauthError = q.oauth_error ? String(q.oauth_error) : ''
   const oauthMessage = q.message ? String(q.message) : ''
   /* 前台只剩微信；旧链接带 provider=qq 时仍按 QQ 文案展示，避免历史回调报错说不清 */

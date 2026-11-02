@@ -30,6 +30,8 @@ export const remoteAssets = ref([])
 export const remoteLoaded = ref(false)
 export const remoteLoading = ref(false)
 export const remoteError = ref('')
+/** 后台分类（含 SEO 文案）。分类页 /materials/category/{slug}/ 要用它更新标题。 */
+export const remoteCategories = ref([])
 let remotePending = null
 
 function normalizeRemote(a, catSlug) {
@@ -58,6 +60,10 @@ function normalizeRemote(a, catSlug) {
     likeCount: Number(a.like_count) || 0,
     createdAt: published,
     description: a.description || '',
+    /* 后台可以给这一页单独写 SEO 标题 / 描述；没写就是空串，
+       详情页会用同一套自动生成的文案兜底（与服务端渲染的一致）。 */
+    seoTitle: a.seo_title || '',
+    seoDescription: a.seo_description || '',
     tags,
     hot: Number(a.sort_order) || 0,
     feat: !!a.is_featured,
@@ -87,7 +93,9 @@ export function loadRemoteAssets() {
         api.get('/assets/categories', { auth: false }),
         api.get('/assets', { auth: false, query: { page_size: 200 } })
       ])
-      const slugById = new Map((Array.isArray(cats) ? cats : []).map(c => [c.id, c.slug]))
+      const catList = Array.isArray(cats) ? cats : []
+      const slugById = new Map(catList.map(c => [c.id, c.slug]))
+      remoteCategories.value = catList
       const list = (data && Array.isArray(data.list)) ? data.list : []
       remoteAssets.value = list.map(a => normalizeRemote(a, slugById.get(a.category_id) || ''))
       remoteLoaded.value = true
@@ -269,7 +277,7 @@ export function matchKeyword(kw) {
   )
 }
 
-/** 素材详情页 /library/:slug 用（内置素材的 slug 就是 id） */
+/** 素材详情页用：远程素材走 /materials/{slug}/，内置矢量素材走 /library/{id} */
 export function assetBySlug(slug) {
   return allAssets.value.find(a => a.id === slug || a.slug === slug) || null
 }

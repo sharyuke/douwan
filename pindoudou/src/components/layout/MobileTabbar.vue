@@ -1,26 +1,41 @@
 <script setup>
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRoute } from 'vue-router'
 import navCreation from '../../assets/nav/nav_creation.png'
 import navLibrary from '../../assets/nav/nav_library.png'
 import navInventory from '../../assets/nav/nav_inventory.png'
 import navWorks from '../../assets/nav/nav_works.png'
 
 /** 手机端底部标签栏（PRD §12：创作 | 材料 | 素材 | 作品）
-    「创作」原本指向独立的开始创作页，那一层现在并进了工作台
-    （没图纸时工作台就是创建步骤），两个格子会跳同一处，所以合成一个。
+    「创作」指操作台（/create）：新手简化版的三步向导；
+    专业工作台在 /editor，从顶栏的「新手 / 专业」开关进。
     图标用「图标交付包」里的透明 PNG（与左侧栏同一套），24px、object-fit: contain；
     材料没有专属图标，用库存的箱子。 */
 const tabs = [
-  { to: '/editor', img: navCreation, label: '创作' },
-  { to: '/materials', img: navInventory, label: '材料' },
-  { to: '/library', img: navLibrary, label: '素材' },
+  { to: '/create', img: navCreation, label: '创作' },
+  { to: '/project-materials', img: navInventory, label: '材料' },
+  { to: '/materials/', img: navLibrary, label: '素材' },
   { to: '/projects', img: navWorks, label: '作品' }
 ]
+
+const route = useRoute()
+/* 自己算高亮：RouterLink 自带的 router-link-active 对 '/' 是「祖先匹配」，
+   那样在素材库、我的作品页也会把「创作」点亮 —— 用错的高亮比没有高亮更误导。 */
+function isActive(to) {
+  const p = route.path
+  if (to === '/create') return p === '/create' || p.startsWith('/editor')
+  return p === to || p.startsWith(to + '/')
+}
 </script>
 
 <template>
   <nav class="tabbar no-print" aria-label="快捷导航">
-    <RouterLink v-for="t in tabs" :key="t.to" :to="t.to">
+    <RouterLink
+      v-for="t in tabs"
+      :key="t.to"
+      :to="t.to"
+      :class="{ 'is-active': isActive(t.to) }"
+      :aria-current="isActive(t.to) ? 'page' : undefined"
+    >
       <img class="tabbar__icon" :src="t.img" alt="" aria-hidden="true" width="24" height="24">
       <span>{{ t.label }}</span>
     </RouterLink>
@@ -41,5 +56,11 @@ const tabs = [
 .tabbar a {
   padding-top: 5px;
   padding-bottom: 5px;
+}
+/* 自己算的高亮（见上面的 isActive）：样式与全站 .router-link-active 一致 */
+.tabbar a.is-active {
+  background: var(--primary-soft);
+  color: var(--ink);
+  font-weight: 850;
 }
 </style>

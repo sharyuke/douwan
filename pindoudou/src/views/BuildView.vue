@@ -512,7 +512,7 @@ onBeforeUnmount(() => {
       <strong>还没有可以开始拼的作品</strong>
       <p>先生成一张图纸，或者在「我的作品」里打开一件已保存的作品。</p>
       <div class="row" style="gap:9px">
-        <RouterLink to="/editor" class="btn primary">去创作</RouterLink>
+        <RouterLink to="/create" class="btn primary">去创作</RouterLink>
         <RouterLink v-if="projects.length" to="/projects" class="btn btn-secondary">打开已有作品</RouterLink>
       </div>
     </div>
@@ -663,7 +663,7 @@ onBeforeUnmount(() => {
             </p>
             <div class="row row--wrap" style="justify-content:center;margin-top:10px">
               <button class="btn btn-secondary sm" @click="doMarkBoard(false)">清空本板</button>
-              <RouterLink class="btn btn-secondary sm" to="/materials">看分板图纸</RouterLink>
+              <RouterLink class="btn btn-secondary sm" to="/project-materials">看分板图纸</RouterLink>
               <button class="btn btn-secondary sm" @click="onExportPNG">导出图纸 PNG</button>
             </div>
           </div>

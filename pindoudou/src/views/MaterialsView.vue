@@ -397,7 +397,7 @@ function onPNG() {
       <strong>还没有可统计的图案</strong>
       <p>先上传照片或从素材中心挑一个图案，材料清单会自动按图纸逐格统计。</p>
       <div class="row" style="gap:9px">
-        <RouterLink to="/editor" class="btn primary">去创作</RouterLink>
+        <RouterLink to="/create" class="btn primary">去创作</RouterLink>
         <RouterLink v-if="projects.length" to="/projects" class="btn btn-secondary">打开已有作品</RouterLink>
       </div>
     </div>

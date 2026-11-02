@@ -12,7 +12,7 @@
     const txt = el => (el ? String(el.textContent || '').replace(/\s+/g, ' ').trim() : '')
     const shown = el => !!el && getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().width > 0
     const click = el => el && el.click()
-    const hash = () => decodeURIComponent(location.hash)
+    const hash = () => decodeURIComponent(location.pathname + location.search)
     const setInput = (el, v) => {
       const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
       setter.call(el, v)

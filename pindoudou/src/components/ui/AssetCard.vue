@@ -62,7 +62,7 @@ const tone = computed(() => difficultyTone(props.asset.difficulty))
       <RouterLink
         v-if="showDetailLink"
         class="detailLink"
-        :to="`/library/${asset.id}`"
+        :to="asset.remote ? `/materials/${asset.slug}/` : `/library/${asset.id}`"
         @click.stop
       >详情 ›</RouterLink>
       <button v-else class="detailLink asBtn" @click="emit('pick', asset)">使用 ›</button>

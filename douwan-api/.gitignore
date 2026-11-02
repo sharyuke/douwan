@@ -3,6 +3,10 @@
 /tmp/
 *.exe
 
+# 本地临时目录（隔离 worktree、打包产物、自检输出）
+/.tmp/
+*.tar.gz
+
 # 本地配置与密钥
 .env
 .env.local

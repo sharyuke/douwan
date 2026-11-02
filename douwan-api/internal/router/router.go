@@ -4,6 +4,7 @@ package router
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -41,6 +42,8 @@ type Deps struct {
 	// Activity 是活跃数据采集器。为 nil 时不做任何采集，
 	// 后台活跃接口会返回空数据并在 notes 里说明采集未开启。
 	Activity *activity.Recorder
+	// Seo 是 SEO 服务。为 nil 时按默认配置现场构造一个。
+	Seo *service.SeoService
 }
 
 // New 构造 gin 引擎。所有业务路由统一挂在 /api/v1 下，
@@ -122,8 +125,9 @@ func New(deps Deps) *gin.Engine {
 	orderHandler := handler.NewOrderHandler(orderService)
 
 	var libraryHandler *handler.LibraryHandler
+	var libraryService *service.LibraryService
 	if deps.Storage != nil {
-		libraryService := service.NewLibraryService(deps.DB, repos, deps.Storage, audit)
+		libraryService = service.NewLibraryService(deps.DB, repos, deps.Storage, audit)
 		libraryHandler = handler.NewLibraryHandler(libraryService)
 	}
 
@@ -157,6 +161,21 @@ func New(deps Deps) *gin.Engine {
 	visitHandler := handler.NewVisitHandler(activityService)
 
 	meHandler := handler.NewMeHandler(entService)
+
+	// SEO：公开接口（robots / sitemap / 页面渲染）+ 后台管理
+	seoService := deps.Seo
+	if seoService == nil {
+		seoService = service.NewSeoService(repos, deps.Config.SEO)
+	}
+	seoHandler := handler.NewSeoHandler(seoService)
+	// 素材库与 SEO 服务共用同一个实例：发布 / 下架 / 删除素材时，
+	// 由素材库服务直接触发 Sitemap 更新与推送入队。
+	if libraryService != nil {
+		libraryService.SetSeo(seoService)
+	}
+	engine.GET("/robots.txt", seoHandler.Robots)
+	engine.GET("/sitemap.xml", seoHandler.Sitemap)
+	engine.GET("/sitemap-:n.xml", seoHandler.SitemapShard)
 
 	v1 := engine.Group("/api/v1")
 	{
@@ -368,6 +387,20 @@ func New(deps Deps) *gin.Engine {
 				}
 			}
 
+			// SEO 管理
+			seoAdm := adm.Group("/seo",
+				middleware.RequirePermission(model.PermSeoView))
+			{
+				seoAdm.GET("/overview", seoHandler.Overview)
+				seoAdm.GET("/pages", seoHandler.Pages)
+				seoAdm.GET("/tasks", seoHandler.Tasks)
+				seoAdm.GET("/config", seoHandler.Config)
+				seoAdm.POST("/push", middleware.RequirePermission(model.PermSeoManage), seoHandler.Push)
+				seoAdm.POST("/check", middleware.RequirePermission(model.PermSeoManage), seoHandler.Check)
+				seoAdm.PATCH("/pages/:kind/:id",
+					middleware.RequirePermission(model.PermSeoManage), seoHandler.UpdatePage)
+			}
+
 			// 用户与兑换记录
 			adm.GET("/users", middleware.RequirePermission(model.PermUserView), adminUserHandler.List)
 			adm.GET("/users/:id", middleware.RequirePermission(model.PermUserView), adminUserHandler.Detail)
@@ -396,7 +429,21 @@ func New(deps Deps) *gin.Engine {
 	}
 
 	engine.NoRoute(func(c *gin.Context) {
-		response.Fail(c, response.ErrNotFound.WithMessage("接口不存在"))
+		path := c.Request.URL.Path
+		// 接口路径照旧返回 JSON 错误，别让前端拿到一坨 HTML。
+		if strings.HasPrefix(path, "/api/") {
+			response.Fail(c, response.ErrNotFound.WithMessage("接口不存在"))
+			return
+		}
+		// 站长平台 / IndexNow 的验证文件（根目录下的单个文件）
+		if seoHandler.ServeVerification(c) {
+			return
+		}
+		// 其余路径交给 SEO 页面渲染器：
+		//   公开页面 → 带 meta 与正文的 HTML
+		//   应用内页面 → 带 noindex 的外壳
+		//   不存在的路径 → 404
+		seoHandler.Page(c)
 	})
 	return engine
 }

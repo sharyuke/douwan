@@ -17,8 +17,8 @@
   const btn = document.querySelector('.uploadCard__btn')
   if (!btn) return { ok: false, err: '首页没有上传按钮' }
   btn.click()
-  out.clickOk = await waitFor(() => location.hash.startsWith('#/editor'))
-  out.clickHash = location.hash
+  out.clickOk = await waitFor(() => location.pathname.startsWith('/editor'))
+  out.clickHash = location.pathname + location.search
 
   location.hash = '#/'
   await waitFor(() => !!document.querySelector('.uploadCard'))
@@ -43,8 +43,8 @@
   card.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }))
   card.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }))
 
-  out.dropHashOk = await waitFor(() => location.hash.startsWith('#/editor'))
-  out.dropHash = location.hash
+  out.dropHashOk = await waitFor(() => location.pathname.startsWith('/editor'))
+  out.dropHash = location.pathname + location.search
   const d = window.__douzao
   if (!d) return { ok: false, err: '调试桥未就绪' }
   const S = await d.studio()

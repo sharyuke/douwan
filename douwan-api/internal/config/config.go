@@ -28,6 +28,7 @@ type Config struct {
 	Storage  Storage  `mapstructure:"storage"`
 	Activity Activity `mapstructure:"activity"`
 	LocalAI  LocalAI  `mapstructure:"local_ai"`
+	SEO      SEO      `mapstructure:"seo"`
 }
 
 // App 应用级配置。
@@ -263,8 +264,60 @@ type LocalAI struct {
 	MattingModel string `mapstructure:"matting_model"`
 }
 
-// IsLoopbackURL 判断推理服务地址是否指向本机回环。
-// 需求红线：推理端口不得公开暴露，所以配置里出现非回环地址时应当拒绝启动。
+// SEO 搜索引擎优化配置。
+//
+// 这一段决定「公开页面能不能被抓到、能不能被通知」：
+//   - SiteURL 是对外站点地址，所有 canonical / sitemap / 推送 URL 都以它为准；
+//   - SpaRoot 指向前端产物目录，服务端从这里读 index.html 外壳并注入 SEO 内容；
+//   - ContentFile 是前端构建时生成的 SEO 内容清单（pages.json）；
+//   - 三个推送凭据（百度 token / IndexNow key / Google 服务账号）只从环境变量读，
+//     永远不写进仓库、也不通过任何接口返回明文。
+type SEO struct {
+	// Enabled 总开关。关掉后不再生成 robots / sitemap、不再渲染 SEO 页面、不再推送。
+	Enabled bool `mapstructure:"enabled"`
+	// SiteURL 对外站点地址，例如 https://dw.sharyuke.com
+	SiteURL string `mapstructure:"site_url"`
+	// SpaRoot 前端产物目录（nginx 的 root），用于读取 index.html 外壳
+	SpaRoot string `mapstructure:"spa_root"`
+	// ContentFile 前端构建生成的 SEO 内容清单（JSON）
+	ContentFile string `mapstructure:"content_file"`
+
+	// BaiduToken 百度搜索资源平台普通收录 API 的推送 token
+	BaiduToken string `mapstructure:"baidu_token"`
+	// IndexNowKey IndexNow 协议密钥（同时会作为 /{key}.txt 提供给引擎校验）
+	IndexNowKey string `mapstructure:"indexnow_key"`
+	// GoogleSite Search Console 里的站点属性，例如 https://dw.sharyuke.com/
+	GoogleSite string `mapstructure:"google_site"`
+	// GoogleClientEmail / GooglePrivateKey Search Console API 用的服务账号
+	// （PrivateKey 是 base64 编码的 PEM）。留空时 Google 通道显示「未配置」。
+	GoogleClientEmail string `mapstructure:"google_client_email"`
+	GooglePrivateKey  string `mapstructure:"google_private_key"`
+
+	// BaiduVerifyFile / BaiduVerifyContent 百度站点所有权验证文件
+	// （文件名 + 文件内容），服务端会在根路径提供该文件。
+	BaiduVerifyFile    string `mapstructure:"baidu_verify_file"`
+	BaiduVerifyContent string `mapstructure:"baidu_verify_content"`
+	// GoogleVerify 站点所有权验证用的 meta 值（google-site-verification）
+	GoogleVerify string `mapstructure:"google_verify"`
+	// BingVerify 站点所有权验证用的 meta 值（msvalidate.01）
+	BingVerify string `mapstructure:"bing_verify"`
+
+	// PushEnabled 是否真的向外发推送请求。关掉时任务照样入队、照样记录，
+	// 只是不发出网络请求（用于「先看效果不想真推」的阶段）。
+	PushEnabled bool `mapstructure:"push_enabled"`
+	// PushBatchSize 单次请求最多提交多少个 URL
+	PushBatchSize int `mapstructure:"push_batch_size"`
+	// RequestTimeout 单次推送请求的超时
+	RequestTimeout time.Duration `mapstructure:"request_timeout"`
+	// CronInterval 巡检间隔（每天一次是建议值）
+	CronInterval time.Duration `mapstructure:"cron_interval"`
+	// RetainDays 推送记录保留天数，超期由清理协程硬删除
+	RetainDays int `mapstructure:"retain_days"`
+	// MaxAttempts 单条任务最多尝试几次，超过就停（避免无限重试）
+	MaxAttempts int `mapstructure:"max_attempts"`
+}
+
+// IsLoopbackURL 判断推理服务地址是否指向本机回环。// 需求红线：推理端口不得公开暴露，所以配置里出现非回环地址时应当拒绝启动。
 func IsLoopbackURL(raw string) bool {
 	u, err := url.Parse(raw)
 	if err != nil {
@@ -359,6 +412,27 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("local_ai.max_pixels", 4194304)
 	v.SetDefault("local_ai.checkpoint", "v1-5-pruned-emaonly.ckpt")
 	v.SetDefault("local_ai.matting_model", "u2net")
+
+	// SEO。默认只读不写：不开 PushEnabled 时不会向外发任何请求。
+	v.SetDefault("seo.enabled", true)
+	v.SetDefault("seo.site_url", "https://dw.sharyuke.com")
+	v.SetDefault("seo.spa_root", "/var/www/dw.sharyuke.com")
+	v.SetDefault("seo.content_file", "/var/www/dw.sharyuke.com/seo/pages.json")
+	v.SetDefault("seo.baidu_token", "")
+	v.SetDefault("seo.indexnow_key", "")
+	v.SetDefault("seo.google_site", "")
+	v.SetDefault("seo.google_client_email", "")
+	v.SetDefault("seo.google_private_key", "")
+	v.SetDefault("seo.baidu_verify_file", "")
+	v.SetDefault("seo.baidu_verify_content", "")
+	v.SetDefault("seo.google_verify", "")
+	v.SetDefault("seo.bing_verify", "")
+	v.SetDefault("seo.push_enabled", false)
+	v.SetDefault("seo.push_batch_size", 20)
+	v.SetDefault("seo.request_timeout", 10*time.Second)
+	v.SetDefault("seo.cron_interval", 24*time.Hour)
+	v.SetDefault("seo.retain_days", 90)
+	v.SetDefault("seo.max_attempts", 5)
 }
 
 // Load 读取配置。path 为空时依次尝试 ./configs/config.yaml 与 ./config.yaml；
@@ -468,8 +542,7 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("activity.visit_report_per_minute 必须为正数")
 		}
 	}
-	// 本地 AI。只拦「明显不合理」与**安全红线**：
-	// 推理服务必须是本机回环（隧道另一端），出现公网地址说明端口被暴露了。
+	// 本地 AI。只拦「明显不合理」与**安全红线**：	// 推理服务必须是本机回环（隧道另一端），出现公网地址说明端口被暴露了。
 	if c.LocalAI.Enabled {
 		if !IsLoopbackURL(c.LocalAI.ComfyURL) {
 			return fmt.Errorf("local_ai.comfy_url 必须是本机回环地址（如 http://127.0.0.1:8188），当前 %q；推理端口不得对外开放", c.LocalAI.ComfyURL)
@@ -508,6 +581,32 @@ func (c *Config) Validate() error {
 		// 留空或写成别的模型都直接拒绝启动，避免线上悄悄用上 bria-rmbg（商业授权）。
 		if !validMattingModel(c.LocalAI.MattingModel) {
 			return fmt.Errorf("local_ai.matting_model 必须是 %q（u2net 为 Apache-2.0/MIT 系，已核验可商用）；rembg 的默认模型 bria-rmbg 是商业授权模型，禁止使用", "u2net")
+		}
+	}
+	// SEO。只拦「明显不合理」的配置，不因为缺凭据就拒绝启动 ——
+	// 没配百度 token / IndexNow key 时，站点照常可以提供 sitemap 与可抓取内容，
+	// 只是不会主动通知搜索引擎。
+	if c.SEO.Enabled {
+		if c.SEO.SiteURL == "" {
+			return fmt.Errorf("seo.site_url 不能为空")
+		}
+		if !strings.HasPrefix(c.SEO.SiteURL, "https://") && !strings.HasPrefix(c.SEO.SiteURL, "http://") {
+			return fmt.Errorf("seo.site_url 必须以 http(s):// 开头，当前 %q", c.SEO.SiteURL)
+		}
+		if c.SEO.PushBatchSize < 1 || c.SEO.PushBatchSize > 2000 {
+			return fmt.Errorf("seo.push_batch_size 应在 1~2000 之间（当前 %d）", c.SEO.PushBatchSize)
+		}
+		if c.SEO.RequestTimeout < time.Second || c.SEO.RequestTimeout > 2*time.Minute {
+			return fmt.Errorf("seo.request_timeout 应在 1s~2m 之间（当前 %s）", c.SEO.RequestTimeout)
+		}
+		if c.SEO.CronInterval < 5*time.Minute {
+			return fmt.Errorf("seo.cron_interval 不能小于 5m（当前 %s）", c.SEO.CronInterval)
+		}
+		if c.SEO.RetainDays < 7 {
+			return fmt.Errorf("seo.retain_days 不能小于 7（当前 %d）", c.SEO.RetainDays)
+		}
+		if c.SEO.MaxAttempts < 1 || c.SEO.MaxAttempts > 20 {
+			return fmt.Errorf("seo.max_attempts 应在 1~20 之间（当前 %d）", c.SEO.MaxAttempts)
 		}
 	}
 	return nil

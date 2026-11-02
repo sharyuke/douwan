@@ -5,6 +5,11 @@ import { ref } from 'vue'
    工作台挂载时取走（取走即清空，刷新页面不会重复导入旧文件）。 */
 const pendingFile = ref(null)
 
+/* 导出这个 ref：有些地方要「盯着它」而不只是取一次。
+   典型场景是顶栏的上传按钮 —— 用户已经在首页时点了上传，
+   路由不会变化、组件也不会重新挂载，只在 onMounted 里取一次永远取不到。 */
+export { pendingFile }
+
 export function setPendingUpload(file) {
   pendingFile.value = file || null
 }

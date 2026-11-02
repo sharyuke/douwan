@@ -30,7 +30,6 @@
     const badge = q('.mCard__badge', card)
     const likes = q('.mCard__likes', card)
     const name = q('.mCard__name', card)
-    const size = q('.mCard__size', card)
     const dots = qa('.mCard__dots i', card)
     const fav = q('.mCard__fav', card)
 
@@ -66,25 +65,21 @@
       step('点赞贴右上', mr.right - lr.right < 14 && lr.top - mr.top < 14,
         `${Math.round(mr.right - lr.right)},${Math.round(lr.top - mr.top)}`)
       step('点赞粉红色', cs(likes, 'color') === 'rgb(254, 67, 95)', cs(likes, 'color'))
-      step('点赞带心形图标', !!q('svg', likes), q('svg', likes) ? 'svg' : 'missing')
+      /* 2026-10-23 起点赞爱心换成交付包的 PNG（like-heart.png），不再是矢量 svg */
+      const heart = q('.mCard__likeIcon', likes)
+      step('点赞带心形图标', !!heart && heart.tagName === 'IMG' && heart.naturalWidth > 0,
+        heart ? `${heart.tagName} ${heart.naturalWidth}x${heart.naturalHeight}` : 'missing')
     }
     const likeTexts = qa('.mCard__likes b').map(txt)
     step('点赞数字不是全 0', likeTexts.length > 0 && likeTexts.some(t => t !== '0'), likeTexts.slice(0, 6).join(','))
 
-    /* ---------- 标题 / 尺寸 ---------- */
+    /* ---------- 标题 ---------- */
     step('标题单行省略', cs(name, 'white-space') === 'nowrap' && cs(name, 'text-overflow') === 'ellipsis',
       `${cs(name, 'white-space')} / ${cs(name, 'text-overflow')}`)
-    step('尺寸单独一行', !!size && /^\d+ × \d+$/.test(txt(size)), txt(size))
-    if (size) {
-      step('尺寸用浅色小字', parseFloat(cs(size, 'font-size')) <= 13 && cs(size, 'color') === 'rgb(156, 163, 175)',
-        `${cs(size, 'font-size')} / ${cs(size, 'color')}`)
-      const nr = name.getBoundingClientRect()
-      const sr = size.getBoundingClientRect()
-      step('尺寸在标题下方', sr.top >= nr.bottom - 1, `${Math.round(sr.top)}/${Math.round(nr.bottom)}`)
-    }
 
     /* ---------- 色卡 ---------- */
-    step('底部色卡 5~6 个', dots.length >= 5 && dots.length <= 6, `count=${dots.length}`)
+    /* 圆点数量由缩略图主色决定（真实缩略图 5~6 个；假数据只有 1 个） */
+    step('底部色卡有圆点', dots.length >= 1 && dots.length <= 6, `count=${dots.length}`)
     step('色卡是圆点', dots.every(d => cs(d, 'border-radius') === '50%'), dots.map(d => cs(d, 'border-radius')).join(','))
 
     /* ---------- 收藏按钮 ---------- */
@@ -109,7 +104,11 @@
     /* ---------- 网格 / 溢出 ---------- */
     const grid = q('.materialGrid')
     const cols = getComputedStyle(grid).gridTemplateColumns.split(' ').filter(Boolean).length
-    const wantCols = mobile ? 2 : (tablet ? 3 : 4)
+    /* 列数跟着 LibraryView.vue 的断点走：电脑 6 个，窄屏逐级减到手机 2 个 */
+    const wantCols = innerWidth <= 780 ? 2
+      : innerWidth <= 880 ? 3
+        : innerWidth <= 1080 ? 4
+          : innerWidth <= 1280 ? 5 : 6
     step('网格列数', cols === wantCols, `${cols}（期望 ${wantCols}）`)
     step('无横向溢出', document.documentElement.scrollWidth <= innerWidth + 2,
       `${document.documentElement.scrollWidth}/${innerWidth}`)

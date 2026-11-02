@@ -11,6 +11,10 @@ import banner from '../../assets/library-banner.png'
       class="libBanner__img"
       :src="banner"
       alt="所爱皆可拼，万物皆可造。海量免费拼豆素材，激发你的创作灵感。"
+      width="1287"
+      height="222"
+      decoding="async"
+      fetchpriority="high"
     >
   </section>
 </template>

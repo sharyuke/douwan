@@ -8,6 +8,17 @@
 
    上传卡支持把图片直接拖进来：文件先放进 usePendingUpload，跳到工作台后
    由 EditorSidebar 取走并走同一条「载入图片」流程。
+
+   2026-10-26：首页恢复成这一版（之前被新手简化版顶掉过一天）。
+   新手简化版没有删，改成「创作」命令底下的**操作台**（路由 /create），
+   首页回到 / —— 手机、平板、电脑三端都是这个带插画的主视觉。
+
+   2026-10-26 晚（用户第二次调整）：
+   · 首屏以下的长文内容区（HomeContent）又删掉了 —— 用户要看的是干净的宣传页，
+     正文仍在服务端的 SEO 壳里，爬虫照旧读得到；
+   · 首页的入口（选择图片 / 免费素材 / 拖图）默认进**新手版**（操作台 /create），
+     不再直接跳专业工作台；
+   · 站点页脚（操作台底部那条）挪到首页，操作台是工具页、不再挂页脚。
    ========================================================================= */
 
 import { ref } from 'vue'
@@ -24,8 +35,6 @@ import heroTitle from '../assets/home-hero-title.webp'
 const router = useRouter()
 const dragOver = ref(false)
 const dropError = ref('')
-
-const year = new Date().getFullYear()
 
 function onDragOver(e) {
   e.preventDefault()
@@ -47,7 +56,7 @@ function onDrop(e) {
     return
   }
   setPendingUpload(file)
-  router.push('/editor').catch(() => {})
+  router.push('/create').catch(() => {})
 }
 </script>
 
@@ -67,7 +76,7 @@ function onDrop(e) {
             拼豆创作工作台
           </p>
 
-          <h1 class="sr-only">免费拼豆图纸生成器——把灵感拼成喜欢的样子</h1>
+          <h1 class="sr-only">免费拼豆图纸生成器</h1>
           <img
             class="homeTitleArt"
             :src="heroTitle"
@@ -86,13 +95,13 @@ function onDrop(e) {
           <img class="uploadCard__bean" :src="beanSmiley" alt="" width="48" height="48">
           <h2>把喜欢的图片，变成拼豆图纸</h2>
           <p class="uploadCard__sub">从一张图片，开始你的拼豆灵感</p>
-          <RouterLink to="/editor" class="uploadCard__btn">
+          <RouterLink to="/create" class="uploadCard__btn">
             <PixelIcon name="fn-upload" :size="18" />
             选择图片
           </RouterLink>
           <p class="uploadCard__hint">也可以将图片拖到这里 · JPG、PNG、WEBP</p>
           <p v-if="dropError" class="uploadCard__error">{{ dropError }}</p>
-          <RouterLink to="/editor?tab=library" class="uploadCard__free">
+          <RouterLink to="/create?tab=library" class="uploadCard__free">
             没有图片？从免费素材开始
             <PixelIcon name="arrowRight" :size="12" />
           </RouterLink>
@@ -119,18 +128,11 @@ function onDrop(e) {
       </div>
     </section>
 
-    <footer class="homeFoot">
-      <div class="homeFoot__in">
-        <div>
-          <p class="homeFoot__tag">把喜欢的东西，拼成自己的作品。</p>
-          <p class="homeFoot__copy">© {{ year }} 豆玩 DOUWAN · 渝ICP备14009814号</p>
-        </div>
-        <nav class="homeFoot__links" aria-label="帮助与设置">
-          <RouterLink to="/help">教程与常见问题</RouterLink>
-          <RouterLink to="/settings">设置与隐私</RouterLink>
-        </nav>
-      </div>
-    </footer>
+    <!-- 首屏以下的内容区（HomeContent）2026-10-26 晚又删掉了：
+         首页是宣传页，只要主视觉；正文仍在服务端的 SEO 壳里，爬虫照旧读得到。 -->
+
+    <!-- 页脚用站点的三栏页脚（App.vue 统一渲染）：操作台底部那条挪到了这里，
+         首页自己的紧凑页脚不再需要，两个页脚叠在一起会重复。 -->
   </div>
 </template>
 
@@ -139,15 +141,18 @@ function onDrop(e) {
 .homeV2{background:var(--bg)}
 .homeHero{
   position:relative;isolation:isolate;overflow:hidden;
-  min-height:max(660px,calc(100dvh - var(--header-h) - 72px));
+  /* hero 的高度 = 视口 - 顶栏（页脚挪到首屏以下了）。
+     内容栏拉满这块高度后，里面是「标题 / 上传卡 / 底部说明」三行网格：
+     上传卡那一行正好压在 hero 的垂直中线上，
+     上下两行等分剩余空间，标题往上贴、说明往下贴。 */
+  min-height:max(660px,calc(100dvh - var(--header-h)));
   display:flex;align-items:stretch;justify-content:center;
   background:
     linear-gradient(180deg,#FFFDF8 0%,var(--bg) 46%,#FFF8EE 100%);
-  /* hero 的高度 = 视口 - 顶栏 - 页脚。内容栏拉满这块高度后，
-     里面是「标题 / 上传卡 / 底部说明」三行网格：
-     上传卡那一行正好压在 hero 的垂直中线上，
-     上下两行等分剩余空间，标题往上贴、说明往下贴。 */
-  padding:32px 20px;
+  /* 下内边距多留 72px：内容栏的高度 = 视口 - 顶栏 - 72px，
+     这样上传卡的中心仍然正好落在「首屏中线」（顶栏 72px 被这 72px 抵消），
+     多出来的这一截只是主视觉的底色，页脚从首屏以下才开始。 */
+  padding:32px 20px 104px;
 }
 /* 柔和的粉 / 蓝光斑只做空气感，不抢上传卡 */
 .homeGlow{
@@ -211,11 +216,8 @@ function onDrop(e) {
 }
 .homeEyebrow .pixelIcon{color:var(--coral)}
 /* 标题是交付包里的一整张字图（文字、描边、小装饰都在图里），
-   这里只控制宽度：跟着标题栏走，三端同一张图，不再排文字。 */
-.sr-only{
-  position:absolute;width:1px;height:1px;margin:-1px;padding:0;
-  overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0;
-}
+   这里只控制宽度：跟着标题栏走，三端同一张图，不再排文字。
+   .sr-only 是全局工具类（见 styles/global.css），这里不再重复定义。 */
 .homeTitleArt{
   display:block;width:auto;max-width:100%;height:var(--title-h);
   object-fit:contain;aspect-ratio:1532/629;
@@ -280,23 +282,11 @@ function onDrop(e) {
   margin-top:14px;font-size:var(--fs-2xs);line-height:1.6;color:var(--muted-2);
 }
 
-/* ============================ 页脚 ============================ */
-.homeFoot{background:var(--bg);border-top:1px solid var(--line)}
-.homeFoot__in{
-  width:min(1440px,100%);min-height:72px;margin:0 auto;padding:14px 48px;
-  display:flex;align-items:center;justify-content:space-between;gap:24px;
-}
-.homeFoot__tag{font-size:14px;font-weight:800;line-height:1.5;color:var(--ink)}
-.homeFoot__copy{margin-top:4px;font-size:var(--fs-2xs);line-height:1.5;color:var(--muted-2)}
-.homeFoot__links{display:flex;align-items:center;gap:42px}
-.homeFoot__links a{font-size:var(--fs-sm);font-weight:750;color:var(--ink-2);white-space:nowrap}
-.homeFoot__links a:hover{color:var(--ink);text-decoration:underline;text-underline-offset:4px}
-
 /* ============================ 响应式 ============================ */
 /* 屏幕不高时（1366×768、1280×800 这类笔记本）：hero 收成正好一屏，
    标题图、卡片一起矮一档，上传卡仍然落在首屏中线上。 */
 @media(min-width:781px) and (max-height:900px){
-  .homeHero{min-height:max(520px,calc(100dvh - var(--header-h) - 72px))}
+  .homeHero{min-height:max(520px,calc(100dvh - var(--header-h)))}
   .homeHero__in{--title-h:clamp(64px,calc(46dvh - 303px),246px)}
   .uploadCard{min-height:260px;padding:20px 26px 18px}
 }
@@ -338,8 +328,6 @@ function onDrop(e) {
   .homeFeatures b{font-size:12px}
   .homeFeatures small{font-size:var(--fs-2xs)}
   .homePrivacy{margin-top:8px;font-size:var(--fs-2xs)}
-  .homeFoot__in{padding:16px 14px;flex-direction:column;align-items:flex-start;gap:12px}
-  .homeFoot__links{gap:26px}
 }
 @media(max-width:780px) and (max-height:700px){
   .homeHero{padding-top:14px}

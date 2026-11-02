@@ -17,6 +17,7 @@ import {
   mirrorPattern, options, currentView
 } from '../composables/useStudio.js'
 import { useBackClose } from '../composables/useBackClose.js'
+import { switchDialog } from '../composables/useBeginnerMode.js'
 import { toastOk, toastWarn, toastErr } from '../composables/useToast.js'
 import { loadRemoteAssets } from '../composables/useAssets.js'
 import { projectCanvas } from '../lib/forge.js'
@@ -370,7 +371,7 @@ function doSwitch(id) {
          原来那层独立的「开始创作」页面已经删掉，不再有「先过一页再进来」。 -->
     <EditorSidebar
       class="studio__sidebar"
-      @need-pro="needPro" @need-create="router.push('/library')" @open-delivery="openDelivery"
+      @need-pro="needPro" @need-create="router.push('/materials/')" @open-delivery="openDelivery"
     />
 
     <div
@@ -379,7 +380,7 @@ function doSwitch(id) {
       @dragleave="onDragLeave" @drop="onDropImage"
     >
       <EditorCanvas
-        @upload="pickMobileImage" @browse="router.push('/library')"
+        @upload="pickMobileImage" @browse="router.push('/materials/')"
         @resize="openMobilePanel('size')" @delivery="openDelivery('export')"
       >
         <!-- 作品名这一行放在画布卡片**外面**：参考版的中间画布块只有
@@ -494,7 +495,7 @@ function doSwitch(id) {
         :key="mobilePanel"
         :focus="mobilePanel"
         @close-panel="mobilePanelOpen = false"
-        @need-pro="needPro" @need-create="router.push('/library')" @open-delivery="openDelivery"
+        @need-pro="needPro" @need-create="router.push('/materials/')" @open-delivery="openDelivery"
       />
       <EditorInsights
         v-else-if="mobileInsightsPanel"
@@ -617,8 +618,10 @@ function doSwitch(id) {
     <!-- 新手教程：桌面端 / 手机端各 5 段视频，按当前视口默认选一套 -->
     <TutorialDialog v-model="tutorialOpen" @guide="openGuide" />
 
-    <!-- 新手指引：首次进入自动出现一次，之后可从新手教程里重看 -->
-    <EditorGuide v-model="guideOpen" :mode="guideMode" @done="onGuideDone" />
+    <!-- 新手指引：首次进入自动出现一次，之后可从新手教程里重看。
+         模式切换弹层打开时先把指引收起来（suspend 而不是关掉 v-model，
+         这样关掉弹层后指引还停在原来那一步，不会从头再来）。 -->
+    <EditorGuide v-model="guideOpen" :mode="guideMode" :suspend="switchDialog.open" @done="onGuideDone" />
   </div>
 </template>
 

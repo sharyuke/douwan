@@ -257,7 +257,7 @@ async function main() {
       out.sizeOpen = !!q('.modal--sheet') && title().includes('画布')
       history.back(); await sleep(520)
       out.backClosed = !q('.modal--sheet')
-      out.urlAfterBack = location.hash
+      out.urlAfterBack = location.pathname + location.search
       return out
     })()`, true)
 
@@ -274,7 +274,7 @@ async function main() {
     check(states.erase.shown && states.erase.label === '橡皮大小', '橡皮参数条切换为「橡皮大小」')
     check(states.fillHidesParams, '切到填充后参数条收起')
     check(states.sizeOpen, '快捷区「画布」能打开尺寸面板')
-    check(states.backClosed && states.urlAfterBack === '#/editor', '返回键只关抽屉，不离开工作台',
+    check(states.backClosed && states.urlAfterBack === '/editor', '返回键只关抽屉，不离开工作台',
       states.urlAfterBack)
   }
 

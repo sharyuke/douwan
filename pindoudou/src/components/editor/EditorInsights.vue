@@ -245,7 +245,7 @@ async function onCopy() {
 
         <div class="grid-2">
           <button class="btn btn-secondary sm" @click="onCopy">复制采购清单</button>
-          <RouterLink to="/materials" class="btn btn-secondary sm">完整材料表</RouterLink>
+          <RouterLink to="/project-materials" class="btn btn-secondary sm">完整材料表</RouterLink>
         </div>
       </div>
     </section>

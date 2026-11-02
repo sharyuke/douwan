@@ -13,7 +13,10 @@ import PixelIcon from '../ui/PixelIcon.vue'
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
   /* desktop ≥1320 / tablet 781~1319 / mobile ≤780，由 EditorView 判定 */
-  mode: { type: String, default: 'desktop' }
+  mode: { type: String, default: 'desktop' },
+  /* 临时收起（不关闭）：模式切换弹层打开时把指引让位，
+     但保留当前步骤 —— 弹层关掉后指引还停在原来那一步，不会从头再来。 */
+  suspend: { type: Boolean, default: false }
 })
 const emit = defineEmits(['update:modelValue', 'done'])
 
@@ -476,7 +479,7 @@ onBeforeUnmount(() => {
 <template>
   <Teleport to="body">
     <div
-      v-if="modelValue" class="guide" role="dialog" aria-modal="true"
+      v-if="modelValue && !suspend" class="guide" role="dialog" aria-modal="true"
       :aria-label="`${isTablet ? '平板端' : isMobile ? '手机端' : '桌面端'}新手指引`"
       :data-guide="mode" :data-guide-phase="phase"
     >

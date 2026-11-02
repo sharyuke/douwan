@@ -27,7 +27,7 @@ import {
   DPI_OPTIONS, dpiExportPlan, exportPatternPNGAtDpi, exportPatternJPGAtDpi,
   buildPatternImageCanvas, exportCleanPNG, exportSVG, exportMaterialsCSV,
   exportPatternJSON, printPattern, exportShareCard, exportComparePNG,
-  copyShoppingList, exportBoardImagesZip
+  copyShoppingList, exportBoardImagesZip, exportBoardPdf
 } from '../../lib/exporters.js'
 
 const props = defineProps({
@@ -352,16 +352,16 @@ const fullItems = computed(() => {
   return [
     {
       key: 'png', label: '图纸 PNG（高清）', feature: 'export.png',
-      desc: `按 ${settings.value.dpi} DPI 重新渲染${fullPlan.value ? `，实际 ${fullPlan.value.dpi} DPI · ${fullPlan.value.width}×${fullPlan.value.height} px` : ''}`,
+      desc: `按 ${settings.value.dpi} DPI 重新渲染${fullPlan.value ? `，实际 ${fullPlan.value.dpi} DPI · ${fullPlan.value.width}×${fullPlan.value.height} px` : ''}，带豆玩统一标版`,
       run: () => exportPatternPNGAtDpi(p, { dpi: settings.value.dpi, projectName: projectName.value, ...opts })
     },
     {
       key: 'jpg', label: '图纸 JPG（高清）', feature: 'export.png',
-      desc: '白底、适合手机查看与普通打印；透明区域铺白，不会出现黑底',
+      desc: '白底、适合手机查看与普通打印；同一套豆玩统一标版，透明区域铺白',
       run: () => exportPatternJPGAtDpi(p, { dpi: settings.value.dpi, projectName: projectName.value, ...opts })
     },
     {
-      key: 'pdf', label: '分板 PDF / 打印', feature: 'export.pdf',
+      key: 'pdf', label: '分板 PDF（打印 / 另存）', feature: 'export.pdf',
       desc: pdfPlan.value ? `每板一页，板图按 ${pdfPlan.value.dpi} DPI 渲染（请求 ${settings.value.dpi} DPI）` : '封面 + 每板一页 + 材料清单',
       run: () => printPattern(p, printOptions(pdfPlan.value ? pdfPlan.value.cell : cell))
     },
@@ -428,25 +428,45 @@ const splitItems = computed(() => {
   const p = pattern.value
   return [
     {
-      key: 'split-pdf', label: '分板 PDF（每板一页）', feature: 'export.pdf',
-      desc: pdfPlan.value ? `共 ${pdfPlan.value.pages} 页 · 板图约 ${pdfPlan.value.dpi} DPI · 单板沿用全图列 / 行号、每板统计与材料总表` : '每块板一页',
+      key: 'split-pdf-file', label: '分板 PDF（下载电子档）', feature: 'export.pdf',
+      desc: pdfPlan.value
+        ? `共 ${pdfPlan.value.pages} 页 · 点一下直接下载 .pdf 文件（封面 + 每板一页 + 材料清单），不弹打印窗口`
+        : '封面 + 每块板一页 + 材料清单，直接下载 .pdf',
+      run: () => exportBoardPdf(p, {
+        projectName: projectName.value,
+        orientation: settings.value.orientation,
+        ruler: settings.value.ruler,
+        codes: settings.value.codes,
+        grid: settings.value.grid,
+        includeLegend: settings.value.legend,
+        includeMaterials: settings.value.stats,
+        boardSize: exportBoardSize.value,
+        inventoryMap: inventory.value,
+        onProgress: ({ page, total }) => setStatus('generating', `正在生成电子档第 ${page} / ${total} 页…`)
+      })
+    },
+    {
+      key: 'split-pdf', label: '分板 PDF（打印 / 另存）', feature: 'export.pdf',
+      desc: pdfPlan.value ? `共 ${pdfPlan.value.pages} 页 · 打开打印窗口，1:1 按豆径排版（适合实际打印）` : '每块板一页',
       run: () => printPattern(p, printOptions(pdfPlan.value ? pdfPlan.value.cell : 24))
     },
     {
       key: 'split-png', label: '分板 PNG（ZIP）', feature: 'export.png',
-      desc: splitPlan.value ? `共 ${splitPlan.value.pages} 张 · 约 ${splitPlan.value.dpi} DPI · 文件名固定为「图纸名_第01板」` : '每块板一张 PNG',
+      desc: splitPlan.value ? `共 ${splitPlan.value.pages} 张 · 约 ${splitPlan.value.dpi} DPI · 每张下方带色号与颗数，文件名「图纸名_第01板」` : '每块板一张 PNG',
       run: () => exportBoardImagesZip(p, {
         dpi: settings.value.dpi, format: 'png', projectName: projectName.value,
         ruler: settings.value.ruler, codes: settings.value.codes, grid: settings.value.grid,
+        includeLegend: settings.value.legend,
         boardSize: exportBoardSize.value
       })
     },
     {
       key: 'split-jpg', label: '分板 JPG（ZIP）', feature: 'export.png',
-      desc: '白底 JPG，透明区域铺白；适合发给别人在手机上看',
+      desc: '白底 JPG，每张下方带色号与颗数；适合发给别人在手机上看',
       run: () => exportBoardImagesZip(p, {
         dpi: settings.value.dpi, format: 'jpg', projectName: projectName.value,
         ruler: settings.value.ruler, codes: settings.value.codes, grid: settings.value.grid,
+        includeLegend: settings.value.legend,
         boardSize: exportBoardSize.value
       })
     }
@@ -458,7 +478,7 @@ const splitItems = computed(() => {
 const currentItems = computed(() => (tab.value === 'split' ? splitItems.value : fullItems.value))
 const selectedKey = ref('png')
 watch(tab, () => {
-  selectedKey.value = tab.value === 'split' ? 'split-pdf' : 'png'
+  selectedKey.value = tab.value === 'split' ? 'split-pdf-file' : 'png'
 })
 const selectedItem = computed(() => currentItems.value.find(i => i.key === selectedKey.value) || currentItems.value[0] || null)
 const qualitySummary = computed(() => {
@@ -735,8 +755,9 @@ function close() {
             </div>
 
             <p class="hint footNote">
-              分板 PDF 由浏览器打印生成：文字与表格是矢量，板图按所选 DPI 渲染成高分辨率位图。
-              打印时请选择「实际大小 / 100%」，不要勾选「适合页面」。
+              「分板 PDF（下载电子档）」直接生成 .pdf 文件并下载，不弹打印窗口；
+              「分板 PDF（打印 / 另存）」走浏览器打印，板图按豆径 1:1 排版，打印时请选择
+              「实际大小 / 100%」，不要勾选「适合页面」。
             </p>
           </template>
 

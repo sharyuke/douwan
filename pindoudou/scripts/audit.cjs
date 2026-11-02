@@ -47,34 +47,41 @@ const MIME = {
   '.woff2': 'font/woff2'
 }
 
+/* 站点改成 history 路由（2026-10-25）后，地址是真实路径而不是 #/xxx：
+   爬虫只能抓真实路径，hash 路由在它眼里全都是同一个首页。
+   这里跟着改成 path，自检也跟着走真实 URL。 */
 const PAGES = [
-  { name: 'home', hash: '#/' },
-  // /create 现在是 /editor 的跳转别名：这一项同时验证「老链接还能用」
-  // 和「跳过去落在创建步骤上」两件事
-  { name: 'createAlias', hash: '#/create' },
-  { name: 'library', hash: '#/library' },
-  { name: 'editor', hash: '#/editor' },
+  { name: 'home', path: '/' },
+  // 老链接：首页恢复成 / 之后，/home 只剩一个跳转 —— 这里盯着它别跳错
+  { name: 'homeLegacy', path: '/home' },
+  // 操作台 = 新手简化版的三步向导（2026-10-26 从首页挪到「创作」底下）
+  { name: 'create', path: '/create' },
+  { name: 'library', path: '/materials/' },
+  { name: 'editor', path: '/editor' },
   // ?tab= 是外链能用到的那种深链（「免费素材库」直接指到左栏那个入口），
   // 单独列一项，顺便留一张「侧栏停在素材库」的截图
-  { name: 'editorLibraryTab', hash: '#/editor?tab=library' },
-  { name: 'editorProject', hash: '#/editor/p_audit_fixture' },
-  { name: 'account', hash: '#/account' },
-  { name: 'settings', hash: '#/settings' },
-  { name: 'help', hash: '#/help' },
-  { name: 'projects', hash: '#/projects' },
-  { name: 'projectDetail', hash: '#/projects/p_audit_fixture' },
-  { name: 'inventory', hash: '#/inventory' },
-  { name: 'materials', hash: '#/materials/p_audit_fixture' },
-  { name: 'build', hash: '#/build/p_audit_fixture' },
+  { name: 'editorLibraryTab', path: '/editor?tab=library' },
+  { name: 'editorProject', path: '/editor/p_audit_fixture' },
+  { name: 'account', path: '/account' },
+  { name: 'settings', path: '/settings' },
+  { name: 'help', path: '/help' },
+  { name: 'projects', path: '/projects' },
+  { name: 'projectDetail', path: '/projects/p_audit_fixture' },
+  { name: 'inventory', path: '/inventory' },
+  // 作品的材料清单原来占用 /materials/:projectId，
+  // 和公开素材地址 /materials/:slug 撞车，搬到了 /project-materials/
+  { name: 'materials', path: '/project-materials/p_audit_fixture' },
+  { name: 'build', path: '/build/p_audit_fixture' },
   /* 第三步「完成」的两个关键状态：
      - buildFinish：完成弹窗（?finish=1 是工作台「我已经拼完了」的落点）
      - buildDone / projectDone：真完成过一件作品之后的页面（庆祝块、完成卡片） */
-  { name: 'buildFinish', hash: '#/build/p_audit_fixture?finish=1' },
-  { name: 'buildDone', hash: '#/build/p_audit_done' },
-  { name: 'projectDone', hash: '#/projects/p_audit_done' },
-  { name: 'tool', hash: '#/tools/perler-bead-pattern-maker' },
-  { name: 'assetDetail', hash: '#/library/a1f8ajij' },
-  { name: 'notfound', hash: '#/definitely-not-a-page' }
+  { name: 'buildFinish', path: '/build/p_audit_fixture?finish=1' },
+  { name: 'buildDone', path: '/build/p_audit_done' },
+  { name: 'projectDone', path: '/projects/p_audit_done' },
+  { name: 'tool', path: '/tools/perler-bead-pattern-maker' },
+  // 内置矢量素材不在后台库里，没有独立可索引页面，留在旧地址（noindex）
+  { name: 'assetDetail', path: '/library/a1f8ajij' },
+  { name: 'notfound', path: '/definitely-not-a-page' }
 ]
 
 const WIDTHS = [
@@ -250,7 +257,7 @@ async function main() {
   const pages = pageNames && pageNames.length
     ? PAGES.filter(p => pageNames.includes(p.name))
     : (wanted.length
-      ? PAGES.filter(p => wanted.some(w => p.hash.includes(w.replace(/^\//, ''))))
+      ? PAGES.filter(p => wanted.some(w => p.path.includes(w.replace(/^\//, ''))))
       : PAGES)
 
   const origin = externalBase || `http://127.0.0.1:${PORT}`
@@ -272,7 +279,7 @@ async function main() {
     process.exit(1)
   }
 
-  /* Windows 上 Node 直接 spawn Chrome 偶尔会因
+  /* Windows 下 Node 直接 spawn Chrome 偶尔会因
      「Failed to create a message-only window: 拒绝访问」起不来。
      这时可以从外部先启动 Chrome，再用 AUDIT_CDP_PORT 指定端口复用。 */
   const reusePort = Number(process.env.AUDIT_CDP_PORT || 0)
@@ -413,7 +420,7 @@ async function main() {
         width: vp.w, height: vp.h, deviceScaleFactor: 1, mobile: vp.name === 'mobile'
       })
 
-      const url = `${origin}/${page.hash.replace('p_audit_fixture', fixtureId).replace('p_audit_done', fixtureDoneId)}`
+      const url = `${origin}${page.path.replace('p_audit_fixture', fixtureId).replace('p_audit_done', fixtureDoneId)}`
       await send('Page.navigate', { url })
       await sleep(3200)
       // 再等两帧：canvas 的像素读取需要绘制提交完成，
@@ -454,7 +461,7 @@ async function main() {
           const painted = canvases.filter(c => c.nonBlank === true).length;
           return {
             title: document.title,
-            route: location.hash,
+            route: location.pathname + location.search,
             docW: de.scrollWidth,
             docH: de.scrollHeight,
             winW: innerWidth,

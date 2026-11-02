@@ -72,6 +72,14 @@ type LibraryAsset struct {
 	// 会员分层：free 全部用户可用，pro 需要对应权益
 	Tier string `gorm:"size:16;not null;default:'free';index" json:"tier"`
 
+	// ---- SEO（前台素材详情页 /materials/{slug}/ 的可索引信息）----
+	// 空值表示「用自动生成的默认值」；运营在后台手动改过之后就以这里为准。
+	SeoTitle       string `gorm:"size:255" json:"seo_title"`
+	SeoDescription string `gorm:"size:512" json:"seo_description"`
+	// SeoNoIndex 为 true 时这一页不进 Sitemap、也不推送，并加 noindex 标签。
+	// 用于「素材还在但暂时不想被收录」的情况。
+	SeoNoIndex bool `gorm:"not null;default:false" json:"seo_noindex"`
+
 	CreatedBy      uint64     `gorm:"index" json:"created_by"`
 	UpdatedBy      uint64     `gorm:"index" json:"updated_by"`
 	PublishedAt    *time.Time `json:"published_at"`
@@ -109,6 +117,11 @@ type LibraryCategory struct {
 	Status      int8   `gorm:"not null;default:1;index" json:"status"`
 	CreatedBy   uint64 `gorm:"index" json:"created_by"`
 	UpdatedBy   uint64 `gorm:"index" json:"updated_by"`
+
+	// ---- SEO（分类页 /materials/category/{slug}/ 的可索引信息）----
+	SeoTitle       string `gorm:"size:255" json:"seo_title"`
+	SeoDescription string `gorm:"size:512" json:"seo_description"`
+	SeoNoIndex     bool   `gorm:"not null;default:false" json:"seo_noindex"`
 }
 
 // IsEnabled 分类是否启用。

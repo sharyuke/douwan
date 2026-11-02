@@ -7,8 +7,8 @@ const groups = [
   {
     title: '开始创作',
     links: [
-      { to: '/editor', label: '上传照片生成' },
-      { to: '/library', label: '免费素材库' },
+      { to: '/create', label: '上传照片生成' },
+      { to: '/materials/', label: '免费素材库' },
       { to: '/projects', label: '我的作品' },
       { to: '/inventory', label: '我的库存' }
     ]

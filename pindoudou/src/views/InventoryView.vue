@@ -212,7 +212,7 @@ function applyQuickSet(set) {
     <section v-if="short && short.needRestock" class="card" style="margin-top:18px">
       <div class="card__head">
         <h3>当前作品的缺色提醒</h3>
-        <RouterLink to="/materials">查看完整材料表 ›</RouterLink>
+        <RouterLink to="/project-materials">查看完整材料表 ›</RouterLink>
       </div>
       <div class="card__body">
         <div class="tableWrap">

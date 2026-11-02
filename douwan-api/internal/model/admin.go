@@ -65,6 +65,8 @@ const (
 	PermLogView         = "log.view"          // 查看操作日志
 	PermOverviewView    = "overview.view"     // 查看数据概览
 	PermActivityView    = "activity.view"     // 查看用户活跃数据监控
+	PermSeoView         = "seo.view"           // 查看 SEO 管理（页面清单 / 推送历史 / Sitemap 状态）
+	PermSeoManage       = "seo.manage"         // 手动补推、修改 SEO 文案、触发巡检
 	PermLocalAIView     = "localai.view"      // 查看本地 AI 节点状态与任务列表
 	PermLocalAIManage   = "localai.manage"    // 操作本地 AI（取消任务、清理产物）
 )
@@ -82,6 +84,7 @@ var permissionOrder = []string{
 	PermEntitlementView, PermEntitlementGive, PermSettingView,
 	PermSettingManage, PermAdminManage, PermLogView, PermOverviewView,
 	PermActivityView,
+	PermSeoView, PermSeoManage,
 	PermLocalAIView, PermLocalAIManage,
 }
 
@@ -109,6 +112,8 @@ var rolePermissions = map[string]map[string]bool{
 		PermLogView:         true,
 		PermOverviewView:    true,
 		PermActivityView:    true,
+		PermSeoView:         true,
+		PermSeoManage:       true,
 		PermLocalAIView:     true,
 		PermLocalAIManage:   true,
 	},
@@ -122,6 +127,7 @@ var rolePermissions = map[string]map[string]bool{
 		PermLogView:         true,
 		PermOverviewView:    true,
 		PermActivityView:    true,
+		PermSeoView:         true,
 		PermLocalAIView:     true,
 	},
 }

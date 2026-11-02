@@ -19,6 +19,7 @@ import (
 	"gitee.com/maryuke/douwan-api/internal/database"
 	"gitee.com/maryuke/douwan-api/internal/repository"
 	"gitee.com/maryuke/douwan-api/internal/router"
+	"gitee.com/maryuke/douwan-api/internal/service"
 	"gitee.com/maryuke/douwan-api/internal/storage"
 )
 
@@ -29,6 +30,7 @@ type Server struct {
 	redis      *redis.Client
 	tokenStore auth.TokenStore
 	activity   *activity.Recorder
+	seo        *service.SeoService
 	http       *http.Server
 }
 
@@ -84,6 +86,10 @@ func New(ctx context.Context, cfg *config.Config) (*Server, error) {
 		activity.NewGeoResolver(cfg.Activity),
 	)
 
+	// SEO 服务：robots / sitemap / 页面渲染 / 推送队列共用同一个实例，
+	// 这样路由层与巡检协程看到的是同一份状态。
+	seoService := service.NewSeoService(repository.New(db), cfg.SEO)
+
 	engine := router.New(router.Deps{
 		Config:     cfg,
 		DB:         db,
@@ -92,6 +98,7 @@ func New(ctx context.Context, cfg *config.Config) (*Server, error) {
 		Storage:    store,
 		StorageErr: storeErr,
 		Activity:   recorder,
+		Seo:        seoService,
 	})
 
 	return &Server{
@@ -100,6 +107,7 @@ func New(ctx context.Context, cfg *config.Config) (*Server, error) {
 		redis:      redisClient,
 		tokenStore: tokenStore,
 		activity:   recorder,
+		seo:        seoService,
 		http: &http.Server{
 			Addr:              cfg.Server.Addr(),
 			Handler:           engine,
@@ -116,6 +124,10 @@ func (s *Server) Run(ctx context.Context) error {
 	if s.activity != nil {
 		defer s.activity.Stop()
 		s.activity.Start(ctx)
+	}
+	// SEO 巡检协程：启动后先跑一次，之后按 cron_interval 周期巡检。
+	if s.seo != nil {
+		s.seo.StartScheduler(ctx)
 	}
 
 	errCh := make(chan error, 1)

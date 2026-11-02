@@ -54,7 +54,7 @@
   out.tokensInURL = /access_token=|refresh_token=/.test(location.hash)
 
   await sleep(1100)
-  out.redirectedToAccount = location.hash.startsWith('#/account')
+  out.redirectedToAccount = location.pathname.startsWith('/account')
 
   return {
     ok: out.authPresent &&

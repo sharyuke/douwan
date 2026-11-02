@@ -22,6 +22,7 @@ import iconFestivals from '../assets/category/festivals.png'
 import iconCute from '../assets/category/cute.png'
 import iconBeginner from '../assets/category/beginner.png'
 import iconHot from '../assets/category/hot.png'
+import { CATEGORY_SLUGS } from './categorySlugs.js'
 
 /** 一级分类：顺序就是导航顺序 */
 export const LIBRARY_CATEGORIES = [
@@ -140,21 +141,10 @@ export const LEGACY_SORT_ALIASES = {
 /* ------------------------------------------------------------ 分类匹配 */
 
 /** 新分类对应的后台分类 slug（含旧 slug，方便旧素材继续落位） */
-export const CATEGORY_SLUGS = {
-  anime: ['anime'],
-  pets: ['pets', 'pet', 'avatar'],
-  couples: ['couples', 'couple'],
-  food: ['food'],
-  plants: ['plants', 'plant'],
-  lifestyle: ['lifestyle'],
-  festivals: ['festivals', 'holiday'],
-  cute: ['cute'],
-  beginner: ['beginner']
-}
+export { CATEGORY_SLUGS }
 
 /** 后台分类名 → 新分类 key（分类被停用、slug 拿不到时兜底） */
-const CATEGORY_NAME_ALIASES = {
-  二次元: 'anime',
+const CATEGORY_NAME_ALIASES = {  二次元: 'anime',
   宠物: 'pets',
   萌宠动物: 'pets',
   头像: 'pets',
@@ -173,6 +163,25 @@ const CATEGORY_NAME_ALIASES = {
 }
 
 const lower = v => String(v ?? '').trim().toLowerCase()
+
+/**
+ * 后台分类 slug → 前台一级分类 key。
+ * 用于 /materials/category/{slug}/ 分类页：URL 里带的是后台真实 slug。
+ */
+export function categoryKeyFromSlug(slug) {
+  const s = lower(slug)
+  if (!s) return ''
+  for (const key of Object.keys(CATEGORY_SLUGS)) {
+    if (CATEGORY_SLUGS[key].some(x => lower(x) === s)) return key
+  }
+  return ''
+}
+
+/** 前台一级分类 key → 后台主 slug（分类页链接用）。 */
+export function categorySlugFor(key) {
+  const list = CATEGORY_SLUGS[key]
+  return list && list.length ? list[0] : ''
+}
 
 function tagsOf(asset) {
   return (Array.isArray(asset?.tags) ? asset.tags : []).map(lower)

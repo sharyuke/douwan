@@ -66,7 +66,7 @@
 
   /* 手机工作台把左栏藏起来，色板卡在画布上方快捷区的「色板」里。先点快捷区、
      量抽屉里的真实控件；桌面 / 平板仍按左栏那张卡来量。 */
-  const isEditorPage = (location.hash || '').startsWith('#/editor')
+  const isEditorPage = location.pathname.startsWith('/editor')
   const mobile = window.matchMedia('(max-width:780px)').matches
   let sheetOpened = false
   if (isEditorPage && mobile) {

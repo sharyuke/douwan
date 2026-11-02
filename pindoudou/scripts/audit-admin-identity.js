@@ -5,7 +5,7 @@
   location.hash = '#/admin/users'
   await sleep(1600)
 
-  out.hash = location.hash
+  out.hash = location.pathname + location.search
   out.pageText = document.body.textContent.replace(/\s+/g, ' ').trim().slice(0, 300)
 
   const detailBtn = [...document.querySelectorAll('button')]
@@ -27,7 +27,7 @@
   out.hasBoundAt = out.modalText.includes('绑定于')
 
   return {
-    ok: out.hash.startsWith('#/admin/users') && out.detailButton && out.modalOpened &&
+    ok: out.hash.startsWith('/admin/users') && out.detailButton && out.modalOpened &&
       out.hasLoginMethod && out.hasQQ && out.hasMaskedOpenID && out.hasBoundAt,
     checks: out
   }

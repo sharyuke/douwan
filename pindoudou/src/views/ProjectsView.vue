@@ -13,6 +13,10 @@ import { fromPatternJSON, materialList, normalizeBoardSize } from '../lib/patter
 import { unpackPattern, packedBeadCount } from '../lib/archive.js'
 import { inventory } from '../composables/useInventory.js'
 import { ALL_FREE, check } from '../composables/useMembership.js'
+import { currentUser, authLoading } from '../composables/useUserAccount.js'
+import {
+  projectSyncState, projectSyncError, lastProjectSyncAt, syncProjects
+} from '../composables/useProjectSync.js'
 import { toastOk, toastWarn, toastResult } from '../composables/useToast.js'
 import { timeAgo, num, formatDuration, projectCanvas } from '../lib/forge.js'
 import {
@@ -24,6 +28,25 @@ const route = useRoute()
 const router = useRouter()
 const confirmDelete = ref('')
 const filter = ref('all')
+
+/* 同步状态一句话说清：未登录只在本机、同步中、失败但本机仍在、已同步到账号。 */
+const syncHint = computed(() => {
+  if (!currentUser.value) {
+    /* 刷新页面时先用本地令牌换回账号，这一小段不能误报「未登录」 */
+    if (authLoading.value) return '正在恢复登录状态…'
+    return '未登录：作品只保存在这台设备，登录后会自动同步到账号。'
+  }
+  if (projectSyncState.value === 'syncing') return '正在同步作品…'
+  if (projectSyncState.value === 'error') {
+    return `同步失败：${projectSyncError.value || '请稍后重试'}。本机作品仍保留，联网后会自动重试。`
+  }
+  if (lastProjectSyncAt.value) return `已同步到账号 · ${timeAgo(lastProjectSyncAt.value)}`
+  return '登录后作品会同步到账号，换设备也能看到。'
+})
+
+async function onSync() {
+  await syncProjects({ force: true })
+}
 
 const detailId = computed(() => route.params.id || '')
 const detail = computed(() => projects.value.find(p => p.id === detailId.value) || null)
@@ -204,7 +227,7 @@ const detailStale = computed(() => {
           <RouterLink class="btn green" :to="detail.finishedAt ? `/build/${detail.id}` : `/build/${detail.id}?finish=1`">
             {{ detail.finishedAt ? '完成记录' : '去完成' }}
           </RouterLink>
-          <RouterLink class="btn btn-secondary" :to="`/materials/${detail.id}`">材料与分板</RouterLink>
+          <RouterLink class="btn btn-secondary" :to="`/project-materials/${detail.id}`">材料与分板</RouterLink>
         </div>
       </div>
 
@@ -314,10 +337,21 @@ const detailStale = computed(() => {
           <p>
             共 {{ statsSummary.count }} 件 · 累计设计 {{ num(statsSummary.totalBeads) }} 颗豆 ·
             已完成 {{ statsSummary.finished }} 件（拼满进度的 {{ statsSummary.done }} 件）。
-            作品保存在本机浏览器，刷新和重启都还在。
+            作品会保存到本机并同步到你的豆玩账号，登录同一账号换设备也能看到。
+          </p>
+          <p class="hint syncLine" data-audit="project-sync">
+            <span :data-state="projectSyncState">{{ syncHint }}</span>
+            <button
+              v-if="currentUser"
+              class="linkBtn"
+              type="button"
+              data-audit="project-sync-now"
+              :disabled="projectSyncState === 'syncing'"
+              @click="onSync"
+            >{{ projectSyncState === 'syncing' ? '同步中…' : '立即同步' }}</button>
           </p>
         </div>
-        <RouterLink to="/editor" class="btn primary">＋ 新建作品</RouterLink>
+        <RouterLink to="/create" class="btn primary">＋ 新建作品</RouterLink>
       </div>
 
       <div class="tabs" style="margin-bottom:16px">
@@ -332,8 +366,8 @@ const detailStale = computed(() => {
         <strong>还没有作品</strong>
         <p>生成图纸后在右上角点「保存」，或在工作台右侧点「保存作品」。</p>
         <div class="row" style="gap:9px">
-          <RouterLink to="/editor" class="btn primary">上传照片开始</RouterLink>
-          <RouterLink to="/library" class="btn btn-secondary">逛素材库</RouterLink>
+          <RouterLink to="/create" class="btn primary">上传照片开始</RouterLink>
+          <RouterLink to="/materials/" class="btn btn-secondary">逛素材库</RouterLink>
         </div>
       </div>
 
@@ -394,6 +428,10 @@ const detailStale = computed(() => {
 
 <style scoped>
 .crumb{display:flex;align-items:center;gap:8px;font-size:var(--fs-xs);color:var(--muted);margin-bottom:14px}
+.syncLine{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:6px}
+.syncLine [data-state="error"]{color:var(--orange-deep);font-weight:700}
+.linkBtn{padding:0;border:0;background:none;color:var(--primary-deep);font:inherit;font-weight:800;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+.linkBtn:disabled{opacity:.55;cursor:default;text-decoration:none}
 .crumb b{color:var(--ink)}
 .detailGrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
 .previewBody{display:grid;place-items:center;min-height:380px;background:var(--surface-2)}

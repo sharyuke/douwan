@@ -30,8 +30,8 @@
   }
 
   try {
-    const hash = location.hash || '#/'
-    if (hash.startsWith('#/editor')) {
+    const hash = location.pathname + location.search
+    if (hash.startsWith('/editor')) {
       /* 这两个按钮只在手机端出现（桌面 / 平板用空画布引导那套版式） */
       if (innerWidth > 780) return { ok: true, steps, width: innerWidth, hash, skipped: '桌面 / 平板没有空画布按钮' }
       const actions = qa('.emptyActions button')

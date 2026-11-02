@@ -8,7 +8,10 @@ const props = defineProps({
   size: { type: String, default: '' },      // '' | 'sm' | 'lg'
   /* 手机端从底部升起的抽屉：桌面端仍是普通居中弹窗（样式在 global.css 的媒体查询里） */
   sheet: { type: Boolean, default: false },
-  closeOnBackdrop: { type: Boolean, default: true }
+  closeOnBackdrop: { type: Boolean, default: true },
+  /* 层级：默认 0（用 global.css 的 .modal z-index 200）。
+     工作台的新手指引层是 400，模式切换弹层要压在它上面就传 500。 */
+  layer: { type: Number, default: 0 }
 })
 const emit = defineEmits(['update:modelValue', 'close'])
 
@@ -63,7 +66,11 @@ onBeforeUnmount(() => {
 
 <template>
   <Teleport to="body">
-    <div v-if="modelValue" class="modal show" :class="{ 'modal--sheet': sheet }" @click.self="onBackdrop">
+    <div
+      v-if="modelValue" class="modal show" :class="{ 'modal--sheet': sheet }"
+      :style="layer ? { zIndex: layer } : null"
+      @click.self="onBackdrop"
+    >
       <div
         class="dialog" :class="[size ? 'dialog--' + size : '', { 'dialog--sheet': sheet }]"
         role="dialog" aria-modal="true"

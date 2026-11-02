@@ -88,7 +88,7 @@ watch(() => props.asset && props.asset.image, async url => {
 <style scoped>
 .mCard{
   position:relative;min-width:0;background:#FFFDF8;
-  border:1px solid #F3EBDD;border-radius:18px;padding:8px;
+  border:1px solid #F3EBDD;border-radius:16px;padding:6px;
   box-shadow:0 2px 8px rgba(82,62,24,.05);
   transition:transform .18s var(--ease),box-shadow .18s var(--ease),border-color .18s var(--ease);
 }
@@ -97,12 +97,12 @@ watch(() => props.asset && props.asset.image, async url => {
 /* 米色方图底：缩略图是铺白底的 JPEG，multiply 把白底融进暖色渐变，图案直接浮在上面 */
 .mCard__media{
   position:relative;display:block;width:100%;aspect-ratio:1 / 1;padding:0;
-  border-radius:14px;overflow:hidden;isolation:isolate;
+  border-radius:12px;overflow:hidden;isolation:isolate;
   background:linear-gradient(165deg,#FDEFDE 0%,#FDF5E7 55%,#FEFCF8 100%);
 }
 /* 只铺缩略图本身：点赞爱心也在这张卡里，别把它一起拉满（> 子选择器） */
 .mCard__media > img{
-  width:100%;height:100%;display:block;object-fit:contain;padding:6px;
+  width:100%;height:100%;display:block;object-fit:contain;padding:5px;
   mix-blend-mode:multiply;
 }
 .mCard__svg{width:100%;aspect-ratio:1 / 1;display:grid;place-items:center}
@@ -114,7 +114,7 @@ watch(() => props.asset && props.asset.image, async url => {
 
 /* 难度胶囊：浅色底 + 同色系深字，和参考稿一样是圆角药丸 */
 .mCard__badge{
-  position:absolute;left:8px;top:8px;z-index:2;padding:4px 10px;border-radius:999px;
+  position:absolute;left:7px;top:7px;z-index:2;padding:3px 9px;border-radius:999px;
   background:#E4F7EA;color:#2E8B57;font-size:11px;font-weight:800;line-height:1.2;
   box-shadow:0 1px 3px rgba(46,139,87,.10);
 }
@@ -124,18 +124,18 @@ watch(() => props.asset && props.asset.image, async url => {
 
 /* 点赞数：右上角粉色桃心 + 数字 */
 .mCard__likes{
-  position:absolute;right:9px;top:9px;z-index:2;
+  position:absolute;right:8px;top:8px;z-index:2;
   display:flex;align-items:center;gap:3px;color:#FE435F;
-  font-size:12px;font-weight:800;line-height:1;letter-spacing:.2px;
+  font-size:11px;font-weight:800;line-height:1;letter-spacing:.2px;
 }
 .mCard__likes b{font-weight:800}
 /* 交付包图标：固定盒子 + contain，等比缩放不拉伸（原图 433×353 / 411×419） */
 .mCard__likeIcon{width:16px;height:13px;flex:0 0 auto;display:block;object-fit:contain}
 
 .mCard__hover{
-  position:absolute;left:50%;bottom:9px;transform:translate(-50%,6px);
-  padding:3px 10px;border-radius:var(--r-pill);background:rgba(31,41,55,.78);color:#fff;
-  font-size:11px;font-weight:700;opacity:0;pointer-events:none;transition:var(--t);
+  position:absolute;left:50%;bottom:8px;transform:translate(-50%,6px);
+  padding:3px 9px;border-radius:var(--r-pill);background:rgba(31,41,55,.78);color:#fff;
+  font-size:10px;font-weight:700;opacity:0;pointer-events:none;transition:var(--t);
 }
 .mCard__media:hover .mCard__hover,.mCard__media:focus-visible .mCard__hover{opacity:1;transform:translate(-50%,0)}
 
@@ -143,16 +143,16 @@ watch(() => props.asset && props.asset.image, async url => {
 .mCard__body{
   display:grid;grid-template-columns:minmax(0,1fr) auto;
   grid-template-areas:"info fav" "dots dots";
-  column-gap:10px;row-gap:8px;align-items:center;
-  padding:10px 4px 2px;min-width:0;
+  column-gap:8px;row-gap:6px;align-items:center;
+  padding:8px 3px 2px;min-width:0;
 }
 .mCard__info{grid-area:info;min-width:0}
 .mCard__name{
-  font-size:14px;font-weight:800;line-height:1.35;color:var(--ink);
+  font-size:13px;font-weight:800;line-height:1.35;color:var(--ink);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
 .mCard__fav{
-  grid-area:fav;width:34px;height:34px;flex:0 0 auto;border-radius:10px;
+  grid-area:fav;width:30px;height:30px;flex:0 0 auto;border-radius:9px;
   /* padding 归零：手机上按钮缩到 30px，全局 button 的内边距会把星星挤成 16×18 */
   padding:0;
   border:1px solid #F6D98C;background:#FFF8DE;color:#F0B01C;
@@ -161,9 +161,9 @@ watch(() => props.asset && props.asset.image, async url => {
 .mCard__favIcon{width:18px;height:18px;display:block;object-fit:contain}
 .mCard__fav:hover{background:#FFF0B8;border-color:#EFC35A;color:#E9A400}
 .mCard__fav.on{background:#FFE9A8;border-color:#EFC24F;color:#E19A00}
-.mCard__dots{grid-area:dots;display:flex;align-items:center;gap:5px;min-width:0;overflow:hidden}
+.mCard__dots{grid-area:dots;display:flex;align-items:center;gap:4px;min-width:0;overflow:hidden}
 .mCard__dots i{
-  width:9px;height:9px;border-radius:50%;display:block;flex:0 0 auto;
+  width:8px;height:8px;border-radius:50%;display:block;flex:0 0 auto;
   box-shadow:inset 0 0 0 1px rgba(36,29,25,.08);
 }
 

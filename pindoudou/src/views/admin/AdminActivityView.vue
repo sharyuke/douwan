@@ -28,7 +28,8 @@ import PixelIcon from '../../components/ui/PixelIcon.vue'
 
 import { activityApi } from '../../lib/adminApi.js'
 import { ApiError, datetime, fromNow, money, syncQuery } from '../../lib/api.js'
-import { toastErr } from '../../composables/useToast.js'
+import { visitorId } from '../../lib/telemetry.js'
+import { toastErr, toastOk } from '../../composables/useToast.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -43,7 +44,8 @@ const TABS = [
   { key: 'regions', label: '地区' },
   { key: 'features', label: '功能使用' },
   { key: 'channels', label: '来源渠道' },
-  { key: 'users', label: '用户明细' }
+  { key: 'users', label: '用户明细' },
+  { key: 'exclusions', label: '排除名单' }
 ]
 
 const activeTab = ref('overview')
@@ -105,6 +107,19 @@ const visitorFilters = reactive({
   sort: 'page_views'
 })
 
+/**
+ * 排除名单：把「自己（站点主人）的访问」从统计口径里扣掉。
+ *
+ * 站点主人自己调试、看效果会产生大量访问，混进真实用户里会把数字淹没。
+ * 名单里的访问不计入 PV / UV / DAU，剔掉了多少会在卡片里单独报出来——
+ * 「剔掉了自己」和「本来就没有人」在页面上必须分得开。
+ */
+const exclusions = ref(null)
+const exclusionLoading = ref(false)
+const exclusionError = ref('')
+const exclusionSaving = ref(false)
+const exclusionForm = reactive({ kind: 'ip', value: '', label: '' })
+
 /** 访客详情弹窗 */
 const detailOpen = ref(false)
 const detailLoading = ref(false)
@@ -112,7 +127,8 @@ const detailError = ref('')
 const detail = ref(null)
 
 const loading = computed(() =>
-  overviewLoading.value || tabLoading.value || usersLoading.value || trafficLoading.value || visitorLoading.value)
+  overviewLoading.value || tabLoading.value || usersLoading.value ||
+  trafficLoading.value || visitorLoading.value || exclusionLoading.value)
 
 /* ------------------------------------------------------------------ 地址栏同步 */
 
@@ -290,6 +306,148 @@ function resetVisitorFilters() {
   reloadVisitors(1)
 }
 
+/* ------------------------------------------------------------ 排除名单 */
+
+/** 读排除名单 */
+async function loadExclusions() {
+  exclusionLoading.value = true
+  exclusionError.value = ''
+  try {
+    exclusions.value = await activityApi.exclusions()
+  } catch (e) {
+    exclusionError.value = e instanceof ApiError ? e.message : '排除名单加载失败，请重试'
+    exclusions.value = null
+  } finally {
+    exclusionLoading.value = false
+  }
+}
+
+/** 排除方式（中文名与填写提示由后端给，后端不可用时用本地兜底） */
+const exclusionKinds = computed(() => {
+  const kinds = (exclusions.value && exclusions.value.kinds) || []
+  if (kinds.length) return kinds
+  return [
+    { kind: 'ip', label: 'IP', hint: '例如 203.0.113.9' },
+    { kind: 'visitor', label: '访客标识', hint: '访客列表里显示的前 8 位' },
+    { kind: 'user', label: '账号', hint: '前台账号 ID（数字）' }
+  ]
+})
+
+const exclusionItems = computed(() => (exclusions.value && exclusions.value.items) || [])
+
+/** 当前选择的排除方式的填写提示 */
+const exclusionHint = computed(() => {
+  const found = exclusionKinds.value.find(k => k.kind === exclusionForm.kind)
+  return (found && found.hint) || ''
+})
+
+/**
+ * 名单改完要把统计数字一起刷新。
+ *
+ * 不刷新的话会看到「已经加进名单、数字却没变」——主人会以为功能没生效，
+ * 而实际只是页面没重新拉数据。
+ */
+async function reloadAfterExclusionChange() {
+  await loadExclusions()
+  loadOverview()
+  loadTab()
+}
+
+/** 手动添加一条排除项 */
+async function submitExclusion() {
+  const value = String(exclusionForm.value || '').trim()
+  if (!value) {
+    toastErr('先填要排除的值')
+    return
+  }
+  exclusionSaving.value = true
+  try {
+    await activityApi.addExclusion({
+      kind: exclusionForm.kind,
+      value,
+      label: String(exclusionForm.label || '').trim()
+    })
+    exclusionForm.value = ''
+    exclusionForm.label = ''
+    await reloadAfterExclusionChange()
+    toastOk('已加入排除名单，统计数字已重新计算')
+  } catch (e) {
+    toastErr(e instanceof ApiError ? e.message : '添加失败，请重试')
+  } finally {
+    exclusionSaving.value = false
+  }
+}
+
+/** 删掉一条排除项 */
+async function removeExclusion(item) {
+  if (!window.confirm(`把「${exclusionKindLabel(item.kind)} ${item.value}」移出排除名单？`)) return
+  try {
+    await activityApi.deleteExclusion(item.id)
+    await reloadAfterExclusionChange()
+    toastOk('已移出排除名单')
+  } catch (e) {
+    toastErr(e instanceof ApiError ? e.message : '删除失败，请重试')
+  }
+}
+
+/**
+ * 把某个访客标成「自己」。
+ *
+ * 后台访客列表出于隐私只显示访客标识的前 8 位，服务端按前缀匹配到完整标识，
+ * 所以这里直接把列表里的值交过去即可（不需要拿完整标识）。
+ */
+async function markVisitorAsSelf(row) {
+  const value = String(row.visitor || '').replace(/…/g, '').trim()
+  if (!value) {
+    toastErr('这个访客没有可用的标识')
+    return
+  }
+  try {
+    await activityApi.addExclusion({
+      kind: 'visitor',
+      value,
+      label: row.username ? `自己的浏览器（${row.username}）` : '自己的浏览器'
+    })
+    await reloadAfterExclusionChange()
+    toastOk('已把这个访客标为自己，统计数字已重新计算')
+  } catch (e) {
+    toastErr(e instanceof ApiError ? e.message : '标记失败，请重试')
+  }
+}
+
+/** 把某个前台账号标成「自己」（登录态的活跃数据不算） */
+async function markAccountAsSelf(row) {
+  try {
+    await activityApi.addExclusion({
+      kind: 'user',
+      value: String(row.user_id),
+      label: `自己的账号（${row.username || row.user_id}）`
+    })
+    await reloadAfterExclusionChange()
+    toastOk('已把这个账号标为自己，统计数字已重新计算')
+  } catch (e) {
+    toastErr(e instanceof ApiError ? e.message : '标记失败，请重试')
+  }
+}
+
+/** 把「我现在用的这个浏览器」标成自己（最常用的一键操作） */
+async function markThisBrowserAsSelf() {
+  try {
+    const id = visitorId()
+    await activityApi.addExclusion({ kind: 'visitor', value: id, label: '自己的浏览器' })
+    await reloadAfterExclusionChange()
+    toastOk('已把当前浏览器标为自己，统计数字已重新计算')
+  } catch (e) {
+    toastErr(e instanceof ApiError ? e.message : '标记失败，请重试')
+  }
+}
+
+/** 排除方式的中文名 */
+function exclusionKindLabel(kind) {
+  const found = exclusionKinds.value.find(k => k.kind === kind)
+  return (found && found.label) || kind || '未知'
+}
+
 /** 从页面排行点进「访问过这个页面的访客」 */
 function filterVisitorsByPath(path) {
   visitorFilters.path = path
@@ -322,6 +480,7 @@ function switchTab(key) {
   tabError.value = ''
   syncFilters()
   if (key === 'overview') loadOverview()
+  else if (key === 'exclusions') loadExclusions()
   else loadTab()
 }
 
@@ -338,6 +497,7 @@ function refresh() {
   loadOverview()
   loadTab()
   loadChannelOptions()
+  loadExclusions()
 }
 
 function resetUserFilters() {
@@ -409,12 +569,15 @@ const axisStep = computed(() => {
 const PATH_LABELS = {
   '/': '首页',
   '/editor': '创作工作台',
-  '/library': '素材中心',
-  '/library/:slug': '素材详情',
+  '/library': '素材中心（旧地址）',
+  '/library/:slug': '内置素材详情',
   '/projects': '我的作品',
   '/projects/:id': '作品详情',
-  '/materials/:projectId?': '材料清单',
-  '/materials/:projectId': '材料清单',
+  '/materials': '素材中心',
+  '/materials/category/:slug': '素材分类',
+  '/materials/:slug': '素材详情',
+  '/project-materials/:projectId?': '材料清单',
+  '/project-materials/:projectId': '材料清单',
   '/build/:projectId?': '拼制与完成',
   '/inventory': '我的库存',
   '/account': '我的账户',
@@ -650,8 +813,20 @@ const visitorColumns = [
   { key: 'page_views', label: '累计访问', align: 'right' },
   { key: 'first_day', label: '首次访问', nowrap: true },
   { key: 'last_path', label: '最近页面' },
-  { key: 'last_seen_at', label: '最近访问', nowrap: true }
+  { key: 'last_seen_at', label: '最近访问', nowrap: true },
+  { key: 'actions', label: '操作' }
 ]
+
+const exclusionColumns = [
+  { key: 'kind', label: '方式' },
+  { key: 'value', label: '值' },
+  { key: 'label', label: '备注' },
+  { key: 'created_at', label: '加入时间', nowrap: true },
+  { key: 'actions', label: '操作' }
+]
+
+/** 排除名单的表格行（补一个稳定 key） */
+const exclusionRows = computed(() => withKey(exclusionItems.value, r => String(r.id)))
 
 /* ------------------------------------------------------------------ 启动 */
 
@@ -659,6 +834,7 @@ onMounted(() => {
   restoreFilters()
   loadOverview()
   if (activeTab.value === 'users') reloadUsers(page.value)
+  else if (activeTab.value === 'exclusions') loadExclusions()
   else loadTab()
   loadChannelOptions()
 })
@@ -783,6 +959,12 @@ onMounted(() => {
           <span class="adm-kpi__value">{{ num(cards.today_requests) }} / {{ num(cards.today_features) }}</span>
           <span class="adm-kpi__hint">今天累计（活跃 {{ num(cards.today_active_users) }} 人）</span>
         </div>
+      </div>
+
+      <div v-if="cards.exclusion_active" class="adm-note adm-note--muted">
+        已按「排除名单」剔掉自己的访问：{{ num(cards.excluded_users) }} 个账号 ·
+        {{ num(cards.excluded_requests) }} 次请求（不计入上面的活跃用户与请求数）。
+        名单在<a href="#/admin/activity?tab=exclusions">「排除名单」</a>里维护。
       </div>
 
       <!-- 趋势：没有数据的天后端已经补 0，这里直接画 -->
@@ -920,6 +1102,13 @@ onMounted(() => {
           <span class="adm-kpi__value">{{ num(trafficCards.total_visitors) }} / {{ num(trafficCards.total_pv) }}</span>
           <span class="adm-kpi__hint">全时段口径，不受上面的窗口影响</span>
         </div>
+      </div>
+
+      <div v-if="trafficCards.exclusion_active" class="adm-note adm-note--muted">
+        已按「排除名单」剔掉自己的访问：{{ num(trafficCards.excluded_pv) }} 次访问 ·
+        {{ num(trafficCards.excluded_visitors) }} 个访客
+        （不计入上面的 PV / UV；另有 {{ num(trafficCards.excluded_users) }} 个账号被排除在「用户活跃」之外）。
+        名单在<a href="#/admin/activity?tab=exclusions">「排除名单」</a>里维护。
       </div>
 
       <section class="adm-card adm-card--flat">
@@ -1063,7 +1252,7 @@ onMounted(() => {
         </div>
         <AdminTable
           :columns="visitorColumns" :rows="visitorRowsKeyed" :loading="visitorLoading"
-          row-key="_key" min-width="980px"
+          row-key="_key" min-width="1060px"
           empty-title="窗口内没有访客"
           empty-hint="换一个来源筛选，或等前台有人打开页面之后再来看。"
         >
@@ -1084,6 +1273,11 @@ onMounted(() => {
           </template>
           <template #cell-last_seen_at="{ row }">
             <span :title="datetime(row.last_seen_at)">{{ fromNow(row.last_seen_at) }}</span>
+          </template>
+          <template #cell-actions="{ row }">
+            <button class="adm-btn adm-btn--sm" type="button" @click="markVisitorAsSelf(row)">
+              标为自己
+            </button>
           </template>
         </AdminTable>
 
@@ -1419,8 +1613,105 @@ onMounted(() => {
       </div>
     </template>
 
+    <!-- ======================================================== 排除名单 -->
+    <template v-else-if="activeTab === 'exclusions'">
+      <div v-if="exclusionError" class="adm-note adm-note--danger">{{ exclusionError }}</div>
+
+      <div class="adm-note adm-note--muted">
+        <b>这里放「自己」的访问</b>：站点主人自己也要反复打开站点调试、看效果，
+        这些访问混进真实用户里会把数字淹没。名单里的 IP / 浏览器 / 账号<b>不计入</b>
+        「访问量」与「用户活跃」，但剔掉了多少会在那两页的卡片里单独标出来——
+        「剔掉了自己」和「本来就没有人」必须分得开。
+      </div>
+
+      <div class="adm-kpis">
+        <div class="adm-kpi">
+          <span class="adm-kpi__label">名单条数</span>
+          <span class="adm-kpi__value">{{ num(exclusions && exclusions.count) }}</span>
+          <span class="adm-kpi__hint">IP / 访客标识 / 账号</span>
+        </div>
+        <div class="adm-kpi">
+          <span class="adm-kpi__label">覆盖访客</span>
+          <span class="adm-kpi__value">{{ num(exclusions && exclusions.covered_visitors) }}</span>
+          <span class="adm-kpi__hint">名单展开后实际挡住的访客数</span>
+        </div>
+        <div class="adm-kpi">
+          <span class="adm-kpi__label">覆盖账号</span>
+          <span class="adm-kpi__value">{{ num(exclusions && exclusions.covered_users) }}</span>
+          <span class="adm-kpi__hint">被排除的前台账号</span>
+        </div>
+      </div>
+
+      <section class="adm-card adm-card--flat">
+        <div class="adm-card__head">
+          <h2>一键标记</h2>
+          <span class="adm-muted">最常用的一条：把「你现在用的这个浏览器」标为自己</span>
+        </div>
+        <div class="adm-toolbar">
+          <button class="adm-btn" type="button" @click="markThisBrowserAsSelf">把我这个浏览器标为自己</button>
+          <span class="adm-muted adm-2xs">
+            换设备 / 用无痕窗口要再标一次；也可以在「访问量 → 访客明细」里点某一行的「标为自己」。
+          </span>
+        </div>
+      </section>
+
+      <section class="adm-card adm-card--flat">
+        <div class="adm-card__head">
+          <h2>添加排除项</h2>
+          <span class="adm-muted">IP 适合固定宽带；访客标识最准；账号用于登录态的活跃数据</span>
+        </div>
+        <div class="adm-toolbar">
+          <select v-model="exclusionForm.kind" class="adm-select" style="width:auto">
+            <option v-for="k in exclusionKinds" :key="k.kind" :value="k.kind">{{ k.label }}</option>
+          </select>
+          <input
+            v-model="exclusionForm.value" class="adm-input" style="max-width:320px"
+            :placeholder="exclusionHint" @keyup.enter="submitExclusion"
+          >
+          <input
+            v-model="exclusionForm.label" class="adm-input" style="max-width:200px"
+            placeholder="备注（例如：家里宽带）" @keyup.enter="submitExclusion"
+          >
+          <div class="adm-toolbar__right">
+            <button class="adm-btn adm-btn--sm" type="button" :disabled="exclusionSaving" @click="submitExclusion">
+              {{ exclusionSaving ? '添加中…' : '添加' }}
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section class="adm-card adm-card--flat">
+        <div class="adm-card__head">
+          <h2>名单</h2>
+          <span class="adm-muted">移出后统计数字会立刻按新口径重算</span>
+        </div>
+        <AdminTable
+          :columns="exclusionColumns" :rows="exclusionRows" :loading="exclusionLoading"
+          row-key="_key" min-width="720px"
+          empty-title="名单是空的"
+          empty-hint="把自己常用的浏览器、宽带 IP 或账号加进来，统计数字会立刻干净下来。"
+        >
+          <template #cell-kind="{ row }">
+            <AdminTag :text="row.kind_label || exclusionKindLabel(row.kind)" kind="primary" />
+          </template>
+          <template #cell-value="{ row }">
+            <span class="adm-mono">{{ row.value }}</span>
+            <div v-if="row.username" class="adm-2xs adm-muted">{{ row.username }}</div>
+          </template>
+          <template #cell-label="{ row }">
+            {{ row.label || '—' }}
+            <div v-if="row.note" class="adm-2xs adm-muted">{{ row.note }}</div>
+          </template>
+          <template #cell-created_at="{ row }">{{ datetime(row.created_at) }}</template>
+          <template #cell-actions="{ row }">
+            <button class="adm-btn adm-btn--sm" type="button" @click="removeExclusion(row)">移出名单</button>
+          </template>
+        </AdminTable>
+      </section>
+    </template>
+
     <!-- ======================================================== 用户明细 -->
-    <template v-else>
+    <template v-else-if="activeTab === 'users'">
       <div class="adm-toolbar">
         <input
           v-model="userFilters.keyword" class="adm-input" placeholder="搜索用户名 / 昵称"
@@ -1492,6 +1783,7 @@ onMounted(() => {
           </template>
           <template #cell-actions="{ row }">
             <button class="adm-btn adm-btn--sm" type="button" @click="openUser(row.user_id)">明细</button>
+            <button class="adm-btn adm-btn--sm" type="button" @click="markAccountAsSelf(row)">标为自己</button>
           </template>
         </AdminTable>
 

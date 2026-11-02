@@ -59,7 +59,7 @@ async function onPick(asset) {
   busy.value = true
   const res = await pickAsset(asset.id)
   busy.value = false
-  if (res.ok) router.push('/editor')
+  if (res.ok) router.push('/create')
 }
 </script>
 
@@ -70,8 +70,8 @@ async function onPick(asset) {
       <strong>找不到这个工具页</strong>
       <p>可能链接有误。你可以直接从素材库或上传照片开始。</p>
       <div class="row" style="gap:9px">
-        <RouterLink to="/editor" class="btn primary">开始创作</RouterLink>
-        <RouterLink to="/library" class="btn btn-secondary">素材中心</RouterLink>
+        <RouterLink to="/create" class="btn primary">开始创作</RouterLink>
+        <RouterLink to="/materials/" class="btn btn-secondary">素材中心</RouterLink>
       </div>
     </div>
 
@@ -82,8 +82,8 @@ async function onPick(asset) {
           <h1 style="margin:14px 0 10px">{{ content.h1 }}</h1>
           <p class="toolLead">{{ content.lead }}</p>
           <div class="row row--wrap" style="margin-top:18px">
-            <RouterLink to="/editor" class="btn primary lg">免费生成一张图纸</RouterLink>
-            <RouterLink to="/library" class="btn btn-secondary lg">先看素材库</RouterLink>
+            <RouterLink to="/create" class="btn primary lg">免费生成一张图纸</RouterLink>
+            <RouterLink to="/materials/" class="btn btn-secondary lg">先看素材库</RouterLink>
           </div>
           <p class="hint" style="margin-top:12px">
             不需要注册，图片在你的浏览器本地处理，不会上传到服务器。
@@ -157,7 +157,7 @@ async function onPick(asset) {
       <!-- 相关素材 -->
       <section v-if="related.length" class="secHead">
         <div><h2>相关素材</h2><p>点一下直接生成</p></div>
-        <RouterLink to="/library">全部素材 ›</RouterLink>
+        <RouterLink to="/materials/">全部素材 ›</RouterLink>
       </section>
       <div v-if="related.length" class="assetGrid">
         <AssetCard v-for="a in related" :key="a.id" :asset="a" @pick="onPick" />

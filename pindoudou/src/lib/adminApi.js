@@ -59,7 +59,76 @@ export const activityApi = {
    */
   traffic: query => api.get('/admin/activity/traffic', { ...opts(), query }),
   /** 访客明细：可按页面 / 渠道筛选，page_size 同其它列表接口 */
-  trafficVisitors: query => api.get('/admin/activity/traffic/visitors', { ...opts(), query })
+  trafficVisitors: query => api.get('/admin/activity/traffic/visitors', { ...opts(), query }),
+  /**
+   * 监控排除名单：把「自己（站点主人）的访问」从统计里扣掉。
+   * 名单支持三种方式：ip（整个 IP）、visitor（某个浏览器）、user（某个前台账号）。
+   * 命中名单的访问不计入 PV / UV / DAU，但剔掉了多少会在卡片里单独报出来。
+   */
+  exclusions: () => api.get('/admin/activity/exclusions', opts()),
+  addExclusion: body => api.post('/admin/activity/exclusions', body, opts()),
+  deleteExclusion: id => api.del(`/admin/activity/exclusions/${id}`, opts())
+}
+
+/* ------------------------------------------------------------------ SEO 管理 */
+
+/**
+ * SEO 管理（后端 douwan-api/internal/handler/seo.go）。
+ * 口径：这里所有「成功/失败/待推送」都只是**我们发出的通知**，
+ * 不代表搜索引擎已抓取或已收录；收录数据要等接了站长平台官方接口才有。
+ */
+export const seoApi = {
+  /** 概览：可索引页面数、Sitemap/robots 状态、各引擎推送统计、最近任务、最近巡检 */
+  overview: () => api.get('/admin/seo/overview', opts()),
+  /** 可索引页面清单（可编辑素材 / 分类的 SEO 标题与描述） */
+  pages: query => api.get('/admin/seo/pages', { ...opts(), query }),
+  /** 推送任务历史 */
+  tasks: query => api.get('/admin/seo/tasks', { ...opts(), query }),
+  /** 手动推送：paths 传路径数组，all=true 表示全部页面 */
+  push: body => api.post('/admin/seo/push', body, opts()),
+  /** 立刻跑一次巡检 */
+  check: () => api.post('/admin/seo/check', {}, opts()),
+  /** 修改素材 / 分类的 SEO 文案（kind: material | material_category） */
+  updatePage: (kind, id, body) => api.patch(`/admin/seo/pages/${kind}/${id}`, body, opts()),
+  /** 各推送通道的配置状态（只有布尔值，不含任何密钥明文） */
+  config: () => api.get('/admin/seo/config', opts()),
+  /**
+   * 按模板重算素材 / 分类的自动 SEO 文案。
+   * 人工写过的文案（seo_auto = false）不会被覆盖。
+   */
+  regenerate: () => api.post('/admin/seo/regenerate', {}, opts())
+}
+
+/* ------------------------------------------------------------------ 关键词管理 */
+
+/**
+ * 搜索关键词管理（V3.0，后端 douwan-api/internal/handler/seo_keyword.go）。
+ * 口径红线：曝光 / 点击 / 点击率 / 平均排名只来自官方站长平台接口或人工导入的 CSV，
+ * 没有数据源时接口返回 null，前端一律显示「暂无数据」，不用 0 冒充。
+ */
+export const seoKeywordApi = {
+  /** 关键词列表：group / intent / status / engine / target_path / keyword + 排序与数值筛选 */
+  list: query => api.get('/admin/seo/keywords', { ...opts(), query }),
+  /** 基础信息：分组、意图、目标页面清单、数据来源 */
+  meta: () => api.get('/admin/seo/keywords/meta', opts()),
+  /** 多个页面争抢同一个核心搜索意图 */
+  conflicts: () => api.get('/admin/seo/keywords/conflicts', opts()),
+  /** 页面缺 Title / Description / H1 的自检 */
+  checks: () => api.get('/admin/seo/keywords/checks', opts()),
+  /** 低点击率但有曝光的优化候选（没有搜索数据时返回空） */
+  candidates: query => api.get('/admin/seo/keywords/candidates', { ...opts(), query }),
+  /** 新增关键词 */
+  create: body => api.post('/admin/seo/keywords', body, opts()),
+  /** 修改关键词 */
+  update: (id, body) => api.patch(`/admin/seo/keywords/${id}`, body, opts()),
+  /** 删除关键词 */
+  remove: id => api.del(`/admin/seo/keywords/${id}`, opts()),
+  /** CSV 导入：body = { csv, engine, update_stats } */
+  import: body => api.post('/admin/seo/keywords/import', body, opts()),
+  /** 同步内置初始关键词库（幂等） */
+  sync: () => api.post('/admin/seo/keywords/sync', {}, opts()),
+  /** 从 Google Search Console 拉搜索表现：body = { start_date, end_date } */
+  searchConsole: body => api.post('/admin/seo/keywords/search-console', body, opts())
 }
 
 /* ------------------------------------------------------------------ 套餐 */

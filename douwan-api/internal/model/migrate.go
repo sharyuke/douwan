@@ -39,5 +39,7 @@ func AllModels() []any {
 		// 站点访问量（PV / UV，含未登录访客）
 		&SiteVisitor{},
 		&SiteVisitorPageDaily{},
+		// 搜索引擎推送任务（队列 + 历史）
+		&SeoPushTask{},
 	}
 }

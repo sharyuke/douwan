@@ -27,7 +27,12 @@ const { spawn } = require('child_process')
 const ROOT = path.join(__dirname, '..')
 /** 产物目录：默认 dist/，可用 AUDIT_DIST 指到私有构建目录（并行开发时避免互相覆盖） */
 const DIST = path.resolve(process.env.AUDIT_DIST || path.join(ROOT, 'dist'))
-const OUT = process.env.AUDIT_OUT || path.join(os.tmpdir(), 'douwan-admin-audit')
+/* 本机 Windows 的系统临时目录（AppData\Local）权限受限，mkdtemp 会 EPERM。
+   自检报告和 Chrome profile 统一放到仓库内的 .tmp/（已 gitignore），
+   需要换位置时用 AUDIT_OUT / AUDIT_TMP 覆盖。 */
+const TMP_ROOT = process.env.AUDIT_TMP || path.join(ROOT, '.tmp')
+fs.mkdirSync(TMP_ROOT, { recursive: true })
+const OUT = process.env.AUDIT_OUT || path.join(TMP_ROOT, 'douwan-admin-audit')
 const PORT = Number(process.env.AUDIT_PORT || 4399)
 const UPSTREAM = new URL(process.env.ADMIN_API_BASE || 'https://dw.sharyuke.com')
 const ADMIN_USER = process.env.ADMIN_USER || 'douwan'
@@ -60,14 +65,14 @@ const CHROME_CANDIDATES = [
   'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'
 ].filter(Boolean)
 
-/** 后台页面清单：hash 路由 + 期望在页面上出现的关键字（用来判断是不是白屏） */
+/** 后台页面清单：真实路径 + 期望在页面上出现的关键字（用来判断是不是白屏） */
 const PAGES = [
-  { name: 'admin-overview', hash: '#/admin', expect: ['数据概览', '今日订单数', '支付'] },
+  { name: 'admin-overview', path: '/admin', expect: ['数据概览', '今日订单数', '支付'] },
   // 活跃监控：四个维度的 KPI 与标签页都要求至少渲染出固定文案，
   // 数据本身可能为空（0），所以只断言口径文案不空口。
   {
     name: 'admin-activity',
-    hash: '#/admin/activity',
+    path: '/admin/activity',
     expect: ['用户活跃监控', '今日活跃用户（DAU）', '使用频率', '采集周期'],
     optional: true
   },
@@ -75,21 +80,44 @@ const PAGES = [
   // 并且要能看到「含未登录访客」这句——不然很容易把 UV 当人数读。
   {
     name: 'admin-activity-traffic',
-    hash: '#/admin/activity?tab=traffic',
+    path: '/admin/activity?tab=traffic',
     expect: ['访问量', '今日访问量（PV）', '今日访客（UV）', '页面访问排行', '访客明细', '未登录访客'],
     optional: true
   },
-  { name: 'admin-plans', hash: '#/admin/plans', expect: ['套餐管理', '套餐方案 A'], optional: true },
-  { name: 'admin-cards', hash: '#/admin/cards', expect: ['卡密管理', '生成卡密'] },
-  { name: 'admin-orders', hash: '#/admin/orders', expect: ['订单管理', '人工确认'], optional: true },
-  { name: 'admin-assets', hash: '#/admin/assets', expect: ['素材库', '上传'], optional: true },
-  { name: 'admin-users', hash: '#/admin/users', expect: ['用户与兑换记录'], optional: true },
-  { name: 'admin-settings', hash: '#/admin/settings', expect: ['系统设置', '网站名称'] },
-  { name: 'admin-logs', hash: '#/admin/logs', expect: ['操作日志'], optional: true },
+  // 排除名单：把「自己」的访问从统计里扣掉，这一页要能看到名单与一键标记
+  {
+    name: 'admin-activity-exclusions',
+    path: '/admin/activity?tab=exclusions',
+    expect: ['排除名单', '名单条数', '覆盖访客', '添加排除项'],
+    optional: true
+  },
+  // SEO 管理：口径说明必须出现（「已提交 ≠ 已收录」那句话是这一页的重点）
+  {
+    name: 'admin-seo',
+    path: '/admin/seo',
+    expect: ['SEO 管理', '可索引页面', 'Sitemap', '已提交'],
+    optional: true
+  },
+  // 关键词管理：V3.0 新增的标签页。
+  // 断言的是页面结构与口径文案（关键词总数可以是 0，数据源没接时「暂无数据」必须在）。
+  // 「核心搜索意图冲突」在页面更靠下的位置，内文截断会切掉，改由探针断言。
+  {
+    name: 'admin-seo-keywords',
+    path: '/admin/seo?tab=keywords',
+    expect: ['关键词管理', '关键词与页面对应表', '暂无数据'],
+    optional: true
+  },
+  { name: 'admin-plans', path: '/admin/plans', expect: ['套餐管理', '套餐方案 A'], optional: true },
+  { name: 'admin-cards', path: '/admin/cards', expect: ['卡密管理', '生成卡密'] },
+  { name: 'admin-orders', path: '/admin/orders', expect: ['订单管理', '人工确认'], optional: true },
+  { name: 'admin-assets', path: '/admin/assets', expect: ['素材库', '上传'], optional: true },
+  { name: 'admin-users', path: '/admin/users', expect: ['用户与兑换记录'], optional: true },
+  { name: 'admin-settings', path: '/admin/settings', expect: ['系统设置', '网站名称'] },
+  { name: 'admin-logs', path: '/admin/logs', expect: ['操作日志'], optional: true },
   // 登录页放最后：它需要在「未登录」状态下渲染，会清掉令牌
-  { name: 'admin-login', hash: '#/admin/login', expect: ['豆玩后台管理', '管理员账号'], noAuth: true },
+  { name: 'admin-login', path: '/admin/login', expect: ['豆玩后台管理', '管理员账号'], noAuth: true },
   // 前台衔接：临时免费开放期间，账户页展示免费说明，不再有卡密入口。
-  { name: 'account', hash: '#/account', expect: ['我的账户', '全部功能免费开放'], noAuth: true }
+  { name: 'account', path: '/account', expect: ['我的账户', '全部功能免费开放'], noAuth: true }
 ]
 
 const WIDTHS = [
@@ -225,7 +253,7 @@ async function main() {
     process.exit(1)
   }
 
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'douwan-admin-chrome-'))
+  const profile = fs.mkdtempSync(path.join(TMP_ROOT, 'douwan-admin-chrome-'))
   const debugPort = 9322 + (process.pid % 400)
   const chrome = spawn(chromePath, [
     '--headless=new',
@@ -323,9 +351,12 @@ async function main() {
       // 直接把用户送进后台，看起来像「登录页打不开」。
       //
       // 另外：每个页面都带一个**唯一的查询参数**强制浏览器重新加载文档。
-      // 只改 hash 是「同文档内导航」，实测在连续切换多个 hash 路由后
-      // 偶尔会停在上一页（SPA 的 hash 变化没触发 router）。
-      const navUrl = `${origin}/?p=${page.name}-${vp.name}-${Date.now()}${page.hash}`
+      // 只改地址（同文档内导航）实测在连续切换多个路由后
+      // 偶尔会停在上一页（SPA 的路由变化没触发）。
+      const [pagePath, pageQuery] = page.path.split('?')
+      const params = new URLSearchParams(pageQuery || '')
+      params.set('p', `${page.name}-${vp.name}-${Date.now()}`)
+      const navUrl = `${origin}${pagePath}?${params.toString()}`
       if (page.noAuth) {
         await send('Runtime.evaluate', { expression: `localStorage.removeItem('douwan-admin-tokens')` })
       }
@@ -343,7 +374,7 @@ async function main() {
             modal: !!document.querySelector('.adm-modal'),
             overflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
             panels: document.querySelectorAll('.adm-card, .adm-toolbar, .adm-kpis').length,
-            url: location.hash,
+            url: location.pathname + location.search,
             title: document.title
           }
         })()`,

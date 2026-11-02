@@ -10,16 +10,17 @@ import MaterialCard from '../components/library/MaterialCard.vue'
 import MaterialPreviewDialog from '../components/library/MaterialPreviewDialog.vue'
 import MaterialEmptyState from '../components/library/MaterialEmptyState.vue'
 import {
-  allAssets, favoriteAssets, favorites, libCol, libKeyword, loadRemoteAssets, remoteError, remoteLoaded, remoteLoading,
-  setCollection
+  allAssets, favoriteAssets, favorites, libCol, libKeyword, loadRemoteAssets, remoteCategories,
+  remoteError, remoteLoaded, remoteLoading, setCollection
 } from '../composables/useAssets.js'
 import { toastWarn } from '../composables/useToast.js'
 import { isLoggedIn } from '../composables/useUserAccount.js'
+import { canonicalUrl, setMeta } from '../lib/seo.js'
 import {
   CATEGORY_BY_KEY, COLLECTION_BY_KEY, DIFFICULTY_OPTIONS, LEGACY_CATEGORY_ALIASES,
-  LEGACY_SORT_ALIASES, PURPOSE_OPTIONS, SORT_TABS, categoryChildren, categoryLabel,
-  inCategory, inCollection, matchesDifficulty, matchesPurpose, matchesSearch,
-  matchesSubcategory, sortAssets
+  LEGACY_SORT_ALIASES, PURPOSE_OPTIONS, SORT_TABS, categoryChildren, categoryKeyFromSlug,
+  categoryLabel, categorySlugFor, inCategory, inCollection, matchesDifficulty, matchesPurpose,
+  matchesSearch, matchesSubcategory, sortAssets
 } from '../data/libraryCategories.js'
 
 const route = useRoute()
@@ -43,15 +44,28 @@ const resultsRef = ref(null)
 
 let searchTimer = null
 
+/* 素材中心与分类页共用这一个视图 */
+function isLibraryRoute() {
+  return route.name === 'materials-center' || route.name === 'material-category'
+}
+
 /* 当前状态对应的地址栏参数（保留 query 里别的参数） */
 function stateQuery() {
   const next = { ...route.query }
-  if (favOnly.value) next.col = 'fav'
-  else if (libCol.value === 'all' && !collectionFilter.value) delete next.col
-  else next.col = libCol.value
-  if (favOnly.value) delete next.collection
-  else if (collectionFilter.value) next.collection = collectionFilter.value
-  else delete next.collection
+  if (route.name === 'material-category') {
+    /* 分类页的分类来自路径（/materials/category/{slug}/），
+       query 里不再重复一份，避免同一页出现两套分类来源。 */
+    delete next.col
+    delete next.collection
+  } else if (favOnly.value) {
+    next.col = 'fav'
+    delete next.collection
+  } else {
+    if (libCol.value === 'all' && !collectionFilter.value) delete next.col
+    else next.col = libCol.value
+    if (collectionFilter.value) next.collection = collectionFilter.value
+    else delete next.collection
+  }
   if (subFilter.value) next.sub = subFilter.value
   else delete next.sub
   if (sortMode.value === 'recommended') delete next.sort
@@ -87,6 +101,15 @@ function readQuery() {
   const rawCol = typeof route.query.col === 'string' ? route.query.col : ''
   let col = LEGACY_CATEGORY_ALIASES[rawCol] || rawCol
   let collection = typeof route.query.collection === 'string' ? route.query.collection : ''
+
+  /* 分类页 /materials/category/{slug}/：分类来自路径而不是查询参数，
+     搜索引擎抓到的就是这个地址，所以这里以路径为准。 */
+  const isCategoryPage = route.name === 'material-category'
+  if (isCategoryPage) {
+    const key = categoryKeyFromSlug(route.params.slug)
+    col = key || 'all'
+    collection = ''
+  }
 
   /* 旧链接：col=hot 是热门推荐，col=fav 是「我收藏的」 */
   favOnly.value = rawCol === 'fav'
@@ -131,15 +154,36 @@ onMounted(() => {
   document.addEventListener('keydown', onDocKey)
 })
 
+/**
+ * 分类页的标题 / 描述 / canonical。
+ * 文案以后台为准（运营可能在后台改过），没改过时用自动生成的那份，
+ * 与服务端渲染爬虫时用的规则一致。
+ */
+watch([() => route.name, () => route.params.slug, remoteCategories], () => {
+  if (route.name !== 'material-category') return
+  const slug = String(route.params.slug || '')
+  const cat = remoteCategories.value.find(c => c && c.slug === slug)
+  const name = (cat && cat.name) || categoryLabel(categoryKeyFromSlug(slug))
+  const path = `/materials/category/${slug}/`
+  setMeta({
+    title: (cat && cat.seo_title) || `${name}拼豆图纸素材大全 - 免费下载制作 - 豆玩`,
+    description: (cat && cat.seo_description) ||
+      `免费获取${name}拼豆素材，支持在线转拼豆图纸、匹配色号并导出打印，手机电脑都能用。`,
+    canonical: canonicalUrl(path),
+    noindex: false
+  })
+}, { immediate: true })
+
 onBeforeUnmount(() => {
   clearTimeout(searchTimer)
   document.removeEventListener('pointerdown', onDocPointer)
   document.removeEventListener('keydown', onDocKey)
 })
 
-/* 页面不再随 query 重挂，所以外部改地址栏（顶栏「素材中心」、别处带 col 的链接）要在这里同步 */
-watch(() => route.query, () => {
-  if (route.name !== 'library' || queryInSync()) return
+/* 页面不再随 query 重挂，所以外部改地址栏（顶栏「素材中心」、别处带 col 的链接）要在这里同步。
+   分类页 /materials/category/{slug}/ 换的是路径，所以这里盯 fullPath 而不是 query。 */
+watch(() => route.fullPath, () => {
+  if (!isLibraryRoute() || queryInSync()) return
   clearTimeout(searchTimer)
   readQuery()
   normalizeQuery()
@@ -241,6 +285,15 @@ function selectCategory(key) {
   if (!categoryChildren(key).includes(subFilter.value)) subFilter.value = ''
   panelOpen.value = false
   visibleCount.value = PAGE_SIZE
+  /* 分类页上换分类 = 换地址：分类页是要被搜索引擎独立收录的页面，
+     每一个分类都得有自己的 URL，筛选参数不写在 query 里。 */
+  if (route.name === 'material-category') {
+    const slug = categorySlugFor(key)
+    if (slug) {
+      router.push(`/materials/category/${slug}/`).catch(() => {})
+      return
+    }
+  }
   normalizeQuery()
   if (wasPanel || window.innerWidth <= 780) scrollToResults()
 }
@@ -377,7 +430,7 @@ function onDocKey(e) {
 
       <div ref="resultsRef" class="libResultBar">
         <div class="libResultBar__title">
-          <h2>{{ heading }}</h2>
+          <h1>{{ heading }}</h1>
           <span v-if="subFilter" class="libSubChip">{{ subFilter }}</span>
         </div>
         <div class="libResultBar__right">
@@ -437,7 +490,7 @@ function onDocKey(e) {
   padding:2px 2px 0;scroll-margin-top:84px;
 }
 .libResultBar__title{display:flex;align-items:center;gap:8px;min-width:0}
-.libResultBar h2{font-size:18px;letter-spacing:-.02em}
+.libResultBar h1{font-size:18px;letter-spacing:-.02em;margin:0;font-weight:800}
 .libResultBar p{font-size:12px;color:var(--muted-2)}
 .libResultBar__right{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .libReset{
@@ -450,10 +503,13 @@ function onDocKey(e) {
   background:#FFF3C4;border:1px solid #FFE29A;color:#8A6500;
   font-size:12px;font-weight:700;white-space:nowrap;
 }
-/* 统一规格卡片网格：卡片都是方图 + 标题 + 色卡 + 收藏，等高，不用瀑布流 */
-.materialGrid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:14px}
-@media(max-width:1280px){.materialGrid{grid-template-columns:repeat(4,minmax(0,1fr))}}
-@media(max-width:1100px){.materialGrid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+/* 统一规格卡片网格：卡片都是方图 + 标题 + 色卡 + 收藏，等高，不用瀑布流。
+   电脑端一排 6 个（2026-10-24 改）：左栏展开 208px 后内容区约 1396px，
+   6 张约 222px 一张，比原来的 5 张（约 268px）明显更小、更密。 */
+.materialGrid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}
+@media(max-width:1280px){.materialGrid{grid-template-columns:repeat(5,minmax(0,1fr))}}
+@media(max-width:1080px){.materialGrid{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media(max-width:880px){.materialGrid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 .libNotice{
   display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;
   padding:10px 12px;border:1px solid #F6D3E3;border-radius:12px;
@@ -475,7 +531,7 @@ function onDocKey(e) {
   .libPage{padding-top:12px;padding-bottom:104px}
   .libMain{gap:12px}
   .materialGrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-  .libResultBar h2{font-size:16px}
+  .libResultBar h1{font-size:16px}
   .libMore .btn{width:100%;min-width:0}
 }
 </style>

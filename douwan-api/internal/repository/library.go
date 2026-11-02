@@ -344,6 +344,16 @@ func (r *CategoryRepository) FindByID(ctx context.Context, id uint64) (*model.Li
 	return &c, nil
 }
 
+// FindBySlug 按标识查分类（前台分类页 /materials/category/{slug}/ 用）。
+func (r *CategoryRepository) FindBySlug(ctx context.Context, slug string) (*model.LibraryCategory, error) {
+	var c model.LibraryCategory
+	err := r.db.WithContext(ctx).Where("slug = ?", strings.TrimSpace(slug)).First(&c).Error
+	if err != nil {
+		return nil, wrapNotFound(err, response.ErrCategoryNotFound)
+	}
+	return &c, nil
+}
+
 // ExistsBySlug 判断分类标识是否被占用。
 func (r *CategoryRepository) ExistsBySlug(ctx context.Context, slug string, excludeID uint64) (bool, error) {
 	if strings.TrimSpace(slug) == "" {

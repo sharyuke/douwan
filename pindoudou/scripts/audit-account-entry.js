@@ -23,13 +23,13 @@
   }
   a.click()
   await sleep(400)
-  checks.跳转后路径 = location.hash
+  checks.跳转后路径 = location.pathname + location.search
 
   const mobile = innerWidth <= 780
   const ok = checks['有图标'] &&
     checks['按钮在视口内'] &&
     checks['顶栏无横向溢出'] &&
-    String(checks.跳转后路径).startsWith('#/account') &&
+    String(checks.跳转后路径).startsWith('/account') &&
     (mobile ? checks['文字可见'] === false : (checks['文字可见'] === true && checks['文字'] === '个人中心'))
   return { ok, checks }
 })()

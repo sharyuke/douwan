@@ -454,7 +454,7 @@ const nextBadge = computed(() => badges.value.find(b => !b.got) || null)
         <b>{{ num(myStats.beads) }}</b>
         <span class="hint">最多一作用到 {{ myStats.maxColors }} 色</span>
       </div>
-      <RouterLink to="/library?col=fav" class="summaryCard summaryCard--link" data-audit="account-favorites">
+      <RouterLink to="/materials/?col=fav" class="summaryCard summaryCard--link" data-audit="account-favorites">
         <span class="muted">收藏素材</span>
         <b>{{ favorites.length }}</b>
         <span class="hint">素材库{{ ASSET_COUNT ? `共 ${ASSET_COUNT} 个` : '上新中' }} · 查看收藏 →</span>
@@ -541,7 +541,7 @@ const nextBadge = computed(() => badges.value.find(b => !b.got) || null)
       <RouterLink to="/inventory" class="quickItem">
         <b>我的库存</b><span class="hint">只用我的豆</span>
       </RouterLink>
-      <RouterLink to="/library" class="quickItem">
+      <RouterLink to="/materials/" class="quickItem">
         <b>素材中心</b><span class="hint">{{ ASSET_COUNT ? `${ASSET_COUNT} 个原创素材` : '素材持续上新' }}</span>
       </RouterLink>
       <RouterLink to="/settings" class="quickItem">

@@ -37,6 +37,10 @@ type CategoryItem struct {
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 	CoverPreview string    `json:"cover_preview"`
+	// ---- SEO（后台可改；空值表示由系统自动生成）----
+	SeoTitle       string `json:"seo_title"`
+	SeoDescription string `json:"seo_description"`
+	SeoNoIndex     bool   `json:"seo_noindex"`
 }
 
 /* ================================================================== 素材 */
@@ -124,6 +128,11 @@ type AssetItem struct {
 	SourceNote string `json:"source_note"`
 	RightsNote string `json:"rights_note"`
 	InnerNote  string `json:"inner_note"`
+
+	// ---- SEO（后台可改；空值表示由系统自动生成）----
+	SeoTitle       string `json:"seo_title"`
+	SeoDescription string `json:"seo_description"`
+	SeoNoIndex     bool   `json:"seo_noindex"`
 
 	CreatedBy      uint64     `json:"created_by"`
 	CreatedAt      time.Time  `json:"created_at"`
@@ -265,6 +274,10 @@ type PublicAssetItem struct {
 	ImageWidth   int        `json:"image_width"`
 	ImageHeight  int        `json:"image_height"`
 	PublishedAt  *time.Time `json:"published_at"`
+	// SeoTitle / SeoDescription 是最终生效的 SEO 文案（后台改过就是改过的值，
+	// 没改过就是自动生成的值），前台详情页用它们更新 head。
+	SeoTitle       string `json:"seo_title"`
+	SeoDescription string `json:"seo_description"`
 }
 
 // PublicCategoryItem 前台分类条目。
@@ -275,6 +288,10 @@ type PublicCategoryItem struct {
 	CoverURL   string `json:"cover_url"`
 	SortOrder  int    `json:"sort_order"`
 	AssetCount int64  `json:"asset_count"`
+	// Description / SeoTitle / SeoDescription 是分类页的说明与 SEO 文案。
+	Description    string `json:"description"`
+	SeoTitle       string `json:"seo_title"`
+	SeoDescription string `json:"seo_description"`
 }
 
 // PublicAssetQuery 前台素材查询。

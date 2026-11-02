@@ -737,13 +737,16 @@ function paintChartOverlay(ctx, g, pattern) {
 
   // 标尺坐标
   if (R > 0) {
-    const step = cell >= 15 ? 1 : cell >= 9 ? 5 : 10
+    /* 格子越小，坐标间隔越大：大图纸缩到一屏时 cell 只有 0.5px，
+       再按每 10 格印一次，8px 的数字会挤成一团墨。 */
+    const step = cell >= 15 ? 1 : cell >= 9 ? 5 : cell >= 4 ? 10 : cell >= 2 ? 20 : cell >= 1 ? 50 : 100
+    const majorStep = Math.max(10, step)
     const fs = Math.max(8, Math.min(Math.round(cell * 0.46), Math.round(R * 0.52)))
     ctx.font = `${fs}px -apple-system, Arial, sans-serif`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
     for (let i = 1; i <= gw; i++) {
-      const major = i % 10 === 0
+      const major = i % majorStep === 0
       if (!major && i % step !== 0) continue
       const cx = OX + (i - 0.5) * cell
       /* 标尺在图纸四边，只有贴着脏矩形的才需要重画 */
@@ -753,7 +756,7 @@ function paintChartOverlay(ctx, g, pattern) {
       ctx.fillText(String(i), cx, OY + gridH + R * 0.5)
     }
     for (let j = 1; j <= gh; j++) {
-      const major = j % 10 === 0
+      const major = j % majorStep === 0
       if (!major && j % step !== 0) continue
       const cy = OY + (j - 0.5) * cell
       if (!hitRow(cy)) continue

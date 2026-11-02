@@ -154,7 +154,7 @@ function removeCustom(c) {
     <div class="pagehead">
       <div>
         <h1>设置</h1>
-        <p>默认参数、本机数据与隐私说明。这里的所有内容都只存在于你的浏览器里。</p>
+        <p>默认参数、本机数据与隐私说明。设置保存在本机；登录后作品会同步到你的豆玩账号。</p>
       </div>
       <RouterLink to="/account" class="btn btn-secondary">我的账户 ›</RouterLink>
     </div>
@@ -363,7 +363,7 @@ function removeCustom(c) {
     </section>
 
     <BaseDialog :model-value="!!confirmClear" title="确认清除" size="sm" @update:model-value="confirmClear = ''">
-      <p style="font-size:var(--fs-sm);line-height:1.8">这个操作不可撤销。清除后对应数据会从本机浏览器删除。</p>
+      <p style="font-size:var(--fs-sm);line-height:1.8">这个操作不可撤销。清除后对应数据会从本机浏览器删除；已同步到账号的作品，下次登录同步时会从服务端恢复。</p>
       <template #footer="{ close }">
         <button class="btn btn-secondary" @click="close">取消</button>
         <button class="btn danger" @click="onClear(confirmClear)">确认清除</button>

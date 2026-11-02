@@ -23,11 +23,60 @@ type LibraryService struct {
 	repos *repository.Repositories
 	store *storage.Store
 	audit *AuditLog
+	// seo 负责「素材发布 → 更新 Sitemap → 进入推送队列」这条链路。
+	// 为 nil 时（单元测试里常见）相关步骤自动跳过，功能不受影响。
+	seo *SeoService
 }
 
 // NewLibraryService 构造素材库服务。
 func NewLibraryService(db *gorm.DB, repos *repository.Repositories, store *storage.Store, audit *AuditLog) *LibraryService {
 	return &LibraryService{db: db, repos: repos, store: store, audit: audit}
+}
+
+// SetSeo 注入 SEO 服务（在路由装配时调用）。
+func (s *LibraryService) SetSeo(svc *SeoService) { s.seo = svc }
+
+// notifySeoPublish 素材发布 / 更新 / 下架后的 SEO 联动。
+//
+// 做的事：
+//  1. 发布或改动标题、描述、分类时，重新生成 SEO 文案（后台手填过的不覆盖）；
+//  2. 把这个页面的地址放进推送队列（百度主动推送 + IndexNow）。
+//
+// 任何一步失败都不影响素材本身的发布结果 —— SEO 是附加能力，不能反过来卡住主流程。
+func (s *LibraryService) notifySeoPublish(ctx context.Context, asset *model.LibraryAsset, published bool) {
+	if s.seo == nil || asset == nil {
+		return
+	}
+	fields := map[string]any{}
+	if strings.TrimSpace(asset.SeoTitle) == "" {
+		fields["seo_title"] = s.seo.assetTitle(asset)
+	}
+	if strings.TrimSpace(asset.SeoDescription) == "" {
+		fields["seo_description"] = s.seo.assetDescription(asset)
+	}
+	if len(fields) > 0 {
+		if err := s.repos.Asset.UpdateFields(ctx, asset.ID, fields); err != nil {
+			s.seo.log.Warn("写入素材 SEO 文案失败", "asset", asset.ID, "err", err)
+		} else {
+			asset.SeoTitle, _ = fields["seo_title"].(string)
+			asset.SeoDescription, _ = fields["seo_description"].(string)
+		}
+	}
+
+	path := SeoPathMaterialBase + asset.Slug + "/"
+	action := model.SeoActionSubmit
+	if !published {
+		// 下架 / 删除：告诉搜索引擎这个地址已经没有内容了。
+		action = model.SeoActionDelete
+	}
+	res, err := s.seo.Enqueue(ctx, []string{path}, action, model.SeoTriggerAuto)
+	if err != nil {
+		s.seo.log.Warn("素材 SEO 推送入队失败", "asset", asset.ID, "path", path, "err", err)
+		return
+	}
+	s.seo.log.Info("素材 SEO 已入队",
+		"asset", asset.ID, "path", path, "action", action,
+		"created", res.Created, "skipped", res.Skipped)
 }
 
 /* ------------------------------------------------------------------ 上传 */
@@ -166,6 +215,8 @@ func (s *LibraryService) uploadOne(ctx context.Context, fh *multipart.FileHeader
 		}
 		lastErr = s.repos.Asset.Create(ctx, asset)
 		if lastErr == nil {
+			// 直接以「已发布」状态上传的素材，要立刻进 Sitemap 并进入推送队列。
+			s.notifySeoPublish(ctx, asset, asset.Status == model.AssetStatusPublished)
 			item := toAssetItem(asset)
 			return &item, nil
 		}
@@ -299,6 +350,8 @@ func (s *LibraryService) Update(ctx context.Context, id uint64, req dto.AssetUpd
 	if err != nil {
 		return nil, err
 	}
+	// 标题 / 描述 / 分类改了，页面内容就变了：重新入队推送一次。
+	s.notifySeoPublish(ctx, updated, updated.IsPublished())
 	item := toAssetItem(updated)
 	return &item, nil
 }
@@ -328,6 +381,8 @@ func (s *LibraryService) ChangeStatus(ctx context.Context, id uint64, req dto.As
 	if err != nil {
 		return nil, err
 	}
+	// 状态变了就重新走一遍 SEO：发布 = 进推送队列，下架 = 通知搜索引擎移除。
+	s.notifySeoPublish(ctx, updated, updated.IsPublished())
 	item := toAssetItem(updated)
 	return &item, nil
 }
@@ -379,6 +434,8 @@ func (s *LibraryService) Delete(ctx context.Context, id uint64, reason string, a
 	if err := s.repos.Asset.SoftDelete(ctx, id); err != nil {
 		return err
 	}
+	// 素材已被删除：把它的页面地址交给搜索引擎（IndexNow 侧表现为「这个地址已经是 404」）。
+	s.notifySeoPublish(ctx, asset, false)
 	// 注意：不删除磁盘上的原图与缩略图。历史作品可能还引用了这些地址，
 	// 物理删除会造成「老作品打不开」。真要清理磁盘属于运维动作。
 	s.audit.Write(ctx, s.repos, audit, ActionAssetDelete, "asset", fmt.Sprint(id), asset.Title,
@@ -607,12 +664,15 @@ func (s *LibraryService) PublicCategories(ctx context.Context) ([]dto.PublicCate
 	for i := range list {
 		c := &list[i]
 		out = append(out, dto.PublicCategoryItem{
-			ID:         c.ID,
-			Slug:       c.Slug,
-			Name:       c.Name,
-			CoverURL:   c.CoverURL,
-			SortOrder:  c.SortOrder,
-			AssetCount: counts[c.ID],
+			ID:             c.ID,
+			Slug:           c.Slug,
+			Name:           c.Name,
+			CoverURL:       c.CoverURL,
+			SortOrder:      c.SortOrder,
+			AssetCount:     counts[c.ID],
+			Description:    c.Description,
+			SeoTitle:       c.SeoTitle,
+			SeoDescription: c.SeoDescription,
 		})
 	}
 	return out, nil
@@ -699,6 +759,9 @@ func toAssetItem(a *model.LibraryAsset) dto.AssetItem {
 		SourceNote:     a.SourceNote,
 		RightsNote:     a.RightsNote,
 		InnerNote:      a.InnerNote,
+		SeoTitle:       a.SeoTitle,
+		SeoDescription: a.SeoDescription,
+		SeoNoIndex:     a.SeoNoIndex,
 		CreatedBy:      a.CreatedBy,
 		CreatedAt:      a.CreatedAt,
 		UpdatedAt:      a.UpdatedAt,
@@ -714,39 +777,44 @@ func toPublicAsset(a *model.LibraryAsset) dto.PublicAssetItem {
 		tags = []string{}
 	}
 	return dto.PublicAssetItem{
-		ID:           a.ID,
-		Slug:         a.Slug,
-		Title:        a.Title,
-		ImageURL:     a.ImageURL,
-		ThumbnailURL: a.ThumbnailURL,
-		CategoryID:   a.CategoryID,
-		CategoryName: a.CategoryName,
-		Tags:         tags,
-		Description:  a.Description,
-		IsFeatured:   a.IsFeatured,
-		SortOrder:    a.SortOrder,
-		Tier:         a.Tier,
-		ImageWidth:   a.ImageWidth,
-		ImageHeight:  a.ImageHeight,
-		PublishedAt:  a.PublishedAt,
+		ID:             a.ID,
+		Slug:           a.Slug,
+		Title:          a.Title,
+		ImageURL:       a.ImageURL,
+		ThumbnailURL:   a.ThumbnailURL,
+		CategoryID:     a.CategoryID,
+		CategoryName:   a.CategoryName,
+		Tags:           tags,
+		Description:    a.Description,
+		IsFeatured:     a.IsFeatured,
+		SortOrder:      a.SortOrder,
+		Tier:           a.Tier,
+		ImageWidth:     a.ImageWidth,
+		ImageHeight:    a.ImageHeight,
+		PublishedAt:    a.PublishedAt,
+		SeoTitle:       a.SeoTitle,
+		SeoDescription: a.SeoDescription,
 	}
 }
 
 func toCategoryItem(c *model.LibraryCategory, count int64) dto.CategoryItem {
 	cover := c.CoverURL
 	return dto.CategoryItem{
-		ID:           c.ID,
-		Slug:         c.Slug,
-		Name:         c.Name,
-		Description:  c.Description,
-		CoverURL:     c.CoverURL,
-		CoverPreview: cover,
-		SortOrder:    c.SortOrder,
-		Status:       c.Status,
-		StatusText:   model.CategoryStatusLabel(c.Status),
-		AssetCount:   count,
-		CreatedAt:    c.CreatedAt,
-		UpdatedAt:    c.UpdatedAt,
+		ID:             c.ID,
+		Slug:           c.Slug,
+		Name:           c.Name,
+		Description:    c.Description,
+		CoverURL:       c.CoverURL,
+		CoverPreview:   cover,
+		SortOrder:      c.SortOrder,
+		Status:         c.Status,
+		StatusText:     model.CategoryStatusLabel(c.Status),
+		AssetCount:     count,
+		CreatedAt:      c.CreatedAt,
+		UpdatedAt:      c.UpdatedAt,
+		SeoTitle:       c.SeoTitle,
+		SeoDescription: c.SeoDescription,
+		SeoNoIndex:     c.SeoNoIndex,
 	}
 }
 

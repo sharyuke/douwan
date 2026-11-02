@@ -11,6 +11,13 @@ import { drawChart, drawBoard, drawPixels, chartGeometry, EMPTY_FILL } from './r
 import { materialList, boardMaterials, boardBeadCounts, boardLayout, toSVG, estimateSvgBytes, toMaterialsCSV, toShoppingText } from './pattern.js'
 /* 分板规格（52 / 78 / 104 / 120 钉画线板，整张画布一种规格）与豆径（2.6mm 小豆 / 5mm 中号豆）的唯一口径 */
 import { normalizeBoardSize, beadOf, boardOf as boardDefOf } from './boardSpec.js'
+/* 统一导出标版（页眉 Logo + 网址 / 图案信息 / 颜色清单 / 页脚 Slogan）：
+   新手版第 ③ 步与专业工作台「图纸交付」的整图导出共用同一版式，见 exportTemplate.js */
+import {
+  composeExportTemplate, templateExtraHeight,
+  drawTemplateHeader, drawTemplateSlogan, SITE_URL_TEXT, SLOGAN_TEXT
+} from './exportTemplate.js'
+import logoTemplateUrl from '../assets/logo-douwan.webp'
 
 /* 下面几个小工具是「图纸口径」的唯一入口：分板、成品厘米、1:1 打印毫米数全部走它们，
    老图纸（没有 boardSize / beadKey 字段）自动退到 29 格 + 5mm 中号豆，行为与以前一致。 */
@@ -199,11 +206,13 @@ function imageMessage(pattern, plan, opts, out) {
   if (opts.ruler) extras.push('行列坐标')
   if (opts.grid) extras.push('网格')
   if (opts.codes) extras.push('每格色号')
-  if (opts.includeLegend) extras.push('颜色图例')
-  if (opts.includeStats) extras.push('材料统计')
+  if (opts.includeLegend || opts.includeStats) extras.push('统一标版（豆玩 Logo + 网址页眉 / 图案信息 / 颜色清单 / 页脚 Slogan）')
   if (extras.length) bits.push('包含 ' + extras.join(' / '))
   if (opts.format === 'jpg' && opts.background === 'transparent') bits.push('JPG 不支持透明，已自动铺白底')
-  if (opts.format === 'png' && opts.background === 'transparent' && !opts.includeLegend) {
+  if ((opts.includeLegend || opts.includeStats) && opts.background === 'transparent') {
+    bits.push('标版页面固定白底（页眉 / 材料区 / 页脚在白纸上）')
+  }
+  if (opts.format === 'png' && opts.background === 'transparent' && !opts.includeLegend && !opts.includeStats) {
     bits.push('空白格保持透明（不放豆的位置不铺底色）')
   }
   if (plan.reduced) {
@@ -213,87 +222,6 @@ function imageMessage(pattern, plan, opts, out) {
   }
   if (plan.cell <= 4) bits.push('这个尺度一颗豆只有几个像素，想看单颗豆请用分板视图（或 PDF 分板的单板页）')
   return bits.join('；')
-}
-
-/**
- * 把图纸和图例 / 材料统计拼到同一张画布（需求 §4.7）。
- *
- * 图例按可用宽度自动分栏；每行是「色块 + 色号 + 颜色名 + 品牌 + 数量」，
- * 标题行给出总豆数与颜色数。透明背景只在没有图例时保留；
- * 有图例时图例区域铺白底，否则文字在透明背景上不可读。
- *
- * 需求 §4.7 明确要求图例里能看到「品牌 / 系列」：同色号在不同品牌之间不能通用，
- * 只写色号会让用户拿错豆子。这里按 materialList 的 brandId 查品牌名。
- */
-function composeChartWithLegend(pattern, chartCanvas, plan, {
-  includeLegend = true,
-  includeStats = true,
-  background = '#ffffff'
-} = {}) {
-  const g = plan.geometry
-  const mats = materialList(pattern, null)
-  const pad = 24
-  const headerH = 44
-  const rowH = 32
-  const width = Math.max(g.width, 720)
-  const cols = Math.max(1, Math.min(4, Math.floor((width - pad * 2) / 260)))
-  const rows = includeLegend ? Math.ceil(mats.rows.length / cols) : 0
-  const statsH = includeStats ? 28 : 0
-  const extraH = pad + headerH + rows * rowH + statsH + pad
-  const out = document.createElement('canvas')
-  out.width = width
-  out.height = g.height + extraH
-  const ctx = out.getContext('2d')
-  const transparent = background === 'transparent' || background === 'rgba(0,0,0,0)'
-  ctx.fillStyle = transparent ? 'rgba(0,0,0,0)' : background
-  ctx.fillRect(0, 0, out.width, out.height)
-  ctx.drawImage(chartCanvas, 0, 0)
-
-  const ly = g.height
-  ctx.fillStyle = '#ffffff'
-  ctx.fillRect(0, ly, width, extraH)
-  ctx.textAlign = 'left'
-  ctx.textBaseline = 'middle'
-  ctx.fillStyle = '#1B1B1F'
-  ctx.font = '700 16px -apple-system,"PingFang SC","Microsoft YaHei",Arial,sans-serif'
-  ctx.fillText(`${includeLegend ? '材料清单' : '材料统计'} · ${mats.colorCount} 色 · 共 ${mats.totalBeads.toLocaleString()} 颗`, pad, ly + pad + 8)
-  if (includeStats) {
-    const empty = pattern.stats && pattern.stats.emptyCount
-    ctx.font = '12px -apple-system,"PingFang SC","Microsoft YaHei",Arial,sans-serif'
-    ctx.fillStyle = '#6B6B73'
-    ctx.fillText(
-      `${pattern.width}×${pattern.height} 格${empty ? ` · 空白 ${empty.toLocaleString()} 格（不计豆数）` : ''} · 材料统计与图上的色号一致`,
-      pad, ly + pad + 30
-    )
-  }
-  if (includeLegend) {
-    const colW = (width - pad * 2) / cols
-    ctx.font = '12px -apple-system,"PingFang SC","Microsoft YaHei",Arial,sans-serif'
-    mats.rows.forEach((r, i) => {
-      const col = i % cols
-      const row = Math.floor(i / cols)
-      const x = pad + col * colW
-      const y = ly + pad + headerH + row * rowH
-      ctx.fillStyle = r.hex
-      ctx.fillRect(x, y - 8, 16, 16)
-      ctx.strokeStyle = 'rgba(28,28,32,.16)'
-      ctx.lineWidth = 1
-      ctx.strokeRect(x, y - 8, 16, 16)
-      ctx.fillStyle = '#1B1B1F'
-      const name = r.name ? ` ${r.name}` : ''
-      ctx.fillText(`${r.code}${name}`, x + 23, y - 5)
-      ctx.textAlign = 'right'
-      ctx.fillStyle = '#6B6B73'
-      ctx.fillText(String(r.count), x + colW - 12, y - 5)
-      ctx.textAlign = 'left'
-      const brandName = (getBrand(r.brandId) || {}).name || ''
-      ctx.font = '10px -apple-system,"PingFang SC","Microsoft YaHei",Arial,sans-serif'
-      ctx.fillStyle = '#8A8A93'
-      ctx.fillText(brandName, x + 23, y + 9)
-      ctx.font = '12px -apple-system,"PingFang SC","Microsoft YaHei",Arial,sans-serif'
-    })
-  }
-  return out
 }
 
 /**
@@ -319,18 +247,21 @@ export function buildPatternImageCanvas(pattern, {
   ruler = true,
   grid = true,
   codes = true,
-  /* 默认只出图纸主体，保持 `exportPatternPNG` 原有尺寸契约；
-     需要「图纸 + 图例 / 统计」的调用方（编辑器导出设置）显式传 true。 */
-  includeLegend = false,
-  includeStats = false,
+  /* 统一导出标版（需求 V1.0）：页眉 Logo + 网址、图案信息、颜色清单、页脚 Slogan。
+     新手版 / 专业版 / 作品页 / 素材页的整图导出默认全走这一套版式；
+     要「纯图纸主体」的调用方（对照图、纯图案等另有链路）显式传 false。 */
+  includeLegend = true,
+  includeStats = true,
   background = '#ffffff'
 } = {}) {
   const opts = { format, ruler, grid, codes, includeLegend, includeStats, background }
   const plan = pngExportPlan(pattern, cell, { ruler })
   const g = plan.geometry
   const { canvas, host } = createExportCanvas()
-  /* JPG 没有透明通道：无论用户选了什么背景，都铺白，避免出现黑底。 */
-  const bg = format === 'jpg'
+  /* 标版页面固定白底（页眉 / 页脚 / 材料区都在白纸上）；
+     透明背景只在「不要标版的纯图纸主体」上仍然生效。 */
+  const templated = includeLegend || includeStats
+  const bg = (format === 'jpg' || templated)
     ? '#ffffff'
     : (background === 'transparent' ? 'rgba(0,0,0,0)' : background)
   // 不把几何对象直传进去：画什么由 opts 里的 codes/grid 决定，让 drawChart 自己算几何，
@@ -342,7 +273,9 @@ export function buildPatternImageCanvas(pattern, {
     codes,
     bold: true,
     boardLines: true,
-    boardLabels: true,
+    /* 导出的图不画板号角标：角标是画在格子上的白色圆角块，会盖住它下面几格的色号。
+       分板信息由 PDF 页眉 / 单板图横幅给出，整图这里保持干净。 */
+    boardLabels: false,
     background: bg,
     /* 透明导出时空格也留空，否则空白区会被铺成浅灰、整张图没有 alpha */
     emptyFill: bg === 'rgba(0,0,0,0)' ? null : undefined
@@ -358,8 +291,8 @@ export function buildPatternImageCanvas(pattern, {
       message: `图纸导出失败：画布尺寸校验不通过（期望 ${g.width}×${g.height}，实际 ${canvas.width}×${canvas.height}）。请把这句话反馈给开发者。`
     }
   }
-  const out = (includeLegend || includeStats)
-    ? composeChartWithLegend(pattern, canvas, plan, { includeLegend, includeStats, background: bg })
+  const out = templated
+    ? composeExportTemplate(pattern, canvas, plan, { includeLegend, includeStats })
     : canvas
   return { ok: true, canvas: out, plan, opts }
 }
@@ -546,9 +479,68 @@ export function makeZip(entries) {
 }
 
 /**
+ * 分板图片底部那条色号用量：色块 + 色号 + 本板需要多少颗。
+ * 字号跟着格子大小走（150 DPI 也不小于 11px），列数按图片宽度自适应。
+ * 返回排版结果；entries 为空时返回 null（没有豆子的板不加这条）。
+ */
+function boardLegendLayout(entries, { width, cell }) {
+  if (!entries.length) return null
+  const fs = Math.max(11, Math.round(cell * 0.62))
+  const font = `600 ${fs}px -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif`
+  const probe = document.createElement('canvas').getContext('2d')
+  probe.font = font
+  const labels = entries.map(e => `${e.code} × ${e.count} 颗`)
+  const colors = entries.map(e => e.hex || '#cccccc')
+  const sw = Math.max(10, Math.round(fs * 1.05))
+  const gap = Math.max(6, Math.round(fs * 0.4))
+  const colGap = Math.max(14, Math.round(fs * 1.1))
+  const margin = Math.max(10, Math.round(cell * 0.35))
+  const chipW = Math.max(...labels.map(t => probe.measureText(t).width)) + sw + gap
+  const usable = Math.max(width - margin * 2, chipW)
+  const cols = Math.max(1, Math.floor((usable + colGap) / (chipW + colGap)))
+  const rows = Math.ceil(labels.length / cols)
+  const rowH = Math.round(fs * 1.85)
+  const padTop = Math.round(fs * 1.0)
+  const padBottom = Math.round(fs * 0.7)
+  return {
+    font, fs, labels, colors, sw, gap, colGap, margin, chipW, cols, rows, rowH, padTop,
+    height: padTop + rows * rowH + padBottom
+  }
+}
+
+function drawBoardLegend(ctx, lay, { width, top }) {
+  const { font, fs, labels, colors, sw, gap, colGap, margin, chipW, cols, rowH, padTop } = lay
+  ctx.save()
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, top, width, lay.height)
+  ctx.strokeStyle = '#E6E6EB'
+  ctx.lineWidth = Math.max(1, Math.round(fs * 0.1))
+  ctx.beginPath()
+  ctx.moveTo(0, top + 0.5)
+  ctx.lineTo(width, top + 0.5)
+  ctx.stroke()
+  ctx.font = font
+  ctx.textBaseline = 'middle'
+  labels.forEach((text, i) => {
+    const x = margin + (i % cols) * (chipW + colGap)
+    const cy = top + padTop + Math.floor(i / cols) * rowH + rowH / 2
+    const sy = cy - sw / 2
+    ctx.fillStyle = colors[i]
+    ctx.fillRect(x, sy, sw, sw)
+    ctx.strokeStyle = 'rgba(0,0,0,0.22)'
+    ctx.lineWidth = 1
+    ctx.strokeRect(x + 0.5, sy + 0.5, sw - 1, sw - 1)
+    ctx.fillStyle = '#1B1B1F'
+    ctx.fillText(text, x + sw + gap, cy)
+  })
+  ctx.restore()
+}
+
+/**
  * 分板图片组：每块板一张 PNG / JPG，打成一个 ZIP。
  * 命名稳定（图纸名_第01板_300dpi.png），板号按全图顺序，不随本次勾选变化。
  * JPG 的空白区由 drawBoard 铺白底，不会出现透明变黑。
+ * 每张图底部带一条色号用量（色块 + 色号 + 本板需要颗数），单独发出去也能照着备豆。
  */
 export async function exportBoardImagesZip(pattern, {
   dpi = 300,
@@ -559,7 +551,8 @@ export async function exportBoardImagesZip(pattern, {
   ruler = true,
   codes = true,
   grid = true,
-  boardSize = null
+  boardSize = null,
+  includeLegend = true
 } = {}) {
   const plan = dpiExportPlan(pattern, { dpi, mode: 'split', boardIndexes, ruler, boardSize })
   if (!plan.ok) return plan
@@ -586,19 +579,22 @@ export async function exportBoardImagesZip(pattern, {
        坐标一律用**整张图纸的全局列 / 行号**，不从 1 或 0 重新数 —— 单板图和整图对得上。
        横幅是图片的一部分，不会改变网格本身；PDF 仍用页面页眉，不重复加。 */
     const bannerH = Math.max(26, Math.round(plan.cell * 1.5))
+    const bmats = boardMaterials(pattern, b, null)
+    const legend = includeLegend ? boardLegendLayout(bmats, { width: info.width, cell: plan.cell }) : null
     const out = document.createElement('canvas')
     out.width = info.width
-    out.height = info.height + bannerH
+    out.height = info.height + bannerH + (legend ? legend.height : 0)
     const octx = out.getContext('2d')
     octx.fillStyle = '#ffffff'
     octx.fillRect(0, 0, out.width, out.height)
     octx.fillStyle = '#1B1B1F'
     octx.font = `700 ${Math.max(12, Math.round(plan.cell * 0.8))}px -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif`
     octx.textBaseline = 'middle'
-    const colorCount = boardMaterials(pattern, b, null).length
+    const colorCount = bmats.length
     const caption = `第 ${b.no} 板 · 全图第 ${b.x0 + 1}–${b.x0 + b.w} 列 / 第 ${b.y0 + 1}–${b.y0 + b.h} 行 · 本板 ${beadCounts[b.index] || 0} 颗 · ${colorCount} 色`
     octx.fillText(caption, Math.max(8, Math.round(plan.cell * 0.3)), Math.round(bannerH / 2))
     octx.drawImage(canvas, 0, bannerH)
+    if (legend) drawBoardLegend(octx, legend, { width: out.width, top: bannerH + info.height })
 
     const blob = await new Promise(resolve => {
       try {
@@ -894,21 +890,15 @@ export function printPlan(pattern, { boardIndexes = null, cell = null, ruler = t
 }
 
 /**
- * 图例 / 材料统计拼在图纸下方会增加的高度。
+ * 标版（页眉 / 图案信息 / 颜色清单 / 页脚）拼在图纸下方会增加的高度。
  *
- * 与 composeChartWithLegend 用同一套排版参数；两处必须一起改，
+ * 尺寸口径全部在 exportTemplate.js 里（templateExtraHeight 与 composeExportTemplate
+ * 用同一套排版常量）—— 这里只做转发。两处必须一起改，
  * 否则「预检说 1716×1716、实际文件 1716×1900」又会回来。
  */
 function legendExtraHeight(pattern, { width, includeLegend = false, includeStats = false }) {
   if (!includeLegend && !includeStats) return 0
-  const mats = materialList(pattern, null)
-  const pad = 24
-  const headerH = 44
-  const rowH = 32
-  const cols = Math.max(1, Math.min(4, Math.floor((width - pad * 2) / 260)))
-  const rows = includeLegend ? Math.ceil(mats.rows.length / cols) : 0
-  const statsH = includeStats ? 28 : 0
-  return pad + headerH + rows * rowH + statsH + pad
+  return templateExtraHeight(pattern, width, { includeLegend, includeStats })
 }
 
 /**
@@ -1066,7 +1056,11 @@ export function buildPrintHTML(pattern, {
   h1{font-size:20px;margin:0 0 4px}
   h2{font-size:15px;margin:0 0 8px}
   .meta{font-size:11px;color:#8B8B93;margin-bottom:10px}
-  .cover{page-break-after:always;text-align:center;padding-top:10mm}
+  .cover{page-break-after:always;text-align:center;padding-top:8mm}
+  .brandBar{display:flex;justify-content:space-between;align-items:center;border:1px solid #F3C4D1;background:#FFF7FA;border-radius:4mm;padding:3mm 5mm;margin-bottom:8mm}
+  .brandBar img{height:12mm;width:auto;object-fit:contain}
+  .brandBar .url{font-weight:800;font-size:17px;letter-spacing:.2px;background:linear-gradient(90deg,#F59F00,#E64980);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .slogan{text-align:center;color:#F03D2E;font-weight:800;font-size:15px;margin-top:8mm}
   .cover img{max-width:100%;max-height:120mm;image-rendering:pixelated;border:1px solid #E9EAEE;border-radius:6px}
   .previewFallback{font-size:11px;color:#9A9AA2;padding:40mm 0}
   .coverGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;max-width:150mm;margin:14px auto 0;text-align:left}
@@ -1118,6 +1112,10 @@ export function buildPrintHTML(pattern, {
   const coverHTML = includeCover
     ? `
   <section class="cover">
+    <div class="brandBar">
+      <img src="${logoTemplateUrl}" alt="豆玩 DOUWAN">
+      <span class="url">${SITE_URL_TEXT}</span>
+    </div>
     <h1>${escapeHtml(projectName)}</h1>
     <div class="meta">豆玩 DOUWAN · 拼豆分板图纸${brandName ? ' · ' + escapeHtml(brandName) : ''}</div>
     ${previewUrl
@@ -1134,6 +1132,7 @@ export function buildPrintHTML(pattern, {
       <div><b>${formatMin(s.estimatedMinutes)}</b><span>预计拼制时间</span></div>
     </div>
     <p class="tip">打印说明：纸张 A4 ${orientation === 'landscape' ? '横向' : '纵向'}，每块板单独一页，格内为色号，每格在纸上正好 ${bead.mm} mm（${bead.label}）。打印时请选择「实际大小 / 100%」，不要勾选「适合页面」，否则尺寸会缩小。${boards.length < lay.count ? `本 PDF 只包含选中的 ${boards.length} 块板（全图共 ${lay.count} 块，其余板可以分批再打）。` : ''}</p>
+    <p class="slogan">${SLOGAN_TEXT}</p>
   </section>`
     : ''
 
@@ -1149,9 +1148,7 @@ export function buildPrintHTML(pattern, {
         ? bmats
           .map(m => {
             const rowBrand = m.brandId ? getBrand(m.brandId).name : brandName
-            return `<span><i style="background:${m.hex}"></i>${escapeHtml(rowBrand)} · ${escapeHtml(m.code)}${m.name ? ' ' + escapeHtml(m.name) : ''} × ${m.count} 颗${
-              m.lack > 0 ? ` <b style="color:#D3244A">缺 ${m.lack} 颗</b>` : ''
-            }</span>`
+            return `<span><i style="background:${m.hex}"></i>${escapeHtml(rowBrand)} · ${escapeHtml(m.code)}${m.name ? ' ' + escapeHtml(m.name) : ''} × ${m.count} 颗</span>`
           })
           .join('')
         : ''
@@ -1283,6 +1280,488 @@ export function printPattern(pattern, opts = {}) {
   w.document.write(html)
   w.document.close()
   return { ok: true, opened: true, message: plan.message }
+}
+
+/* ------------------------------------------------------------------ 电子档 PDF
+
+   和上面的「分板 PDF」不是同一条路：
+     · 上面那条走 window.print()，用户要在打印对话框里选「另存为 PDF」才拿到文件；
+     · 这里直接生成 .pdf 字节并下载，点一下就得文件，不弹打印窗口。
+
+   实现方式：每一页先在 canvas 上按 A4 版式画好（封面 / 每板一页 / 材料清单），
+   再把整页位图压成 FlateDecode 的 RGB 流写进 PDF。这样中文、色号、表格都由 canvas
+   负责排版，不需要往 PDF 里嵌字体（CJK 字体动辄几 MB），也不用引第三方 PDF 库。
+   150 DPI 是「手机看得清、文件不至于太大」的折中：A4 = 1240×1754 px。 */
+
+const PDF_DPI = 150
+const PDF_FONT = '-apple-system,"PingFang SC","Microsoft YaHei",Arial,sans-serif'
+const PDF_A4_PT = { portrait: [595.28, 841.89], landscape: [841.89, 595.28] }
+
+function pdfPageSize(orientation) {
+  const [ptW, ptH] = PDF_A4_PT[orientation === 'landscape' ? 'landscape' : 'portrait']
+  const s = PDF_DPI / 72
+  return { ptW, ptH, w: Math.round(ptW * s), h: Math.round(ptH * s) }
+}
+
+function pdfCanvas(w, h) {
+  const c = document.createElement('canvas')
+  c.width = w
+  c.height = h
+  const ctx = c.getContext('2d')
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, w, h)
+  return { c, ctx }
+}
+
+function fitCanvasText(ctx, text, maxW) {
+  const s = String(text == null ? '' : text)
+  if (ctx.measureText(s).width <= maxW) return s
+  let cut = s
+  while (cut.length > 1 && ctx.measureText(cut + '…').width > maxW) cut = cut.slice(0, -1)
+  return cut + '…'
+}
+
+function wrapCanvasText(ctx, text, maxW) {
+  const lines = []
+  let line = ''
+  for (const ch of String(text || '')) {
+    if (line && ctx.measureText(line + ch).width > maxW) {
+      lines.push(line)
+      line = ch
+    } else {
+      line += ch
+    }
+  }
+  if (line) lines.push(line)
+  return lines
+}
+
+/** 一页 canvas → PDF 里的一条 FlateDecode RGB 图像流 */
+async function encodePdfPage(canvas) {
+  const w = canvas.width
+  const h = canvas.height
+  const { data } = canvas.getContext('2d').getImageData(0, 0, w, h)
+  const rgb = new Uint8Array(w * h * 3)
+  for (let i = 0, j = 0; i < data.length; i += 4) {
+    rgb[j++] = data[i]
+    rgb[j++] = data[i + 1]
+    rgb[j++] = data[i + 2]
+  }
+  const stream = new Blob([rgb]).stream().pipeThrough(new CompressionStream('deflate'))
+  const packed = new Uint8Array(await new Response(stream).arrayBuffer())
+  return { width: w, height: h, data: packed }
+}
+
+/** 把若干整页图像拼成一份最小但结构完整的 PDF（每页 = 一张全页图） */
+function buildPdfBlob(pages, { ptW, ptH }) {
+  const chunks = []
+  let offset = 0
+  const offsets = []
+  const enc = new TextEncoder()
+  const put = part => {
+    const bytes = typeof part === 'string' ? enc.encode(part) : part
+    chunks.push(bytes)
+    offset += bytes.length
+  }
+  put(new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34, 0x0a]))
+  put(new Uint8Array([0x25, 0xe2, 0xe3, 0xcf, 0xd3, 0x0a]))
+  const totalObjs = 2 + pages.length * 3
+  const obj = (n, body) => {
+    offsets[n] = offset
+    put(`${n} 0 obj\n${body}\nendobj\n`)
+  }
+  const streamObj = (n, dict, data) => {
+    offsets[n] = offset
+    put(`${n} 0 obj\n<< ${dict} /Length ${data.length} >>\nstream\n`)
+    put(data)
+    put('\nendstream\nendobj\n')
+  }
+  obj(1, '<< /Type /Catalog /Pages 2 0 R >>')
+  const kids = pages.map((_, i) => `${3 + i * 3 + 2} 0 R`).join(' ')
+  obj(2, `<< /Type /Pages /Kids [${kids}] /Count ${pages.length} >>`)
+  pages.forEach((pg, i) => {
+    const imgObj = 3 + i * 3
+    const contentObj = imgObj + 1
+    const pageObj = imgObj + 2
+    streamObj(
+      imgObj,
+      `/Type /XObject /Subtype /Image /Width ${pg.width} /Height ${pg.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode`,
+      pg.data
+    )
+    const content = enc.encode(`q ${ptW} 0 0 ${ptH} 0 0 cm /Im0 Do Q`)
+    streamObj(contentObj, '', content)
+    obj(pageObj, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${ptW} ${ptH}] /Resources << /XObject << /Im0 ${imgObj} 0 R >> >> /Contents ${contentObj} 0 R >>`)
+  })
+  const xref = offset
+  put(`xref\n0 ${totalObjs + 1}\n`)
+  put('0000000000 65535 f \n')
+  for (let n = 1; n <= totalObjs; n++) put(`${String(offsets[n]).padStart(10, '0')} 00000 n \n`)
+  put(`trailer\n<< /Size ${totalObjs + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`)
+  return new Blob(chunks, { type: 'application/pdf' })
+}
+
+function pdfFooter(ctx, { pageW, pageH, margin, pageNo, totalPages }) {
+  ctx.textBaseline = 'alphabetic'
+  ctx.font = `13px ${PDF_FONT}`
+  ctx.fillStyle = '#9A9AA2'
+  ctx.textAlign = 'left'
+  ctx.fillText('豆玩 DOUWAN · 拼豆分板图纸', margin, pageH - 24)
+  ctx.textAlign = 'right'
+  ctx.fillText(`第 ${pageNo} / ${totalPages} 页`, pageW - margin, pageH - 24)
+  ctx.textAlign = 'left'
+}
+
+/** 每块板一页的版式：板图缩放、图例分栏与续页数都在这里先算出来 */
+function planPdfBoardPage({ board, bmats, pageW, pageH, margin, cell, ruler, includeLegend }) {
+  const img = boardImagePx(board, cell, ruler)
+  const top = margin + 86
+  const maxW = pageW - margin * 2
+  const maxH = pageH - top - margin - 120
+  const scale = Math.min(1, maxW / img.w, maxH / img.h)
+  const dw = Math.max(1, Math.round(img.w * scale))
+  const dh = Math.max(1, Math.round(img.h * scale))
+  const legendTop = top + dh + 28
+  const availH = pageH - margin - 46 - legendTop
+  const fontSize = 15
+  const lineH = 27
+  const chip = 15
+  const entries = includeLegend
+    ? bmats.map(m => {
+      const brand = m.brandId ? ((getBrand(m.brandId) || {}).name || '') : ''
+      return {
+        hex: m.hex,
+        text: `${brand ? brand + ' · ' : ''}${m.code}${m.name ? ' ' + m.name : ''} × ${m.count.toLocaleString()} 颗`
+      }
+    })
+    : []
+  let cols = 1
+  let colW = maxW
+  let rowsPerPage = 0
+  let rowsTotal = 0
+  let legendPages = 0
+  if (entries.length) {
+    const mctx = document.createElement('canvas').getContext('2d')
+    mctx.font = `${fontSize}px ${PDF_FONT}`
+    const maxText = entries.reduce((mx, e) => Math.max(mx, mctx.measureText(e.text).width), 0)
+    cols = Math.max(1, Math.min(3, Math.floor(maxW / (chip + 10 + maxText + 24))))
+    colW = maxW / cols
+    rowsPerPage = Math.max(1, Math.floor(availH / lineH))
+    rowsTotal = Math.ceil(entries.length / cols)
+    legendPages = Math.max(1, Math.ceil(rowsTotal / rowsPerPage))
+  }
+  return { img, scale, dw, dh, top, legendTop, cols, colW, rowsPerPage, legendPages, entries, fontSize, lineH, chip }
+}
+
+function drawPdfLegend(ctx, entries, plan, x0, y0) {
+  ctx.font = `${plan.fontSize}px ${PDF_FONT}`
+  ctx.textBaseline = 'middle'
+  entries.forEach((e, i) => {
+    const col = i % plan.cols
+    const row = Math.floor(i / plan.cols)
+    const x = x0 + col * plan.colW
+    const y = y0 + row * plan.lineH + plan.lineH / 2
+    ctx.fillStyle = e.hex
+    ctx.fillRect(x, y - 7, 14, 14)
+    ctx.strokeStyle = 'rgba(28,28,32,.16)'
+    ctx.lineWidth = 1
+    ctx.strokeRect(x + 0.5, y - 6.5, 13, 13)
+    ctx.fillStyle = '#1B1B1F'
+    ctx.fillText(e.text, x + 22, y)
+  })
+}
+
+function drawPdfBoardHeader(ctx, { board, bmats, total, pageW, margin, continuation = false }) {
+  const bBeads = bmats.reduce((sum, m) => sum + m.count, 0)
+  ctx.textBaseline = 'alphabetic'
+  ctx.textAlign = 'left'
+  ctx.fillStyle = '#1B1B1F'
+  ctx.font = `800 34px ${PDF_FONT}`
+  ctx.fillText(
+    continuation ? `第 ${board.no} / ${total} 板 · 色号图例（续）` : `第 ${board.no} / ${total} 板`,
+    margin,
+    margin + 36
+  )
+  ctx.textAlign = 'right'
+  ctx.fillStyle = '#4B423C'
+  ctx.font = `700 17px ${PDF_FONT}`
+  ctx.fillText(`本板 ${bBeads.toLocaleString()} 颗 · ${bmats.length} 色`, pageW - margin, margin + 36)
+  ctx.textAlign = 'left'
+  ctx.fillStyle = '#8B8B93'
+  ctx.font = `15px ${PDF_FONT}`
+  ctx.fillText(
+    `全图 ${board.x0 + 1}–${board.x0 + board.w} 列 · ${board.y0 + 1}–${board.y0 + board.h} 行（单板沿用同一套全局列 / 行号）`,
+    margin,
+    margin + 62
+  )
+}
+
+/**
+ * 分板电子档 PDF：封面 + 每板一页 + 材料清单，直接下载 .pdf。
+ *
+ * 与 printPattern 的区别只有一个：不弹打印窗口。用户在「分板交付」里点一下，
+ * 浏览器就落一个文件；要 1:1 打印仍然用「分板 PDF（打印）」那条。
+ */
+export async function exportBoardPdf(pattern, {
+  projectName = '豆玩 DOUWAN',
+  orientation = 'portrait',
+  ruler = true,
+  codes = true,
+  grid = true,
+  includeLegend = true,
+  includeMaterials = true,
+  boardSize = null,
+  inventoryMap = null,
+  onProgress = null
+} = {}) {
+  if (!pattern || !pattern.width || !pattern.height) {
+    return { ok: false, message: '还没有图纸，先生成一张再导出。' }
+  }
+  if (typeof CompressionStream === 'undefined' || typeof Blob === 'undefined') {
+    return { ok: false, message: '当前浏览器不支持直接生成 PDF 电子档，请改用「分板 PNG（ZIP）」或「分板 PDF（打印）」。' }
+  }
+  const layout = boardLayout(pattern.width, pattern.height, boardOfExport(pattern, boardSize))
+  const boards = layout.boards
+  if (!boards.length) return { ok: false, message: '当前图纸没有可用的分板。' }
+  if (boards.length > PRINT_MAX_BOARDS) {
+    return {
+      ok: false,
+      message: `分板电子档最多 ${PRINT_MAX_BOARDS} 页，当前需要 ${boards.length} 页。请减少画布尺寸，或改用「分板 PNG（ZIP）」分批导出。`
+    }
+  }
+
+  const bead = beadOfPattern(pattern)
+  const mats = materialList(pattern, inventoryMap)
+  const { ptW, ptH, w: pageW, h: pageH } = pdfPageSize(orientation)
+  const margin = Math.round((10 / 25.4) * PDF_DPI)
+  const cell = Math.max(6, Math.round((bead.mm / 25.4) * PDF_DPI))
+  const boardMats = boards.map(b => boardMaterials(pattern, b, inventoryMap))
+  const plans = boards.map((b, i) => planPdfBoardPage({
+    board: b, bmats: boardMats[i], pageW, pageH, margin, cell, ruler, includeLegend
+  }))
+
+  /* 材料清单页数：先算出来，页脚才能写「第 N / 共 M 页」 */
+  const matTop = margin + 78
+  const matRowH = 30
+  const matRowsPerPage = Math.max(1, Math.floor((pageH - matTop - margin - 60) / matRowH))
+  const matPages = includeMaterials && mats.rows.length ? Math.ceil(mats.rows.length / matRowsPerPage) : 0
+  const totalPages = 1 + plans.reduce((sum, p) => sum + Math.max(1, p.legendPages), 0) + matPages
+
+  const pages = []
+  let pageNo = 0
+  const addPage = async canvas => {
+    pageNo++
+    pdfFooter(canvas.ctx, { pageW, pageH, margin, pageNo, totalPages })
+    pages.push(await encodePdfPage(canvas.c))
+    /* 编码完立刻释放后备缓冲：256 页 × 6.5 MB 全留在内存里会把标签页撑爆 */
+    canvas.c.width = 0
+    canvas.c.height = 0
+    if (typeof onProgress === 'function') onProgress({ page: pageNo, total: totalPages })
+  }
+
+  /* ---------------------------------------------------------- 封面 */
+  {
+    const { c, ctx } = pdfCanvas(pageW, pageH)
+    const s = pattern.stats || {}
+    const artW = pattern.artW || pattern.width
+    const artH = pattern.artH || pattern.height
+    const cmW = (artW * bead.cm).toFixed(1)
+    const cmH = (artH * bead.cm).toFixed(1)
+    /* 封面页眉 / 页脚用与整图导出同一套标版（Logo + 网址 / Slogan） */
+    drawTemplateHeader(ctx, { x: margin, y: margin, width: pageW - margin * 2 })
+    const titleY = margin + 104 + 44
+    ctx.textBaseline = 'alphabetic'
+    ctx.textAlign = 'left'
+    ctx.fillStyle = '#1B1B1F'
+    ctx.font = `800 46px ${PDF_FONT}`
+    ctx.fillText(fitCanvasText(ctx, projectName, pageW - margin * 2), margin, titleY)
+    ctx.fillStyle = '#8B8B93'
+    ctx.font = `600 20px ${PDF_FONT}`
+    ctx.fillText('豆玩 DOUWAN · 拼豆分板图纸（电子档）', margin, titleY + 38)
+    ctx.strokeStyle = '#E9EAEE'
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    ctx.moveTo(margin, titleY + 58)
+    ctx.lineTo(pageW - margin, titleY + 58)
+    ctx.stroke()
+
+    const boxTop = titleY + 86
+    const boxH = Math.max(240, Math.min(660, pageH - boxTop - 430))
+    const boxW = pageW - margin * 2
+    ctx.fillStyle = '#F7F8FA'
+    ctx.fillRect(margin, boxTop, boxW, boxH)
+    ctx.strokeStyle = '#E9EAEE'
+    ctx.lineWidth = 1
+    ctx.strokeRect(margin + 0.5, boxTop + 0.5, boxW - 1, boxH - 1)
+    try {
+      const preview = renderToCanvas(pattern, 640).canvas
+      const k = Math.min((boxW - 40) / preview.width, (boxH - 40) / preview.height)
+      const dw = Math.max(1, Math.round(preview.width * k))
+      const dh = Math.max(1, Math.round(preview.height * k))
+      ctx.imageSmoothingEnabled = true
+      ctx.drawImage(preview, margin + (boxW - dw) / 2, boxTop + (boxH - dh) / 2, dw, dh)
+    } catch {
+      /* 预览画不出来不影响正文 */
+    }
+
+    const statsTop = boxTop + boxH + 48
+    const facts = [
+      ['画布格数', `${pattern.width} × ${pattern.height} 格`],
+      ['成品尺寸', `${cmW} × ${cmH} cm`],
+      ['颜色数', `${mats.colorCount} 色`],
+      ['总豆数', `${mats.totalBeads.toLocaleString()} 颗`],
+      ['拼板', `${layout.count} 块 · ${boardLabelOf(pattern, boardSize)}`],
+      ['豆子规格', `${bead.label}（1 格 = ${bead.mm} mm）`]
+    ]
+    const factCols = 3
+    const factW = (pageW - margin * 2) / factCols
+    const factH = 82
+    facts.forEach((f, i) => {
+      const col = i % factCols
+      const row = Math.floor(i / factCols)
+      const x = margin + col * factW
+      const y = statsTop + row * factH
+      ctx.fillStyle = '#1B1B1F'
+      ctx.font = `800 26px ${PDF_FONT}`
+      ctx.fillText(f[1], x, y)
+      ctx.fillStyle = '#8B8B93'
+      ctx.font = `14px ${PDF_FONT}`
+      ctx.fillText(f[0], x, y + 26)
+    })
+
+    const noteTop = statsTop + Math.ceil(facts.length / factCols) * factH + 22
+    ctx.fillStyle = '#6B6B73'
+    ctx.font = `14px ${PDF_FONT}`
+    const note = `本文件是直接下载的电子档 PDF，不经过浏览器打印窗口。分板按 1 格 = ${bead.mm} mm 排版；` +
+      `如需 1:1 打印，请用「分板 PDF（打印）」并选择「实际大小 / 100%」，不要勾选「适合页面」。`
+    wrapCanvasText(ctx, note, pageW - margin * 2).slice(0, 6).forEach((line, i) => {
+      ctx.fillText(line, margin, noteTop + i * 24)
+    })
+    ctx.fillStyle = '#9A9AA2'
+    ctx.font = `13px ${PDF_FONT}`
+    ctx.fillText(`生成日期：${new Date().toLocaleDateString('zh-CN')}`, margin, noteTop + 6 * 24 + 6)
+    drawTemplateSlogan(ctx, { x: margin, y: pageH - margin - 56, width: pageW - margin * 2, height: 44 })
+    await addPage({ c, ctx })
+  }
+
+  /* ---------------------------------------------------------- 每板一页 */
+  for (let i = 0; i < boards.length; i++) {
+    const board = boards[i]
+    const bmats = boardMats[i]
+    const plan = plans[i]
+    const chunks = Math.max(1, plan.legendPages)
+    for (let chunk = 0; chunk < chunks; chunk++) {
+      const { c, ctx } = pdfCanvas(pageW, pageH)
+      drawPdfBoardHeader(ctx, { board, bmats, total: boards.length, pageW, margin, continuation: chunk > 0 })
+      if (chunk === 0) {
+        try {
+          const { canvas, host } = createExportCanvas()
+          const info = drawBoard(host, pattern, board, {
+            cell, codes, ruler, grid, boardSize: boardOfExport(pattern, boardSize)
+          })
+          if (info) {
+            const dx = Math.round((pageW - plan.dw) / 2)
+            ctx.imageSmoothingEnabled = plan.scale < 1
+            ctx.drawImage(canvas, dx, plan.top, plan.dw, plan.dh)
+          }
+        } catch {
+          /* 单板图失败也继续出后面的页，别让整份电子档生不出来 */
+        }
+        drawPdfLegend(
+          ctx,
+          plan.entries.slice(0, plan.rowsPerPage * plan.cols),
+          plan,
+          margin,
+          plan.legendTop
+        )
+      } else {
+        const perPage = plan.rowsPerPage * plan.cols
+        const start = chunk * perPage
+        drawPdfLegend(ctx, plan.entries.slice(start, start + perPage), plan, margin, margin + 96)
+      }
+      await addPage({ c, ctx })
+    }
+  }
+
+  /* ---------------------------------------------------------- 材料清单 */
+  if (matPages) {
+    const colDefs = [
+      { key: 'sw', w: 46, label: '色块', align: 'left' },
+      { key: 'brand', w: 300, label: '品牌/系列', align: 'left' },
+      { key: 'code', w: 150, label: '色号', align: 'left' },
+      { key: 'name', w: 0, label: '颜色', align: 'left' },
+      { key: 'count', w: 120, label: '需要', align: 'right' }
+    ]
+    const contentW = pageW - margin * 2
+    const fixed = colDefs.reduce((sum, d) => sum + d.w, 0)
+    colDefs[3].w = Math.max(120, contentW - fixed)
+    const xs = []
+    let acc = margin
+    colDefs.forEach(d => { xs.push(acc); acc += d.w })
+
+    for (let p = 0; p < matPages; p++) {
+      const { c, ctx } = pdfCanvas(pageW, pageH)
+      const start = p * matRowsPerPage
+      const slice = mats.rows.slice(start, start + matRowsPerPage)
+      ctx.textBaseline = 'alphabetic'
+      ctx.textAlign = 'left'
+      ctx.fillStyle = '#1B1B1F'
+      ctx.font = `800 30px ${PDF_FONT}`
+      ctx.fillText(
+        p === 0
+          ? `材料清单 · 共 ${mats.colorCount} 色 · 共 ${mats.totalBeads.toLocaleString()} 颗`
+          : '材料清单（续）',
+        margin,
+        margin + 40
+      )
+      ctx.fillStyle = '#F4F5F7'
+      ctx.fillRect(margin, matTop - 22, contentW, 32)
+      ctx.font = `600 13px ${PDF_FONT}`
+      ctx.fillStyle = '#6B6B73'
+      colDefs.forEach((d, ci) => {
+        ctx.textAlign = d.align === 'right' ? 'right' : 'left'
+        ctx.fillText(d.label, d.align === 'right' ? xs[ci] + d.w - 6 : xs[ci] + 6, matTop)
+      })
+      ctx.textAlign = 'left'
+      slice.forEach((r, ri) => {
+        const y = matTop + 22 + ri * matRowH
+        ctx.strokeStyle = '#E9EAEE'
+        ctx.lineWidth = 1
+        ctx.beginPath()
+        ctx.moveTo(margin, y + matRowH - 0.5)
+        ctx.lineTo(pageW - margin, y + matRowH - 0.5)
+        ctx.stroke()
+        ctx.fillStyle = r.hex
+        ctx.fillRect(xs[0] + 6, y + 7, 16, 16)
+        ctx.strokeStyle = 'rgba(28,28,32,.16)'
+        ctx.strokeRect(xs[0] + 6.5, y + 7.5, 15, 15)
+        ctx.fillStyle = '#1B1B1F'
+        ctx.font = `15px ${PDF_FONT}`
+        ctx.fillText(fitCanvasText(ctx, r.brandId ? ((getBrand(r.brandId) || {}).name || '') : '', colDefs[1].w - 12), xs[1] + 6, y + 21)
+        ctx.fillText(r.code, xs[2] + 6, y + 21)
+        ctx.fillText(fitCanvasText(ctx, r.name || '—', colDefs[3].w - 12), xs[3] + 6, y + 21)
+        ctx.textAlign = 'right'
+        ctx.fillText(`${r.count.toLocaleString()} 颗`, xs[4] + colDefs[4].w - 6, y + 21)
+        ctx.textAlign = 'left'
+      })
+      if (p === matPages - 1) {
+        ctx.fillStyle = '#9A9AA2'
+        ctx.font = `13px ${PDF_FONT}`
+        const noteY = Math.min(matTop + 22 + slice.length * matRowH + 26, pageH - margin - 50)
+        ctx.fillText('颜色用量按当前图纸逐格统计，与图上的色号一致。', margin, noteY)
+      }
+      await addPage({ c, ctx })
+    }
+  }
+
+  const blob = buildPdfBlob(pages, { ptW, ptH })
+  downloadBlob(blob, `${safeName(projectName)}-分板图纸.pdf`)
+  const mb = (blob.size / 1048576).toFixed(1)
+  return {
+    ok: true,
+    pages: totalPages,
+    size: blob.size,
+    message: `分板电子档已下载：${totalPages} 页 PDF（约 ${mb} MB，${boards.length} 块板 + 材料清单）`
+  }
 }
 
 /* ------------------------------------------------------------------ 分享卡 */
@@ -1443,7 +1922,7 @@ export function exportShareCard(pattern, {
 
   ctx.fillStyle = '#E23A20'
   ctx.font = '800 24px -apple-system,"PingFang SC",Arial'
-  ctx.fillText('douzao.ai', W - pad - ctx.measureText('douzao.ai').width, H - 70)
+  ctx.fillText(SITE_URL_TEXT, W - pad - ctx.measureText(SITE_URL_TEXT).width, H - 70)
 
   c.toBlob(blob => {
     if (blob) downloadBlob(blob, `${safeName(projectName)}-分享卡.png`)

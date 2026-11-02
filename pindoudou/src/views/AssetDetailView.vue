@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import AssetCard from '../components/ui/AssetCard.vue'
 import PixelIcon from '../components/ui/PixelIcon.vue'
@@ -8,6 +8,7 @@ import {
 } from '../composables/useAssets.js'
 import { difficultyTone, buildStars } from '../lib/forge.js'
 import { setCollection } from '../composables/useAssets.js'
+import { canonicalUrl, materialMeta, setMeta } from '../lib/seo.js'
 import { libraryCategoryForAsset } from '../data/libraryCategories.js'
 
 const route = useRoute()
@@ -19,6 +20,25 @@ onMounted(loadRemoteAssets)
 const fav = computed(() => (asset.value ? isFavorite(asset.value.id) : false))
 const categoryKey = computed(() => libraryCategoryForAsset(asset.value))
 const tone = computed(() => difficultyTone(asset.value?.difficulty))
+
+/**
+ * 详情页的标题 / 描述 / canonical。
+ * 素材的 SEO 文案以后台为准（运营可能改过），没改过就用自动生成的那份，
+ * 与服务端渲染爬虫时用的规则完全一致。
+ */
+watch(() => asset.value, a => {
+  if (!a) return
+  const m = materialMeta(a)
+  const path = a.remote ? `/materials/${a.slug}/` : `/library/${a.id}`
+  setMeta({
+    title: m.title,
+    description: m.description,
+    canonical: canonicalUrl(path),
+    image: a.imageFull || a.image || '',
+    /* 内置矢量素材没有独立可索引页面（不在后台素材库里），标 noindex */
+    noindex: !a.remote
+  })
+}, { immediate: true })
 
 /** 同分类推荐 */
 const similar = computed(() => {
@@ -43,21 +63,21 @@ async function onUse() {
   busy.value = true
   const res = await pickAsset(asset.value.id)
   busy.value = false
-  if (res.ok) router.push('/editor')
+  if (res.ok) router.push('/create')
 }
 
 function goCategory() {
   if (!asset.value) return
   const key = categoryKey.value
   setCollection(key)
-  router.push({ path: '/library', query: key === 'all' ? {} : { col: key } })
+  router.push({ path: '/materials/', query: key === 'all' ? {} : { col: key } })
 }
 
 async function onPickSimilar(a) {
   busy.value = true
   const res = await pickAsset(a.id)
   busy.value = false
-  if (res.ok) router.push('/editor')
+  if (res.ok) router.push('/create')
 }
 </script>
 
@@ -67,14 +87,14 @@ async function onPickSimilar(a) {
       <div class="empty__icon"><PixelIcon name="search" :size="24" /></div>
       <strong>找不到这个素材</strong>
       <p>链接可能已失效，或者这个素材已经下架。</p>
-      <RouterLink to="/library" class="btn primary">回到素材中心</RouterLink>
+      <RouterLink to="/materials/" class="btn primary">回到素材中心</RouterLink>
     </div>
 
     <template v-else>
       <div class="crumb">
-        <RouterLink to="/library">素材中心</RouterLink>
+        <RouterLink to="/materials/">素材中心</RouterLink>
         <span>/</span>
-        <RouterLink :to="{ path: '/library', query: categoryKey === 'all' ? {} : { col: categoryKey } }">{{ asset.cat }}</RouterLink>
+        <RouterLink :to="{ path: '/materials/', query: categoryKey === 'all' ? {} : { col: categoryKey } }">{{ asset.cat }}</RouterLink>
         <span>/</span>
         <b>{{ asset.name }}</b>
       </div>
@@ -83,7 +103,15 @@ async function onPickSimilar(a) {
         <div class="card">
           <div class="detailPreview" :style="asset.featBg ? { background: asset.featBg } : null">
             <div class="detailPreview__inner">
-              <img v-if="asset.image" :src="asset.imageFull || asset.image" :alt="asset.name">
+              <img
+                v-if="asset.image"
+                :src="asset.imageFull || asset.image"
+                :alt="asset.name"
+                decoding="async"
+                fetchpriority="high"
+                :width="asset.imageWidth || undefined"
+                :height="asset.imageHeight || undefined"
+              >
               <div v-else class="detailPreview__svg" v-html="asset.svg"></div>
             </div>
           </div>
@@ -101,7 +129,7 @@ async function onPickSimilar(a) {
 
         <div class="col">
           <div class="card">
-            <div class="card__head"><h3>{{ asset.name }}</h3><span class="muted">{{ asset.cat }}</span></div>
+            <div class="card__head"><h1 class="assetTitle">{{ asset.name }}</h1><span class="muted">{{ asset.cat }}</span></div>
             <div class="card__body stack">
               <div v-if="asset.remote" class="stats">
                 <div class="stat tone-3"><b>{{ asset.size }}</b><span>图片尺寸（px）</span></div>
@@ -184,6 +212,12 @@ async function onPickSimilar(a) {
 </template>
 
 <style scoped>
+/* 素材名是这一页的 H1（详情页的页面标题）。
+   视觉上仍然沿用原来卡头里的 h3 样式，不改变页面版式。 */
+.assetTitle{
+  font-size:14px;letter-spacing:-.01em;display:flex;align-items:center;gap:8px;
+  flex:0 0 auto;white-space:nowrap;margin:0;font-weight:inherit;color:inherit;
+}
 .crumb{display:flex;align-items:center;gap:8px;font-size:var(--fs-xs);color:var(--muted);margin-bottom:14px}
 .crumb a:hover{color:var(--coral-deep)}
 .crumb b{color:var(--ink)}
