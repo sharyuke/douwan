@@ -32,7 +32,12 @@ tools/npm-global/
 tools/pnpm-home/
 tools/pnpm-store/
 tools/ffmpeg-py/
-tools/preview/
+# 共用预览只入库这四个脚本；www 是构建产物，其余是本地辅助文件
+tools/preview/*
+!tools/preview/server.mjs
+!tools/preview/start.ps1
+!tools/preview/deploy.ps1
+!tools/preview/run-server.cmd
 
 # ---------- pnpm 与本地缓存 ----------
 .pnpm-store/

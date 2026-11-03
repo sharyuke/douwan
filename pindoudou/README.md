@@ -38,7 +38,7 @@
 pnpm install          # pnpm 11 若报 link 相关错误，用 pnpm install --node-linker=hoisted
 pnpm dev              # 开发预览
 pnpm build            # 构建到 dist/
-pnpm preview          # 本地预览构建产物
+pnpm preview          # 只给本仓库自查；给用户看页面用工作区 tools/preview（见 AGENTS.md）
 ```
 
 > 本项目在 Windows + pnpm 11 + Node 24 环境下验证过。
@@ -115,7 +115,7 @@ scripts/
   verify/pattern-fingerprint.mjs 生成引擎的指纹回归：同一批参数下 cells 与各项统计逐位/逐字对照基线
   verify/perf-1000.mjs       100 万格的生成耗时与内存（不需要浏览器）
   verify/export-smoke.mjs    导出冒烟（DOM 桩）：各入口不抛、文案带真实数字、打印文档结构
-  serve-dist.mjs             本地预览 dist/（no-store，专门用来排除浏览器缓存干扰）
+  serve-dist.mjs             无缓存静态服务。给用户看的预览不要用它，用工作区 tools/preview
   fidelity/fixtures-gen.py   生成还原度评测图（真实照片 + 合成题材）
   fidelity/bench.mjs         还原度跑分：dEcell / dEview / 边缘相关，不需要浏览器
   fidelity/bench-scale.mjs   画布尺寸 × 还原度：同一张图在 29…1000 格（旧规格档位）下的色差与耗时
@@ -1068,12 +1068,14 @@ node scripts/audit.cjs --setup-file scripts/audit-fixture.js --eval-file scripts
   「眼睛 vs 周围皮肤」的局部对比还剩多少（实测 0.9 以上）；
 - **和抠图同时开**：确认两张卡的开关互不干扰，背景仍然是空格（不放豆）。
 
-**改了代码但页面上看不到**时，先排除"浏览器还在跑旧包"：用自带的无缓存服务器打开最新构建，
-再用 `--url` 审这个地址，确认它到底有没有生效（比反复刷新可靠）：
+**改了代码但页面上看不到**时，先排除"浏览器还在跑旧包"：构建后复制到工作区共用预览
+（`tools/preview`，见仓库外的 `AGENTS.md`），再刷新 http://127.0.0.1:5180/ 。
+自检要盯着这一份正在跑的页面时，把 `--url` 指到它：
 
 ```bash
-pnpm build && pnpm serve:dist                                   # http://127.0.0.1:4319/
-node scripts/audit.cjs --url http://127.0.0.1:4319 /editor      # 审这个"正在跑的实例"
+pnpm build
+powershell -ExecutionPolicy Bypass -File ..\tools\preview\deploy.ps1 -Dist "$PWD\dist"
+node scripts/audit.cjs --url http://127.0.0.1:5180 /editor
 ```
 
 两个容易踩的坑，脚本里已经处理掉了：
