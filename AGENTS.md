@@ -582,7 +582,7 @@
    ├── douwan-api/   后端 Go+Gin+GORM
    └── tools/        node 24.21.0 / pnpm 11.17.0 / go 1.26.0
           │
-          └── git push ──▶ gitee.com/maryuke/{pindoudou,douwan-api}
+          └── git push ──▶ gitee.com/sharyuke/douwan
 ```
 
 **标准动作**：本机改代码 → 本地 `pnpm build` / `go test ./...` → `scp` 到 qq → 重启服务 → 公网验证 →
@@ -694,7 +694,7 @@ ssh qq "echo $b | base64 -d | bash"
 
 ### 2.1 前端 `pindoudou`（豆玩 DOUWAN 拼豆图纸工作台）
 
-- 路径：本机 `C:\Users\sharyuke\Documents\work\douwan\pindoudou`；仓库 <https://gitee.com/maryuke/pindoudou.git>（`master`）
+- 路径：本机 `C:\Users\sharyuke\Documents\work\douwan\pindoudou`。前端、后端和文档都在当前目录这一个仓库里，远程是 <https://gitee.com/sharyuke/douwan.git>。旧地址 <https://gitee.com/maryuke/pindoudou.git> 只留作历史，不再往那里提交
 - Vue 3.5 + Vite 6 + vue-router（**2026-10-25 起是 history 路由**，`createWebHistory()` + `base: '/'`；
   老的 `#/xxx` 链接由 `src/router/index.js` 的 `watchLegacyHash` shim 接管并 301 到新路径），
   **纯前端 SPA**：账号 / 会员 / Credits 目前都在 localStorage 里演示
@@ -768,7 +768,7 @@ node scripts/admin-audit.cjs
 
 ### 2.2 后端 `douwan-api`（已完成首个版本，不再是脚手架）
 
-- 路径：本机 `C:\Users\sharyuke\Documents\work\douwan\douwan-api`；仓库 <https://gitee.com/maryuke/douwan-api.git>（**私有**，`master`）
+- 路径：本机 `C:\Users\sharyuke\Documents\work\douwan\douwan-api`，和前端在同一个仓库里。旧地址 <https://gitee.com/maryuke/douwan-api.git> 只留作历史，不再往那里提交
 - 线上：`https://dw.sharyuke.com/api/v1/...`（nginx 反代到 `127.0.0.1:8080`）
 - Go 1.26 + Gin + GORM + PostgreSQL 16；`module gitee.com/maryuke/douwan-api`
 - 已实现：健康探针、账号与鉴权（注册 / 登录 / 刷新轮换 / 登出 / 资料读写）、统一响应体与错误码、
@@ -836,22 +836,18 @@ go build -o bin\migrate.exe ./cmd/migrate
 > 注意 PATH 上的 `tar` 是 Git 的 GNU tar，会把 `C:\...` 当远程主机名 —— 要用
 > `C:\Windows\System32\tar.exe`（bsdtar）。
 
-### 2.3 提交代码（在本机提交）
+### 2.3 提交代码（只在当前目录这一个仓库）
 
 ```powershell
-cd C:\Users\sharyuke\Documents\work\douwan\pindoudou
+cd C:\Users\sharyuke\Documents\work\douwan
 git add <只加自己改的路径>
 git commit -m "feat: ..."
-git push
+git push gitee main
 ```
 
-- 本机已配好 Git 凭据：`pindoudou` 的 remote 内嵌账号密码（历史遗留），
-  `douwan-api` 走 Git Credential Manager，`git push` 可直接用。
-- ⚠️ 本机 `douwan-api` 的**主工作区**（`douwan-api\`）仍停在旧状态：落后 `origin/master`，
-  且工作区里有并行会话未提交的本地 AI 模块。**别在主工作区 `git pull`**，会覆盖那批改动。
-  SEO 平台是在隔离 worktree `douwan-api\.tmp\wt-seo`（分支 `feat/seo-platform`）里做的；
-  2026-10-26 已把 `feat/seo-platform` merge 进 master（`feat/seo-v3-merge`，`5111531`）并推到 `origin/master`。
-  **以后改后端一律用 `douwan-api\.tmp\wt-*` 隔离工作区**（主工作区不能 pull）。
+- 远程是 <https://gitee.com/sharyuke/douwan.git>（本机用 `git@gitee.com:sharyuke/douwan.git` 推，SSH 已登录 `sharyuke`）。
+- `pindoudou/` 和 `douwan-api/` 不再各自有仓库。不要在子目录里 `git init`，也不要再推 `gitee.com/maryuke/pindoudou` 或 `gitee.com/maryuke/douwan-api`。
+- 只提交源码和文档。不要提交 `node_modules/`、`dist/`、`douwan-api/bin/`、`tools/` 里的 Node / Go / pnpm 缓存、`.tmp/`、`.mirror/`、`tools/preview/www/`、`.env`、密钥和本地配置。
 
 ---
 

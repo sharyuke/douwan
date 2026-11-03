@@ -1,9 +1,6 @@
-# 豆玩 DOUWAN 工作区总仓
-#
-# 这个仓把工作区里的前端（pindoudou 等）、后端（douwan-api）和文档收在一起，
-# 作为 GitHub 上的整体备份。里面几个子目录各自还有独立 git 仓库
-# （pindoudou / pindoudou-library / pindoudou-mobile / douwan-api），
-# 那些仓库的 .git 目录一律不进本仓。
+# 豆玩 DOUWAN 工作区，只有当前目录这一个 git 仓库。
+# 远程：https://gitee.com/sharyuke/douwan.git
+# 不要提交依赖、构建产物、工具链缓存、临时目录和密钥。
 
 # ---------- 依赖与构建产物 ----------
 node_modules/
