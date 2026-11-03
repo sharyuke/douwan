@@ -187,7 +187,7 @@ certbot --nginx -d dw.sharyuke.com --non-interactive --agree-tos --redirect --ke
 
 ## 3. 日常发布流程
 
-> 2026-10-18 起，所有构建都在**本机 Windows**上做（Node/pnpm/Go 已装在 `tools\`，见 AGENTS.md §0），
+> 2026-10-18 起，所有构建都在**本机 Windows**上做（Node/pnpm/Go 已装在 `tools\`，见 [docs/agents/toolchain.md](docs/agents/toolchain.md)），
 > 产物用 `scp` 推到 qq。本机 → qq 已配好密钥登录（`~/.ssh/config` 里的 `Host qq`）。
 
 ### 3.1 发布后端

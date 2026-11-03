@@ -38,7 +38,7 @@
 pnpm install          # pnpm 11 若报 link 相关错误，用 pnpm install --node-linker=hoisted
 pnpm dev              # 开发预览
 pnpm build            # 构建到 dist/
-pnpm preview          # 只给本仓库自查；给用户看页面用工作区 tools/preview（见 AGENTS.md）
+pnpm preview          # 只给本仓库自查；给用户看页面用工作区 tools/preview（见仓库根目录 docs/agents/preview.md）
 ```
 
 > 本项目在 Windows + pnpm 11 + Node 24 环境下验证过。
@@ -1069,7 +1069,7 @@ node scripts/audit.cjs --setup-file scripts/audit-fixture.js --eval-file scripts
 - **和抠图同时开**：确认两张卡的开关互不干扰，背景仍然是空格（不放豆）。
 
 **改了代码但页面上看不到**时，先排除"浏览器还在跑旧包"：构建后复制到工作区共用预览
-（`tools/preview`，见仓库外的 `AGENTS.md`），再刷新 http://127.0.0.1:5180/ 。
+（`tools/preview`，见仓库根目录 `docs/agents/preview.md`），再刷新 http://127.0.0.1:5180/ 。
 自检要盯着这一份正在跑的页面时，把 `--url` 指到它：
 
 ```bash

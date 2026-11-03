@@ -2,7 +2,7 @@
 
 本机是**控制端**：只有 git / ssh / scp，没有 node / pnpm / go，也没有项目源码。
 真正的代码、构建、测试都在 `home`（192.168.1.135）上做，线上跑在 `qq` 上。
-主机、部署、凭据的完整说明见上级目录的 [AGENTS.md](../AGENTS.md) 与 [DEPLOY.md](../DEPLOY.md)。
+主机、部署、凭据的完整说明见上级目录的 [AGENTS.md](../AGENTS.md)、[docs/agents/](../docs/agents/) 与 [DEPLOY.md](../DEPLOY.md)。
 
 ## 目录
 
@@ -97,7 +97,7 @@ TRUNCATE site_visitor_page_daily, site_visitors;
 
 - **本机 PowerShell 是 5.1，禁止运行 .ps1**（ExecutionPolicy）。命令请内联执行，别调脚本文件。
 - 从 PowerShell 调 ssh 时内层引号会被吞掉；远端命令用**单引号**包住，
-  超过两三行或要用 `$(...)`、括号、heredoc 时，用 base64 传脚本（见 AGENTS.md）。
+  超过两三行或要用 `$(...)`、括号、heredoc 时，用 base64 传脚本（见 [docs/agents/ssh.md](../docs/agents/ssh.md)）。
 - **不要**把 ssh 输出接到 `| tail` / `| head`：本机 PATH 里的 tail 是 Git 自带的，会报
   `fatal error - couldn't create signal pipe`。要截取就用 `$out | Select-Object -Last 40`。
 - 控制台是 GBK，直接 `Get-Content` 看中文会乱码。看中文文件用 read 工具，
