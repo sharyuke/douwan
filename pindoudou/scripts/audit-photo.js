@@ -6,12 +6,14 @@
    才会走到，且都不会报错、只会"结果不对"：
      ① 透明背景（抠好的贴纸 / 免抠素材）必须变成**空格**，不是一整片白豆 + 一圈白边；
         顺带断言抠图掩膜的分辨率**跟着源图走**（matteMaxSide ≥ 384），不再是固定 384；
-     ② 画布与色号要按原图自动匹配（源图能细到什么程度，别让用户自己猜）；
-     ③ 精细档的格子数要按原图比例算，不能把竖图放进方画布、让 40% 的格子空着；
+     ② 按**图案复杂度**推荐钉板（2026-11-04 用户口径）：越复杂越大、越简单越小，
+        钉板数量默认 1 块。简单平涂图 → 52 板（原图再大也不跟着变大），
+        照片级复杂度 → 120 板；
+     ③ 成品区域要按原图比例算，不能把竖图放进方画布、让 40% 的格子空着；
      ④ 色号上限要到色板长度（221）而不是 90 —— 界面滑块与引擎常量两处都要跟；
         顺带把 cartoon 的工作分辨率钉在 768（这一轮试过放大又撤回来，见 README）；
      ⑤ 抠图掩膜边长要跟源图走（384~1024）而不是固定 384 —— 这是"抠图毛躁"那条的入口。
-   这五条都用真实数据判定：空格数、画布尺寸、用色数、方案 key、滑块 max、掩膜边长。 */
+   这几条都用真实数据判定：空格数、画布尺寸、推荐规格、用色数、方案 key、滑块 max、掩膜边长。 */
 (async () => {
   const d = window.__douzao
   if (!d) return { ok: false, err: '调试桥未就绪' }
@@ -40,6 +42,24 @@
    * @param w,h 画布尺寸
    * @param inner 不透明主体的范围比例 {x,y,w,h}；传 null 表示整张图不透明
    */
+  async function commit(cv, name) {
+    const blob = await new Promise(r => cv.toBlob(r, 'image/png'))
+    const file = new File([blob], name, { type: 'image/png' })
+    const dt = new DataTransfer()
+    dt.items.add(file)
+    /* 顶栏还有一个 .libFile（素材库导入），它在 DOM 里更靠前。
+       选择器列表里 `input[type=file]` 会先命中它，所以必须先单独找上传卡里的那个。 */
+    const input = document.querySelector('.upload ~ input[type=file]') ||
+      document.querySelector('input[type=file]:not(.libFile)')
+    /* 等的是「这一次重新生成」：lastSearch.at 由 regenerate 在收尾时写。
+       连续上传时只等图案非空会立刻命中上一张的图案，测到的就是旧结果。 */
+    const before = S.lastSearch.value ? S.lastSearch.value.at : 0
+    input.files = dt.files
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+    await waitFor(() => S.lastSearch.value && S.lastSearch.value.at > before)
+    await sleep(120)
+  }
+
   async function upload(w, h, inner, name) {
     const cv = document.createElement('canvas')
     cv.width = w
@@ -67,18 +87,39 @@
       cx.fillStyle = '#2F4858'
       cx.fillRect(Math.round(w * 0.1), Math.round(h * 0.1), Math.round(w * 0.3), Math.round(h * 0.2))
     }
-    const blob = await new Promise(r => cv.toBlob(r, 'image/png'))
-    const file = new File([blob], name, { type: 'image/png' })
-    const dt = new DataTransfer()
-    dt.items.add(file)
-    /* 顶栏还有一个 .libFile（素材库导入），它在 DOM 里更靠前。
-       选择器列表里 `input[type=file]` 会先命中它，所以必须先单独找上传卡里的那个。 */
-    const input = document.querySelector('.upload ~ input[type=file]') ||
-      document.querySelector('input[type=file]:not(.libFile)')
-    input.files = dt.files
-    input.dispatchEvent(new Event('change', { bubbles: true }))
-    await waitFor(() => pat() && pat().width > 0)
-    await sleep(150)
+    await commit(cv, name)
+  }
+
+  /**
+   * 照片级复杂度的合成图：渐变底 + 260 个带结构的小色块 + 逐像素噪点。
+   * 复杂度推荐应该把它推到最大的一块板（120）——这是「越复杂越大」的判据。
+   */
+  async function uploadPhoto(w, h, name) {
+    const cv = document.createElement('canvas')
+    cv.width = w
+    cv.height = h
+    const cx = cv.getContext('2d')
+    const grad = cx.createLinearGradient(0, 0, w, h)
+    grad.addColorStop(0, '#4A7FB5')
+    grad.addColorStop(0.5, '#B9C98A')
+    grad.addColorStop(1, '#7A4E3A')
+    cx.fillStyle = grad
+    cx.fillRect(0, 0, w, h)
+    for (let i = 0; i < 260; i++) {
+      cx.fillStyle = `hsl(${Math.floor(Math.random() * 360)} 60% ${20 + Math.random() * 60}%)`
+      cx.beginPath()
+      cx.arc(Math.random() * w, Math.random() * h, 2 + Math.random() * 16, 0, Math.PI * 2)
+      cx.fill()
+    }
+    const img = cx.getImageData(0, 0, w, h)
+    for (let i = 0; i < img.data.length; i += 4) {
+      const n = (Math.random() - 0.5) * 26
+      img.data[i] += n
+      img.data[i + 1] += n
+      img.data[i + 2] += n
+    }
+    cx.putImageData(img, 0, 0)
+    await commit(cv, name)
   }
 
   /* ---------- ① 透明贴纸：透明处不能变成白豆，且要自动裁到主体 ----------
@@ -114,8 +155,10 @@
     note: sticker.notes.find(n => n.includes('透明背景')) || '',
     nearWhiteColors: nearWhite.map(c => c.hex),
     nearWhiteShare: Math.round((nearWhiteBeads / beadCount) * 1000) / 1000,
-    /* 主体是 320×100 px（2:1），裁剪生效时图案比例就该是 2:1 而不是源图的 0.8 */
-    aspect: Math.round((sticker.width / sticker.height) * 100) / 100,
+    /* 主体是 320×100 px（2:1），裁剪生效时成品区域比例就该是 2:1 而不是源图的 0.8。
+       图案现在是「一块正方形板 + 中间按比例留空的成品区域」，所以比例要读 artW/artH。 */
+    art: `${sticker.artW || sticker.width}×${sticker.artH || sticker.height}`,
+    aspect: Math.round(((sticker.artW || sticker.width) / (sticker.artH || sticker.height)) * 100) / 100,
     allOpaque: sticker.stats.emptyCount === 0 && sticker.palette.length > 0
   }
   out.sticker.ok =
@@ -129,10 +172,11 @@
     /* 白豆（近白色号）必须只是抗锯齿描边那一点点，不能是一整片背景 */
     out.sticker.nearWhiteShare < 0.02
 
-  /* ---------- ② 不透明竖图：画布按原图比例 + 长边自动匹配 + 色号跟着抬 ----------
+  /* ---------- ② 不透明竖图：按图案复杂度推荐「一块板」，成品区域按原图比例 ----------
+     这张合成图只有 3 个平涂色 → 复杂度「简洁」→ 推荐最小的一块 52 钉板（钉板数量 1 块）。
      先把画布收回小档再上传：settings 是长驻的，上一步（或上一个页面）留下的
-     「312 极限」会被 autoFitForSource 有意保留（用户自己点过的档位不降级），
-     那测的就不是自动匹配了。这里点的就是界面上那个 1×1 档。 */
+     自定义大底板会被 autoFitForSource 有意保留（用户自己开过的底板不降级），
+     那测的就不是自动推荐了。这里点的就是界面上那个 1×1 档。 */
   const smallTile = document.querySelector('.card--size .pick[data-size="52x52"]')
   if (smallTile) smallTile.click()
   await sleep(120)
@@ -141,10 +185,13 @@
   if (!photo) return { ok: false, err: '照片没有生成图案' }
   const a = S.options.canvasW / S.options.canvasH
   const srcA = 300 / 600
+  const rec = S.sourceRecommend.value
   out.photo = {
     canvas: `${S.options.canvasW}×${S.options.canvasH}`,
+    board: `${S.options.canvasMaxW}×${S.options.canvasMaxH}`,
     aspect: Math.round(a * 1000) / 1000,
     srcAspect: Math.round(srcA * 1000) / 1000,
+    recommend: rec ? { spec: rec.spec, tier: rec.tier, score: rec.score, name: rec.name } : null,
     targetColors: S.options.targetColors,
     usedColors: photo.palette.length,
     activeKey: S.activeKey.value,
@@ -152,50 +199,80 @@
     auto: !!(photo.matte && photo.matte.auto),
     /* 不透明图不该自动抠背景：没有 alpha 就不该凭空少豆子 */
     empty: photo.stats.emptyCount,
-    /* 一格至少摊到 2 个源像素 → 理想长边 = 600 ÷ 2 = 300，吸附到最近的一档 312；
-       另一边按 1:2 得到 156（156 也是整板：3 块 52 板 / 2 块 78 板） */
-    longSideOk: Math.max(S.options.canvasW, S.options.canvasH) === 312,
+    /* 复杂度「简洁」→ 推荐 52；底板就是那一块 52 板，成品区域按 1:2 摆在板内（26 × 52） */
+    specOk: !!rec && rec.spec === 52,
+    boardOk: S.options.canvasMaxW === 52 && S.options.canvasMaxH === 52,
     aspectOk: Math.abs(a - srcA) < 0.06,
-    colorsOk: S.options.targetColors >= 64
+    /* 26 × 52 = 1352 格 → 色号下限 16 色这一档 */
+    colorsOk: S.options.targetColors >= 16
   }
-  out.photo.ok = out.photo.aspectOk && out.photo.longSideOk && out.photo.colorsOk &&
+  out.photo.ok = out.photo.specOk && out.photo.boardOk && out.photo.aspectOk && out.photo.colorsOk &&
     out.photo.activeKey === 'high' && out.photo.empty === 0 && out.photo.auto === false
 
-  /* ---------- ②b 更大的原图：自动匹配落在最高档 312 ----------
-     「一格 2 个源像素」这条规则对 800×1600 的原图算出理想长边 800，而档位阶梯到 312
-     为止（= 3×3 块 104 钉板）。所以自动匹配给 156×312，一格摊到约 5 个源像素，
-     超采样照样有效；想要更大只能自己走「自定义尺寸」按规格加板。 */
+  /* ---------- ②b 更大的原图、同样的简单图案：推荐不跟着分辨率变大 ----------
+     旧口径「一格 2 个源像素」会把 800×1600 推到 312（9 块 104 板）；
+     新口径看复杂度：还是那 3 个平涂色 → 仍是 1 块 52 板。 */
   if (smallTile) smallTile.click()
   await sleep(120)
   await upload(800, 1600, null, 'photo-big.png')
   const big = pat()
   if (!big) return { ok: false, err: '大图没有生成图案' }
+  const bigRec = S.sourceRecommend.value
   out.big = {
     canvas: `${S.options.canvasW}×${S.options.canvasH}`,
+    board: `${S.options.canvasMaxW}×${S.options.canvasMaxH}`,
     pattern: `${big.width}×${big.height}`,
     targetColors: S.options.targetColors,
     usedColors: big.palette.length,
-    longSide: Math.max(S.options.canvasW, S.options.canvasH),
-    longSideOk: Math.max(S.options.canvasW, S.options.canvasH) === 312,
+    recommend: bigRec ? { spec: bigRec.spec, score: bigRec.score } : null,
+    specOk: !!bigRec && bigRec.spec === 52,
+    boardOk: S.options.canvasMaxW === 52 && S.options.canvasMaxH === 52,
     aspectOk: Math.abs(S.options.canvasW / S.options.canvasH - 0.5) < 0.06,
-    /* 156×312 = 4.9 万格 → 色号下限 64 色这一档 */
-    colorsOk: S.options.targetColors >= 64
+    colorsOk: S.options.targetColors >= 16
   }
-  out.big.ok = out.big.longSideOk && out.big.aspectOk && out.big.colorsOk
+  out.big.ok = out.big.specOk && out.big.boardOk && out.big.aspectOk && out.big.colorsOk
+
+  /* ---------- ②a 界面上的推荐标记：钉板下拉里推荐的那一档要挂「推荐」 ----------
+     推荐值只写进 store 不算数，用户要能在下拉里看见它。手机 / 平板没有这个下拉，跳过。 */
+  const boardBtn = document.querySelector('.csBoard__btn')
+  if (boardBtn) {
+    boardBtn.click()
+    await sleep(250)
+    const recBadge = document.querySelector('.csBoard__rec')
+    out.boardBadge = {
+      seen: !!recBadge,
+      text: recBadge ? recBadge.textContent.trim() : '',
+      onItem: recBadge ? !!recBadge.closest('.csBoard__item') : false
+    }
+    out.boardBadge.ok = out.boardBadge.seen && out.boardBadge.onItem && /推荐/.test(out.boardBadge.text)
+    boardBtn.click()
+    await sleep(150)
+  }
 
   /* ---------- ④ 色号上限：滑块与引擎都要能到色板长度（漫德 221），不再是 90 ----------
      上限原来由存档格式倒推（一格一字符、91 字符集 → 90 色），存档字符集扩到 256 之后
      这条天花板跟着拆掉。这里同时断言"界面滑块"和"引擎常量"两处，防的是一处改了另一处没跟。 */
-  /* 全屏工作台（参考版版面）把精细设置收进右侧抽屉：点开色板芯片再量滑块 */
+  /* 全屏工作台把色号滑块收进「图片调整」抽屉（「颜色用量」抽屉里只有用量表）；
+     手机 / 平板可能在侧栏卡片或底部弹层里。先找现成的，没有就开抽屉再找。 */
   let drawerOpened = false
-  if (!document.querySelector('.card--more') && document.querySelector('.csSide__palette')) {
-    document.querySelector('.csSide__palette').click()
-    drawerOpened = true
-    await sleep(700)
+  const readColorRange = () => document.querySelector('input[type=range][data-audit="target-colors"]')
+    || document.querySelector('.card--more input[type=range]')
+    || document.querySelector('.iap__field input[type=range][aria-label="用色上限"]')
+  if (!readColorRange()) {
+    const adjustBtn = [...document.querySelectorAll('button')]
+      .find(b => /图片调整/.test(b.textContent || '') && !b.disabled)
+    if (adjustBtn) {
+      adjustBtn.click()
+      drawerOpened = true
+      await sleep(900)
+    }
   }
-  const colorRange = document.querySelector('.card--more input[type=range]')
+  /* 旧版面的 `.card--more` 在改版后没了；现在滑块带 data-audit，手机版则只留数字框 */
+  const colorRange = readColorRange()
+  const colorNumber = document.querySelector('.mDrop--colors input[type=number]')
   out.colors = {
-    sliderMax: colorRange ? Number(colorRange.max) : null,
+    sliderMax: colorRange ? Number(colorRange.max) : (colorNumber ? Number(colorNumber.max) : null),
+    sliderVia: colorRange ? 'range' : (colorNumber ? 'number' : 'none'),
     engineMax: d.pattern.MAX_TARGET_COLORS,
     archiveCapacity: d.archive ? d.archive.PACK_CAPACITY : null,
     cartoonSide: d.cartoon.CARTOON_MAX_SIDE
@@ -208,6 +285,7 @@
   out.colors.cartoonPinned = out.colors.cartoonSide === 768
   if (drawerOpened) {
     const closeDrawerBtn = document.querySelector('.csDrawer__head .csIconBtn')
+      || document.querySelector('.dialog__head .iconbtn')
     if (closeDrawerBtn) {
       closeDrawerBtn.click()
       await sleep(400)
@@ -288,7 +366,20 @@
       range.dispatchEvent(new Event('change', { bubbles: true }))
     }
   }
-  await waitFor(() => pat() && pat().width === 156 && pat().height === 312, 30000)
+  let fineReady = await waitFor(() => pat() && pat().width === 156 && pat().height === 312, 3000)
+  if (!fineReady) {
+    /* 全屏工作台改版后尺寸入口换了位置：桌面 / 手机的尺寸卡收进抽屉（DOM 里根本没有
+       `.card--size`），平板的规格下拉按图片方向列出「1 × 2 块 52 钉板」这类具体网格、
+       不再有「312」字样。这条断言盯的是**引擎口径**（长边按档位、另一边按比例吸附），
+       所以 UI 找不到时退回与界面同一条链路（setCanvasCapacity + setCanvasSize + 色号下限），
+       不让版面改动把它变成空转。 */
+    out.fine.via = (out.fine.via || 'ui') + '+api'
+    S.setCanvasCapacity(156, 312)
+    const floor = d.pattern.colorFloorForCells(156 * 312)
+    if (floor && S.options.targetColors < floor) S.options.targetColors = floor
+    S.setCanvasSize(156, 312, { silent: true })
+    fineReady = await waitFor(() => pat() && pat().width === 156 && pat().height === 312, 30000)
+  }
   await sleep(150)
   const f = pat()
   if (f) {
@@ -306,7 +397,30 @@
     out.fine.ok = false
   }
 
-  out.ok = !!(out.sticker.ok && out.photo.ok && out.big.ok && out.colors.ok &&
-    out.colors.cartoonPinned && out.matteMask.ok && (!out.fine || out.fine.ok))
+  /* ---------- ②c 照片级复杂度：推荐最大的一块 120 钉板 ----------
+     渐变 + 大量小色块 + 噪点 → 复杂度「复杂」→ 1 块 120 板；
+     成品区域按 3:4 摆在板内（90 × 120），四周是空格。 */
+  await uploadPhoto(600, 800, 'photo-complex.png')
+  const complex = pat()
+  if (!complex) return { ok: false, err: '复杂照片没有生成图案' }
+  const cRec = S.sourceRecommend.value
+  out.photoComplex = {
+    canvas: `${S.options.canvasW}×${S.options.canvasH}`,
+    board: `${S.options.canvasMaxW}×${S.options.canvasMaxH}`,
+    recommend: cRec ? { spec: cRec.spec, score: cRec.score, name: cRec.name } : null,
+    targetColors: S.options.targetColors,
+    usedColors: complex.palette.length,
+    specOk: !!cRec && cRec.spec === 120,
+    boardOk: S.options.canvasMaxW === 120 && S.options.canvasMaxH === 120,
+    aspectOk: Math.abs(S.options.canvasW / S.options.canvasH - 0.75) < 0.06,
+    /* 90 × 120 = 10800 格 → 色号下限 48 色这一档 */
+    colorsOk: S.options.targetColors >= 48
+  }
+  out.photoComplex.ok = out.photoComplex.specOk && out.photoComplex.boardOk &&
+    out.photoComplex.aspectOk && out.photoComplex.colorsOk
+
+  out.ok = !!(out.sticker.ok && out.photo.ok && out.big.ok && out.photoComplex.ok && out.colors.ok &&
+    out.colors.cartoonPinned && out.matteMask.ok && (!out.fine || out.fine.ok) &&
+    (!out.boardBadge || out.boardBadge.ok))
   return out
 })()

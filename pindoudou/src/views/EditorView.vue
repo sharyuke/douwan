@@ -32,7 +32,8 @@ import {
   cropSource,
   undo, redo, canUndo, canRedo,
   openColorReplace, ensureBlankCanvas,
-  createMode, workspaceMode, switchCreateMode, activateCreateMode, stashCurrentWorkspace
+  createMode, workspaceMode, switchCreateMode, activateCreateMode, stashCurrentWorkspace,
+  sourceRecommend
 } from '../composables/useStudio.js'
 import { EDIT_TOOLS } from '../data/icons.js'
 import { BOARD_SPECS, boardSpecFor } from '../lib/boardSpec.js'
@@ -224,7 +225,9 @@ const boardOptions = computed(() => BOARD_SPECS.map(s => ({
   w: s,
   h: s,
   locked: s > maxCells.value,
-  current: s === boardSpec.value
+  current: s === boardSpec.value,
+  /* 导入图片后按图案复杂度推荐的那一块板（越复杂越大，见 useStudio 的 autoFitForSource） */
+  rec: !!sourceRecommend.value && sourceRecommend.value.spec === s
 })))
 
 function pickBoard(o) {
@@ -1032,6 +1035,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
             <b>{{ o.w }} × {{ o.h }}</b>
             <span>{{ o.w }} 钉画线板</span>
             <em v-if="o.locked">PRO</em>
+            <em v-else-if="o.rec" class="csBoard__rec">推荐</em>
             <Icon v-else-if="o.current" name="check" :size="16" />
           </button>
         </div>

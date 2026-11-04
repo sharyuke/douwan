@@ -22,6 +22,7 @@
     "verify:export": "node scripts/verify/export-plan.mjs && node scripts/verify/export-plan-1000.mjs && node scripts/verify/export-smoke.mjs && node scripts/verify/export-proportion.mjs",
     "export:preview": "node scripts/export-case-preview.cjs",
     "verify:pattern": "node scripts/verify/pattern-fingerprint.mjs",
+    "verify:complexity": "node scripts/verify/complexity.mjs",
     "verify:alpha": "node scripts/verify/source-alpha.mjs",
     "verify:perf": "node scripts/verify/perf-1000.mjs",
     "verify:fixture": "node scripts/audit.cjs --setup-file scripts/audit-fixture.js",

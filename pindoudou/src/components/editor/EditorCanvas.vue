@@ -1359,6 +1359,7 @@ defineExpose({
         · {{ fitNotice.colors }} 色
         <template v-if="fitNotice.raisedColors">（颜色数从 {{ fitNotice.raisedColors }} 提到 {{ fitNotice.colors }}）</template>
         · 共 {{ fitNotice.cells.toLocaleString() }} 格
+        <template v-if="fitNotice.boardSpec">· 图案{{ fitNotice.levelName }}，推荐 1 块 {{ fitNotice.boardSpec }} 钉板</template>
       </p>
     </div>
 

@@ -9,8 +9,9 @@ import {
   lastSearch, matteInfo, matteLevels, setRemoveBg, setMatteLevel,
   cartoonInfo, cartoonStyles, setCartoonStyle,
   cartoonPreviewUrl, previewMode, refreshCartoonPreview, yieldForBusyPaint, sourceImg, sourceKind, sourceAspect,
+  sourceRecommend,
   bead, SIZE_TIERS, BOARD_SPECS, BOARD_MIN, boardSpecFor, boardsText, boardsTextShort,
-  isWholeBoard, snapTier, tierBox, customBox,
+  isWholeBoard, tierBox, customBox,
   saveProject, buildStats, buildBoards, buildBoard, isFinished, finishedAt
 } from '../../composables/useStudio.js'
 import { PALETTE_BRANDS } from '../../lib/palettes.js'
@@ -258,12 +259,15 @@ const sizeUsefulLong = computed(() => {
   return Math.min(long, MAX_SOURCE_SIDE) / 2
 })
 
-/** 按原图自动匹配会落在哪一档（列表里给它标「推荐」） */
+/**
+ * 上传 / 选素材后按**图案复杂度**给出的推荐档（列表里给它标「推荐」）。
+ * 推荐只给一块板（52 / 78 / 104 / 120 之一），来源见 useStudio 的 autoFitForSource；
+ * 打开存档时没有推荐（存档尺寸是用户当时定的），这时列表不打「推荐」标。
+ */
 const autoTier = computed(() => {
-  if (!sizeHasSource.value) return null
-  const long = sourceLongPx()
-  if (!long) return null
-  return snapTier(Math.round(long / 2), { max: Math.min(maxCells.value, MAX_TIER) })
+  const rec = sourceRecommend.value
+  if (!rec || !rec.tier) return null
+  return SIZE_TIERS.find(t => t.n === rec.tier) || null
 })
 
 /**

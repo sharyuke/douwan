@@ -21,6 +21,7 @@ import {
 } from '../lib/boardSpec.js'
 import { packPattern, unpackPattern, packProgress, unpackProgress } from '../lib/archive.js'
 import { packCellColors } from '../lib/render.js'
+import { estimateComplexity } from '../lib/complexity.js'
 import { matteLevel, MATTE_LEVELS, estimateMatte } from '../lib/matte.js'
 import { cartoonize, CARTOON_STYLES } from '../lib/cartoon.js'
 import { getColors, getColorById, DEFAULT_BRAND_ID, getBrand } from '../lib/palettes.js'
@@ -174,6 +175,15 @@ let sourceSnapshot = null
  * 界面上的「当前图纸」另外读 pattern 的宽高，用户改过尺寸就以实时值为准。
  */
 export const fitNotice = ref(null)
+/**
+ * 导入图片后按**图案复杂度**给出的钉板推荐（2026-11-04 用户口径）：
+ * `{ spec, tier, w, h, level, name, desc, score, colors, sourceCapped, planCapped, keepCustom }`。
+ *
+ * spec 是推荐的那**一块**板（52 / 78 / 104 / 120）；tier 是尺寸列表里该打「推荐」的那一档
+ * （上传走 spec 本身，素材库按素材自带尺寸可能落在 156 / 208 这类多块档）。
+ * 只在上传 / 换图 / 选素材时写；打开存档时清空 —— 存档里的尺寸是用户当时定的，不再改。
+ */
+export const sourceRecommend = ref(null)
 /**
  * 三个方案（可能是 1 个，取决于套餐）。
  *
@@ -2522,6 +2532,8 @@ export function loadImageSource(img, url, name = '', kind = 'raster') {
   /* 换了图，上一张的卡通预览必须作废：否则缩略图上「卡通」那一栏
      显示的还是上一张脸的卡通，看着就像卡通化没生效。 */
   cartoonPreviewUrl.value = ''
+  /* 上一张图的复杂度推荐也作废：换图后由 autoFitForSource 重新给（素材库在 useAsset 里给） */
+  sourceRecommend.value = null
   previewMode.value = options.cartoon ? 'cartoon' : 'source'
   if (options.cartoon) refreshCartoonPreview()
 }
@@ -2715,35 +2727,28 @@ export async function useImageFile(file) {
 }
 
 /**
- * 上传**照片**时自动匹配画布与色号（素材库的矢量素材走 useAsset，不在这里）。
+ * 上传**图片**时自动推荐画布与色号（素材库的矢量素材走 useAsset，不在这里）。
  *
- * 为什么必须自动：默认值（29×29 格、16 色）是给「1 块底板的小图」准备的，
- * 而用户上传照片想要的是「像我拍的那张」。让他自己去猜"该填多少格、多少色"，
- * 结果就是所有照片都停在 116 格 / 16 色上，然后得出"这工具转不像"的结论 ——
- * 他真正缺的不是耐心，而是「这张图到底能细到什么程度」这个答案。
+ * 2026-11-04 用户口径：按**图案复杂度**推荐一块钉板 —— 越复杂越大、越简单越小，
+ * 钉板数量默认 1 块（52 / 78 / 104 / 120 四个规格之一）。复杂度怎么量见
+ * lib/complexity.js（色彩熵 + 边缘强度 + 纹理覆盖率，在 80 边长的工作图上算）。
  *
- * 口径（两条，都能用一句话交代清楚）：
- *   ① 一格至少摊到 2 个源像素：这是超采样还能生效的下限（SS=2 需要每格 2×2 个源像素
- *      才谈得上面积平均 + 多数投票，再密就是插值出来的假细节，见 maxUsefulSupersample）；
- *      所以长边 = 源图长边 ÷ 2。
- *   ② 长边封顶 500：500 格长边约 25 万格、生成 1 秒出头（450² 实测 0.76~0.93s）、
- *      存档约 0.75 MB（三个方案），仍在"上传完就能看"的范围里。
- *      再往上（750/1000）是 56~100 万格、要 5 秒、存档 3 MB（实测本机只放得下 1 件），
- *      豆子用量也从几万颗跳到几十万颗，而且成品是 2.5 m 以上的挂画量级 ——
- *      这种量级必须是用户自己点的，不能替他决定，所以它留在右边的
- *      「超清 750 / 极限 1000」两档里。
+ * 为什么不再只看源图分辨率：旧口径「一格至少摊到 2 个源像素」只回答「源图**能**细到
+ * 什么程度」。一张 4000 px 的纯色 Logo 按旧口径会被推到 312 档（9 块 104 板），
+ * 拼出来却还是一大片单色 —— 细节填不满格子，多买的板纯属浪费。
  *
- *      ⚠️ 这个封顶以前是 300，而 ① 对一张 1000 边的原图算出来就是 500 —— 也就是说
- *      **上限把规则 ① 盖掉了**：用户看到的"自动匹配"其实是"自动少给一半格子"。
- *      两个口径必须一致，否则「一格 2 个源像素」这句话在界面上是假的。
+ * 三条约束叠在一起取最小的规格：
+ *   ① 复杂度推荐（越复杂越大）；
+ *   ② 源图分辨率上限：一格至少摊到 2 个源像素（超采样的下限，见 maxUsefulSupersample），
+ *      所以推荐规格不超过「源图长边 ÷ 2」能放下的最大规格；
+ *   ③ 套餐上限：免费版单边 52 格（一块 52 板）。
  *
- * 只往上抬、不往下压：源图本来就小（比如 200×250 的图）时给出它自己的尺寸即可，
- * 画得比原图还大只是把插值出来的假细节摊成格子。免费版仍按套餐上限收敛。
+ * 画布 = 推荐规格的一块板（正方形）；成品区域按主体比例贴在板内、四周留空
+ * （padToCanvas 会把留空写成空格，不占豆子）。贴纸先按 alpha 量出**主体包围盒**：
+ * 比例与复杂度都只算主体，透明底不占格子也不算复杂度。
  *
- * 贴纸（源图自带透明背景）要多做一步：画布比例取**主体包围盒**的比例，而不是整张图的比例。
- * 不这么做的话，一张 400×500 的贴纸（主体只有中间 320×100 的横条）会被放进 2:5 的画布，
- * 主体只占中间一小条 —— 实测 200×250 的画布里 77% 是空格，那些格子不但白占画布，
- * 还会被分板、材料表和 PDF 当成"要拼的区域"，白白多切几十块底板。
+ * 用户自己已经把画布开到最高档以上（自定义更大）时保留他选的底板，
+ * 只按新图的比例重排 —— 「我明明开到 416 格，换张图就变回 120」是纯粹的意外。
  */
 function isMobileViewport() {
   return typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(max-width:780px)').matches
@@ -2756,6 +2761,16 @@ function publishFitNotice(data) {
   return true
 }
 
+/** 在 capW × capH 的底板里按图片比例摆成品区域（居中留空由 padToCanvas 处理） */
+function aspectGrid(capW, capH, aspect) {
+  const cw = Math.max(1, Math.round(Number(capW) || 1))
+  const ch = Math.max(1, Math.round(Number(capH) || 1))
+  const a = Number(aspect) > 0 ? Number(aspect) : 1
+  const w = a >= 1 ? cw : Math.max(1, Math.round(ch * a))
+  const h = a >= 1 ? Math.max(1, Math.round(cw / a)) : ch
+  return { w: Math.min(cw, w), h: Math.min(ch, h) }
+}
+
 function autoFitForSource(img) {
   const sw = (img && (img.naturalWidth || img.width)) || 0
   const sh = (img && (img.naturalHeight || img.height)) || 0
@@ -2763,42 +2778,54 @@ function autoFitForSource(img) {
 
   /* 透明贴纸：先量出主体包围盒（estimateMatte 走的就是生成时会用的那条 alpha 分支，
      两处口径必须一致，否则画布比例和实际裁剪结果对不上）。读像素失败的极端情况退回整图比例。 */
+  let px = null
+  try { px = readImagePixels(img) } catch { /* 读像素失败：按整图比例走 */ }
   let subject = null
-  try {
-    const px = readImagePixels(img)
-    if (px.transparent) {
-      const m = estimateMatte(px.data, px.width, px.height, { level: options.matteLevel })
-      if (m && m.ok && m.stats && m.stats.transparent && m.bbox) {
-        subject = m.bbox
-        sourceAspect.value = m.bbox.w / m.bbox.h
-      }
+  if (px && px.transparent) {
+    const m = estimateMatte(px.data, px.width, px.height, { level: options.matteLevel })
+    if (m && m.ok && m.stats && m.stats.transparent && m.bbox) {
+      subject = m.bbox
+      sourceAspect.value = m.bbox.w / m.bbox.h
     }
-  } catch { /* 读像素失败：按整图比例走 */ }
+  }
   if (!subject) sourceAspect.value = sw / sh
 
   const box = subject || { w: sw, h: sh }
   const long = Math.max(box.w, box.h)
-  /* 自动匹配只在**整块板**上落点：先按「一格摊到 2 个源像素」求理想长边（长边 ÷ 2），
-     吸附到档位阶梯，再由 tierBox 在**同一规格**里按原图比例挑块数
-     （正方图 → 3 × 3 块 104 = 312×312；3:4 竖图 → 3 × 4 块 78 = 234×312）。
-     为什么不能两个方向各按各的规格吸附：78 宽 × 104 高这种矩形没有对应的实物板。 */
-  const AUTO_MAX = SIZE_TIERS[SIZE_TIERS.length - 1].n
-  let tier = snapTier(Math.round(long / 2), { max: Math.min(AUTO_MAX, maxCells.value) })
-  /* 用户自己已经把画布开到最高档以上（自定义更大）时保留他选的档位，
-     只按新图的比例重排 —— 「我明明开到 416 格，换张图就变回 312」是纯粹的意外。 */
-  const currentLong = Math.max(Number(options.canvasW) || 0, Number(options.canvasH) || 0)
-  if (currentLong > AUTO_MAX) tier = currentLong
-  const fit = tierBox({ n: tier }, sourceAspect.value)
-  let w = fit.w
-  let h = fit.h
+  const aspect = sourceAspect.value
 
-  /* 套餐上限：免费版单边 52 格（一块 52 板），换到能放下的最高档 —— 同一规格，不混板 */
-  if (Math.max(w, h) > maxCells.value) {
-    const small = snapTier(Math.min(maxCells.value, AUTO_MAX), { max: Math.min(maxCells.value, AUTO_MAX) })
-    const shrunk = tierBox({ n: small }, sourceAspect.value)
-    w = shrunk.w
-    h = shrunk.h
+  /* ① 复杂度推荐（读像素失败时给中高档：多数上传是照片，宁可多给几格也别糊） */
+  let picked = null
+  if (px) {
+    try { picked = estimateComplexity(px.data, px.width, px.height, subject) } catch { picked = null }
   }
+  if (!picked) picked = { spec: 104, level: 3, name: '较复杂', desc: '未能读取像素，按中高档给', score: null, colors: 0 }
+
+  /* ② 源图分辨率上限：一格至少摊到 2 个源像素 */
+  const useful = Math.round(long / 2)
+  const sourceCap = BOARD_SPECS.filter(s => s <= Math.max(BOARD_MIN, useful)).pop() || BOARD_MIN
+  /* ③ 套餐上限：免费版 52 格 = 一块 52 板 */
+  const planCap = BOARD_SPECS.filter(s => s <= maxCells.value).pop() || BOARD_MIN
+  const spec = Math.min(picked.spec, sourceCap, planCap)
+
+  /* 用户自己开到最高档以上：保留他选的底板，只按新图比例重排成品区域 */
+  const AUTO_MAX = SIZE_TIERS[SIZE_TIERS.length - 1].n
+  const currentLong = Math.max(Number(options.canvasW) || 0, Number(options.canvasH) || 0)
+  const keepCustom = currentLong > AUTO_MAX
+  let capW
+  let capH
+  if (keepCustom) {
+    capW = Math.max(1, Math.min(maxCells.value, Number(options.canvasMaxW) || spec))
+    capH = Math.max(1, Math.min(maxCells.value, Number(options.canvasMaxH) || spec))
+  } else {
+    /* 默认就是推荐规格的**一块板**：正方形，成品区域贴在里面 */
+    capW = spec
+    capH = spec
+  }
+  const grid = aspectGrid(capW, capH, aspect)
+  const w = grid.w
+  const h = grid.h
+
   const cells = w * h
   const floor = Math.min(colorFloorForCells(cells), availableColors.value.length)
   let raisedColors = 0
@@ -2811,6 +2838,26 @@ function autoFitForSource(img) {
   const perCell = cells ? ((box.w * box.h) / cells) : 0
   /* 套餐上限只在这里读一次，界面文案与前面的收敛用的是同一个数 */
   const cap = maxCells.value
+  const sourceCapped = picked.spec > sourceCap
+  const planCapped = Math.min(picked.spec, sourceCap) > planCap
+
+  /* 尺寸列表 / 钉板下拉的「推荐」标：上传走推荐的规格本身；
+     用户保留自定义大底板时不标（那一档是他自己开的，不是推荐出来的） */
+  sourceRecommend.value = {
+    spec,
+    tier: keepCustom ? null : spec,
+    w,
+    h,
+    level: picked.level,
+    name: picked.name,
+    desc: picked.desc,
+    score: picked.score,
+    colors: picked.colors,
+    sourceCapped,
+    planCapped,
+    keepCustom
+  }
+
   /* 手机上不再用 7 秒长 toast 挡住画布：结构化提示卡自己读实时宽高，
      详情里才展开来源像素 / 每格摊多少 / 颜色数变化。 */
   const mobileNotice = publishFitNotice({
@@ -2822,24 +2869,34 @@ function autoFitForSource(img) {
     perCell,
     raisedColors: raisedColors || 0,
     colors: options.targetColors,
+    boardSpec: spec,
+    level: picked.level,
+    levelName: picked.name,
+    levelDesc: picked.desc,
+    sourceCapped,
+    planCapped,
     cap,
     autoMax: AUTO_MAX
   })
 
-  /* 换图时画布规格跟着这张图重算：容量 = 自动匹配出来的整板尺寸，
+  /* 换图时画布规格跟着这张图重算：容量 = 推荐的那一块板（或用户保留的自定义底板），
      成品尺寸滑块从「这张图推荐的大小」开始往上限走。 */
-  options.canvasMaxW = w
-  options.canvasMaxH = h
+  options.canvasMaxW = capW
+  options.canvasMaxH = capH
   if (w === options.canvasW && h === options.canvasH) return false
 
   options.canvasW = w
   options.canvasH = h
   if (!mobileNotice) {
     toast(
-      `已按${subject ? '主体' : '原图'} ${Math.round(box.w)}×${Math.round(box.h)} 像素把画布设成 ${w} × ${h} 格`
-      + `（${cells} 格，一格摊到约 ${perCell.toFixed(1)} 个源像素）`
+      `已按图案复杂度推荐 1 块 ${spec} 钉板（${picked.name}）：${w} × ${h} 格`
+      + `，一格摊到约 ${perCell.toFixed(1)} 个源像素`
       + (raisedColors ? `，颜色数 ${raisedColors} → ${options.targetColors}` : '')
-      + (cap < AUTO_MAX ? `。免费版单边上限 ${cap} 格，升 Pro 可以到 ${AUTO_MAX} 格（自定义还能更大）` : `。想更细可点「${SIZE_TIERS[SIZE_TIERS.length - 1].name} ${AUTO_MAX}」，或用「自定义尺寸」按规格再加板`),
+      + (planCapped
+        ? `。免费版单边上限 ${cap} 格，升 Pro 可用更大的板`
+        : sourceCapped
+          ? `。原图长边 ${Math.round(long)} 像素，再细就只是插值`
+          : '。想更细可点更高档，或用「自定义尺寸」按规格加板'),
       '', 7000
     )
   }
@@ -2862,6 +2919,21 @@ export async function useAsset(asset) {
   options.canvasW = assetBox
   options.canvasH = assetBox
   options.targetColors = asset.colors || options.targetColors
+  /* 素材的尺寸来自它自带的块数，不是复杂度推荐；列表里给最近的那一档打「推荐」 */
+  sourceRecommend.value = {
+    spec: boardSpecFor(assetBox, assetBox),
+    tier: snapTier(assetBox),
+    w: assetBox,
+    h: assetBox,
+    level: null,
+    name: '素材尺寸',
+    desc: '按素材自带的块数',
+    score: null,
+    colors: 0,
+    sourceCapped: false,
+    planCapped: false,
+    keepCustom: false
+  }
   /* 手机上不弹「已生成 N 个方案」长提示：它会盖住画布中央，
      而选完素材后图案本身就换好了，不需要再用 toast 确认。 */
   const ok = regenerate({ silent: isMobileViewport() })
@@ -3347,6 +3419,8 @@ export function openProject(id) {
     sourceUrl.value = ''
     cartoonPreviewUrl.value = ''
     previewMode.value = 'source'
+    /* 存档里的尺寸是用户当时定下的，不再按复杂度重推（也不在列表里打「推荐」） */
+    sourceRecommend.value = null
     buildProgress.value = proj.buildProgress ? new Set(proj.buildProgress) : new Set()
     /* 完成的作品进度必须是满的：老存档 / 只写了 finishedAt 的存档补一次，
        否则会出现「顶栏打了 ✓、进度条却是 0%」的自相矛盾。 */
