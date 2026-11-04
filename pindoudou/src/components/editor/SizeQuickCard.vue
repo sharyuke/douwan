@@ -2,6 +2,9 @@
 /**
  * 全屏工作台右侧「成品尺寸」卡（设计稿 151:587「功能菜单 · 成品尺寸已展开」）。
  *
+ * 图纸转换模式把这张卡并进了右侧「图片调整」面板：传 embedded 时只渲染面板本身
+ * （没有卡头，始终展开），作为合并面板里的「成品尺寸」一段。
+ *
  * 卡头点一下就地展开 / 收起，面板里是一条**等比例**滑杆：
  *   · 拖动时读数跟手（「等比例缩放」那一行），松手 240ms 后落到画布；
  *   · 「当前尺寸」读的是画布上**实际**的成品区域 —— 拖动中两者会短暂不同，落定后一致；
@@ -21,7 +24,9 @@ import { onRangeWheel } from '../../lib/rangeWheel.js'
 import Icon from '../ui/Icon.vue'
 
 const props = defineProps({
-  open: { type: Boolean, default: true }
+  open: { type: Boolean, default: true },
+  /** 只渲染面板（合并进「图片调整」时用），没有卡头、不收起 */
+  embedded: { type: Boolean, default: false }
 })
 const emit = defineEmits(['update:open'])
 
@@ -186,8 +191,9 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="szq" :class="{ 'is-open': open }" data-size-card>
+  <div class="szq" :class="{ 'is-open': open, 'is-embedded': embedded }" data-size-card>
     <button
+      v-if="!embedded"
       type="button" class="szq__head" :aria-expanded="open" aria-controls="size-card-panel"
       @click="toggle"
     >
@@ -196,7 +202,7 @@ onBeforeUnmount(() => {
       <span class="szq__chev"><Icon name="chevron-down" :size="16" /></span>
     </button>
 
-    <div v-show="open" id="size-card-panel" class="szq__panel">
+    <div v-show="embedded || open" id="size-card-panel" class="szq__panel">
       <div class="szq__introTop">
         <b>成品尺寸</b>
         <button

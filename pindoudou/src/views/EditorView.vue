@@ -123,7 +123,7 @@ function onReplaceColor(id) {
   if (!openColorReplace(id)) toastWarn('没有在当前图纸上找到这个颜色')
 }
 
-/* 智能抠图：命令栏一颗开关，力度在「图片调整」面板里选 */
+/* 智能抠图：命令栏一颗开关，力度在左侧「图片与处理」卡里选 */
 function toggleMatte() {
   if (!sourceUrl.value) return
   void setRemoveBg(!options.removeBg)
@@ -1002,9 +1002,6 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
         <button class="csCmd__btn hit36h" data-console="upload" :disabled="mobileBusy" @click="uploadOpen = true">
           <Icon name="image-up" :size="20" /><span>更换图片</span>
         </button>
-        <button class="csCmd__btn hit36h" :disabled="!sourceUrl" @click="openDrawer('adjust')">
-          <Icon name="sliders-horizontal" :size="20" /><span>图片调整</span>
-        </button>
         <button class="csCmd__btn hit36h" data-console="materials" @click="materialsOpen = true">
           <Icon name="images" :size="20" /><span>素材库</span>
         </button>
@@ -1441,9 +1438,19 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
       <!-- 底部横向色板条撤掉了：主选色方式改成右栏的「色板」卡
            （系列 → 色系 → 搜索 → 多行网格），画布底部留给图纸。 -->
 
-      <!-- 右侧入口：成品尺寸（可收起的滑杆卡）/ 作品分析 / 我的库存 / 色板 / 颜色用量 -->
+      <!-- 右侧入口：图纸转换把「图片调整 + 成品尺寸」合并成一行（点开是同一块面板）；
+           自由画布没有图片可调，仍保留可就地展开的成品尺寸卡。 -->
       <aside v-if="consoleMode && !drawerKey" class="csSide no-print">
-        <SizeQuickCard :open="sizeOpen" @update:open="sizeOpen = $event" />
+        <SizeQuickCard v-if="createMode === 'free'" :open="sizeOpen" @update:open="sizeOpen = $event" />
+        <button
+          v-else type="button" class="csSide__row" data-side-adjust
+          :class="{ 'is-off': !sourceUrl }" :disabled="!sourceUrl"
+          @click="openDrawer('adjust')"
+        >
+          <span class="csSide__ico csSide__ico--lime"><Icon name="sliders-horizontal" :size="16" /></span>
+          <span>图片调整</span>
+          <span class="csRot csSide__chev"><Icon name="chevron-down" :size="16" /></span>
+        </button>
         <button type="button" class="csSide__row" :class="{ 'is-off': createMode === 'edit' && !hasPattern }" @click="analysisOpen = true">
           <span class="csSide__ico csSide__ico--pink"><Icon name="chart-no-axes-combined" :size="16" /></span>
           <span>作品分析</span>

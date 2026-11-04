@@ -1,15 +1,17 @@
 <script setup>
 /* 图片调整（设计稿「豆玩 · 图片调整展开」）
-   把「原图调整 → 图纸尺寸 → 色板 → 用色上限 → 保留透明区域」收在一块面板里，
+   把「成品尺寸 → 图纸尺寸 → 色板 → 用色上限 → 保留透明区域」收在一块面板里，
    底部「应用并生成图纸」一次落到画布。左栏卡片版面与这里共用同一份 options，
-   在哪儿改都一样，这里只是把生成前要定的几件事按设计稿的顺序排好。 */
+   在哪儿改都一样，这里只是把生成前要定的几件事按设计稿的顺序排好。
+   原图调整（亮度 / 对比度 / 饱和度）已按 2026-11-05 的要求去掉。 */
 import { computed, ref } from 'vue'
 import Icon from '../ui/Icon.vue'
+import SizeQuickCard from './SizeQuickCard.vue'
 import { BOARD_SPECS } from '../../lib/boardSpec.js'
 import { PALETTE_BRANDS } from '../../lib/palettes.js'
 import {
-  options, sourceUrl, availableColors, brand, regenerate, setCanvasCapacity,
-  setRemoveBg, sourceFilter, sourceFilterActive, resetSourceFilter
+  options, sourceUrl, availableColors, regenerate, setCanvasCapacity,
+  setRemoveBg
 } from '../../composables/useStudio.js'
 import { toastWarn } from '../../composables/useToast.js'
 
@@ -22,7 +24,6 @@ const boardSize = computed(() => {
   return w === h ? w : Math.max(w, h)
 })
 
-const adjustOpen = ref(false)
 const customOpen = ref(false)
 const customW = ref(options.canvasW)
 const customH = ref(options.canvasH)
@@ -53,13 +54,6 @@ function onColors(e) {
   options.targetColors = Math.max(4, Math.min(colorMax.value, v))
 }
 
-function setFilter(key, e) {
-  sourceFilter[key] = Math.round(Number(e.target.value) || 0)
-}
-function resetFilter() {
-  resetSourceFilter()
-}
-
 function apply() {
   if (!sourceUrl.value) {
     toastWarn('先选一张图片')
@@ -72,30 +66,8 @@ function apply() {
 
 <template>
   <div class="iap">
-    <button type="button" class="iap__row iap__row--soft" :aria-expanded="adjustOpen" @click="adjustOpen = !adjustOpen">
-      <span class="iap__rowIcon"><Icon name="sliders-horizontal" :size="16" /></span>
-      <span class="iap__rowMain">
-        <b>原图调整</b>
-        <em>{{ sourceFilterActive ? '已调整亮度 / 对比度 / 饱和度' : '亮度 / 对比度 / 饱和度' }}</em>
-      </span>
-      <span class="iap__chev" :class="{ on: adjustOpen }"><Icon name="chevron-down" :size="16" /></span>
-    </button>
-
-    <div v-if="adjustOpen" class="iap__filters">
-      <label v-for="f in [
-        { key: 'brightness', label: '亮度' },
-        { key: 'contrast', label: '对比度' },
-        { key: 'saturation', label: '饱和度' }
-      ]" :key="f.key" class="iap__filter">
-        <span>{{ f.label }}</span>
-        <input
-          type="range" min="-100" max="100" step="1" :value="sourceFilter[f.key]"
-          :aria-label="f.label" @input="setFilter(f.key, $event)"
-        >
-        <b>{{ sourceFilter[f.key] > 0 ? '+' : '' }}{{ sourceFilter[f.key] }}</b>
-      </label>
-      <button type="button" class="iap__link" :disabled="!sourceFilterActive" @click="resetFilter">恢复原图</button>
-    </div>
+    <!-- 成品尺寸与图纸设置合并成一块面板：成品尺寸沿用右侧那张滑杆卡的内容 -->
+    <SizeQuickCard embedded />
 
     <section class="iap__sec">
       <header class="iap__secHead">
@@ -172,26 +144,6 @@ function apply() {
 
 <style scoped>
 .iap{display:flex;flex-direction:column;gap:14px}
-.iap__row{
-  display:flex;align-items:center;gap:10px;width:100%;padding:11px 12px;text-align:left;
-  border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface);
-}
-.iap__row--soft{background:var(--tint-plain)}
-.iap__rowIcon{
-  width:30px;height:30px;flex:0 0 auto;border-radius:9px;display:grid;place-items:center;
-  background:var(--surface);border:1px solid var(--line);color:var(--ink-2);
-}
-.iap__rowMain{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
-.iap__rowMain b{font-size:13px;font-weight:700;line-height:var(--ty-label-lh)}
-.iap__rowMain em{font-style:normal;font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:var(--ty-caption-lh)}
-.iap__chev{width:13px;height:13px;flex:0 0 auto;color:var(--muted-2);transform:rotate(-90deg);transition:transform var(--t)}
-.iap__chev.on{transform:none}
-.iap__filters{display:flex;flex-direction:column;gap:9px;padding:12px;border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface-2)}
-.iap__filter{display:grid;grid-template-columns:52px minmax(0,1fr) 40px;align-items:center;gap:8px;font-size:12px;color:var(--ink-2);line-height:var(--ty-caption-lh)}
-.iap__filter b{font-size:12px;text-align:right;font-variant-numeric:tabular-nums;color:var(--ink);line-height:var(--ty-caption-lh)}
-.iap__filter input{width:100%;accent-color:var(--primary-deep)}
-.iap__link{align-self:flex-start;font-size:12px;font-weight:700;color:var(--ink-2);text-decoration:underline;text-underline-offset:3px;line-height:var(--ty-caption-lh)}
-.iap__link:disabled{color:var(--muted-2);text-decoration:none;cursor:default}
 .iap__sec{display:flex;flex-direction:column;gap:16px}
 .iap__secHead{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
 .iap__secHead b{font-size:13px;font-weight:700;line-height:var(--ty-label-lh)}

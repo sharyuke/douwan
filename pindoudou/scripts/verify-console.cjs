@@ -319,6 +319,56 @@ async function main() {
   check('点「原图」页签切换', /原图/.test(viewNow || ''), viewNow)
   await shotEl(send, '.studio__canvas', 'view-original')
 
+  /* 2026-11-05：图片调整与成品尺寸合并成右侧一行「图片调整」。
+     命令行不再有图片调整入口；点右侧入口打开的面板里同时有成品尺寸滑杆与图纸设置，
+     原图调整（亮度 / 对比度 / 饱和度）已经去掉。 */
+  {
+    await evalJs(send, `(async () => {
+      const d = window.__douzao
+      const [A, S] = await Promise.all([d.assets(), d.studio()])
+      const asset = A.ASSETS.find(a => a.featured) || A.ASSETS[0]
+      await S.useAsset(asset)
+      return 1
+    })()`)
+    for (let i = 0; i < 30; i++) {
+      const ready = await evalJs(send, `(async () => { const S = await window.__douzao.studio(); return !!(S.pattern.value && S.pattern.value.cells && S.pattern.value.cells.length) })()`)
+      if (ready) break
+      await sleep(200)
+    }
+    await sleep(500)
+    const merged = await evalJs(send, `(() => {
+      const txt = el => (el ? el.textContent : '').replace(/\\s+/g, ' ').trim()
+      const cmd = document.querySelector('.csCmd')
+      const side = document.querySelector('.csSide')
+      const first = side ? side.firstElementChild : null
+      return {
+        topAdjust: !!(cmd && [...cmd.querySelectorAll('button')].some(b => /图片调整/.test(txt(b)))),
+        firstMerged: !!first && first.hasAttribute('data-side-adjust'),
+        firstText: txt(first)
+      }
+    })()`)
+    check('图纸转换：命令行没有图片调整入口，右侧第一行是合并后的图片调整',
+      !merged.topAdjust && merged.firstMerged && /图片调整/.test(merged.firstText), merged)
+
+    await evalJs(send, `document.querySelector('[data-side-adjust]').click(); 1`)
+    await sleep(700)
+    const mergedPanel = await evalJs(send, `(() => {
+      const txt = el => (el ? el.textContent : '').replace(/\\s+/g, ' ').trim()
+      const d = document.querySelector('.csDrawer')
+      const body = d && d.querySelector('.csDrawer__body')
+      return {
+        title: txt(d && d.querySelector('.csDrawer__head b')),
+        size: !!(d && d.querySelector('.szq__range')),
+        settings: /图纸设置/.test(txt(body)),
+        oldAdjust: /原图调整|亮度|对比度|饱和度/.test(txt(body))
+      }
+    })()`)
+    check('合并面板：成品尺寸 + 图纸设置，且没有原图调整',
+      mergedPanel.title === '图片调整' && mergedPanel.size && mergedPanel.settings && !mergedPanel.oldAdjust, mergedPanel)
+    await evalJs(send, `document.querySelector('.csDrawer__head .csIconBtn').click(); 1`)
+    await sleep(400)
+  }
+
   /* 停在「对照」上切回自由画布：两个页签收起来，视图必须回到拼豆图纸 */
   await evalJs(send, `[...document.querySelectorAll('.csViews button')].find(b => b.textContent.includes('对照')).click(); 1`)
   await sleep(400)
