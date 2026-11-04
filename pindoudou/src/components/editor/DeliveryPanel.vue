@@ -10,7 +10,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import BaseDialog from '../ui/BaseDialog.vue'
-import PixelIcon from '../ui/PixelIcon.vue'
+import Icon from '../ui/Icon.vue'
 import {
   pattern, hasPattern, projectName, stats, materials, layout,
   currentProjectId, saveProject, buildStats, buildBoards, buildBoard,
@@ -632,7 +632,7 @@ function close() {
               <button class="accHead" type="button" :aria-expanded="acc.quality" @click="toggleAcc('quality')">
                 <span class="accTitle">清晰度</span>
                 <span class="accValue">{{ qualitySummary }}</span>
-                <i class="accArrow" aria-hidden="true"><PixelIcon name="chevronDown" :size="12" /></i>
+                <i class="accArrow" aria-hidden="true"><Icon name="chevron-down" :size="16" /></i>
               </button>
               <div v-show="acc.quality" class="accBody">
                 <div class="dpiBtns">
@@ -654,7 +654,7 @@ function close() {
               <button class="accHead" type="button" :aria-expanded="acc.split" @click="toggleAcc('split')">
                 <span class="accTitle">拼板规格</span>
                 <span class="accValue">{{ splitSummary }}</span>
-                <i class="accArrow" aria-hidden="true"><PixelIcon name="chevronDown" :size="12" /></i>
+                <i class="accArrow" aria-hidden="true"><Icon name="chevron-down" :size="16" /></i>
               </button>
               <div v-show="acc.split" class="accBody splitSpecRow">
                 <select v-model.number="settings.splitSpec" data-audit="split-spec">
@@ -681,7 +681,7 @@ function close() {
               <button class="accHead" type="button" :aria-expanded="acc.options" @click="toggleAcc('options')">
                 <span class="accTitle">图纸选项</span>
                 <span class="accValue">{{ optionsSummary }}</span>
-                <i class="accArrow" aria-hidden="true"><PixelIcon name="chevronDown" :size="12" /></i>
+                <i class="accArrow" aria-hidden="true"><Icon name="chevron-down" :size="16" /></i>
               </button>
               <div v-show="acc.options" class="accBody">
                 <div class="settings">
@@ -707,7 +707,7 @@ function close() {
               <button class="accHead" type="button" :aria-expanded="acc.formats" @click="toggleAcc('formats')">
                 <span class="accTitle">导出格式</span>
                 <span class="accValue">{{ selectedItem ? selectedItem.label : '—' }}</span>
-                <i class="accArrow" aria-hidden="true"><PixelIcon name="chevronDown" :size="12" /></i>
+                <i class="accArrow" aria-hidden="true"><Icon name="chevron-down" :size="16" /></i>
               </button>
               <div v-show="acc.formats" class="accBody">
                 <div class="formatSelect">
@@ -727,15 +727,15 @@ function close() {
 
             <section class="acc acc--checks" :class="['is-' + checkSummary.level, { open: acc.checks }]">
               <button class="accHead" type="button" :aria-expanded="acc.checks" @click="toggleAcc('checks')">
-                <i class="checkIcon"><PixelIcon name="fn-export-check" :size="16" /></i>
+                <i class="checkIcon"><Icon name="check" :size="16" /></i>
                 <span class="accTitle">导出前检查</span>
                 <span class="accValue">{{ checkSummary.text }}</span>
-                <i class="accArrow" aria-hidden="true"><PixelIcon name="chevronDown" :size="12" /></i>
+                <i class="accArrow" aria-hidden="true"><Icon name="chevron-down" :size="16" /></i>
               </button>
               <div v-show="acc.checks" class="accBody">
                 <div class="checks" data-audit="delivery-checks">
                   <div v-for="(c, i) in checks" :key="i" class="checkLine" :class="c.level">
-                    <i><PixelIcon :name="c.level === 'fatal' ? 'close' : c.level === 'warn' ? 'alert' : 'check'" :size="11" /></i>
+                    <i><Icon :name="c.level === 'fatal' ? 'close' : c.level === 'warn' ? 'alert' : 'check'" :size="16" /></i>
                     <span>{{ c.text }}</span>
                   </div>
                 </div>
@@ -770,7 +770,7 @@ function close() {
               <div class="bar"><i :style="{ width: buildPercent + '%' }"></i></div>
               <p class="hint">
                 <template v-if="isFinished">
-                  <span class="iconInline"><PixelIcon name="check" :size="11" />完成于 {{ finishedAt ? new Date(finishedAt).toLocaleDateString() : '—' }} ·
+                  <span class="iconInline"><Icon name="check" :size="16" />完成于 {{ finishedAt ? new Date(finishedAt).toLocaleDateString() : '—' }} ·
                   共 {{ buildStats.total.toLocaleString() }} 颗豆</span>
                 </template>
                 <template v-else-if="nextBoard">
@@ -785,9 +785,9 @@ function close() {
             <div class="buildActions">
               <button class="btn primary" @click="isFinished ? goFinish() : goBuild()">
                 <span>{{ isFinished ? '查看完成的这件作品' : (buildStats.done > 0 ? '继续拼这一板' : '开始拼这一板') }}</span>
-                <PixelIcon name="arrowRight" :size="14" />
+                <Icon name="arrow-right" :size="16" />
               </button>
-              <button v-if="!isFinished" class="btn btn-secondary" @click="goFinish"><PixelIcon name="check" :size="13" />标记作品完成</button>
+              <button v-if="!isFinished" class="btn btn-secondary" @click="goFinish"><Icon name="check" :size="16" />标记作品完成</button>
               <button class="btn soft" @click="onSave">保存作品</button>
             </div>
             <p class="hint">逐颗 / 整板进度与「标记作品完成」都已开放。</p>
@@ -808,11 +808,11 @@ function close() {
 .delivery{display:flex;flex-direction:column;gap:10px;height:min(76vh,720px);min-height:0}
 .deliveryTabs{display:flex;gap:4px;padding:3px;background:var(--surface-3);border-radius:var(--r-sm);overflow:auto;flex:none}
 .deliveryTabs button{
-  flex:1;padding:9px 12px;border-radius:8px;font-size:var(--fs-2xs);font-weight:800;
-  color:var(--muted);white-space:nowrap;transition:var(--t)
+  flex:1;padding:9px 12px;border-radius:8px;font-size:var(--fs-2xs);font-weight:700;
+  color:var(--muted);white-space:nowrap;transition:var(--t);line-height:var(--ty-caption-lh)
 }
 .deliveryTabs button:hover{color:var(--ink)}
-.deliveryTabs button.on{background:var(--primary-soft);color:var(--ink);font-weight:800;box-shadow:none}
+.deliveryTabs button.on{background:var(--primary-soft);color:var(--ink);font-weight:700;box-shadow:none}
 .deliveryMain{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:14px}
 .deliveryLeft{min-height:0;display:flex;flex-direction:column;gap:8px}
 .deliveryRight{min-height:0;overflow:auto;display:flex;flex-direction:column;gap:6px;padding-right:2px}
@@ -826,7 +826,7 @@ function close() {
 .splitPreviewList{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:10px;padding:0 3px 2px 0}
 .splitPreviewNote{
   position:sticky;top:0;z-index:2;display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;
-  padding:5px 1px;background:var(--surface);font-size:var(--fs-2xs);color:var(--muted)
+  padding:5px 1px;background:var(--surface);font-size:var(--fs-2xs);color:var(--muted);line-height:var(--ty-caption-lh)
 }
 .splitPreviewNote b{color:var(--ink)}
 .boardCard{flex:none;border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface);overflow:hidden}
@@ -834,24 +834,23 @@ function close() {
   display:flex;flex-wrap:wrap;align-items:baseline;gap:3px 10px;
   padding:8px 10px;border-bottom:1px solid var(--line);background:var(--surface-2)
 }
-.boardCard__head b{font-size:var(--fs-xs);color:var(--ink)}
-.boardCard__range{font-size:var(--fs-2xs);color:var(--muted)}
-.boardCard__meta{margin-left:auto;font-size:var(--fs-2xs);font-weight:800;color:var(--ink);white-space:nowrap}
+.boardCard__head b{font-size:var(--fs-xs);color:var(--ink);line-height:var(--ty-label-lh)}
+.boardCard__range{font-size:var(--fs-2xs);color:var(--muted);line-height:var(--ty-caption-lh)}
+.boardCard__meta{margin-left:auto;font-size:var(--fs-2xs);font-weight:700;color:var(--ink);white-space:nowrap;line-height:var(--ty-caption-lh)}
 /* aspect-ratio 撑住卡片高度；canvas 绝对铺满，滚出屏幕缩成 1×1 时也不会塌 */
 .boardCard__img{position:relative;width:100%;background:#fff}
 .boardCard__img canvas{position:absolute;inset:0;width:100%!important;height:100%!important;image-rendering:pixelated}
 .boardCard__legend{
   display:flex;flex-wrap:wrap;gap:4px 10px;padding:8px 10px;border-top:1px solid var(--line);
-  font-size:var(--fs-2xs);color:var(--muted);line-height:1.5
-}
+  font-size:var(--fs-2xs);color:var(--muted);line-height:var(--ty-caption-lh)}
 .boardCard__legend span{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
 .boardCard__legend i{width:10px;height:10px;flex:none;border-radius:3px;border:1px solid rgba(28,28,32,.14)}
 .deliverySummary{
   display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:8px 11px;flex:none;
   border-radius:var(--r-sm);background:var(--surface-2);border:1px solid var(--line);
-  font-size:var(--fs-2xs);color:var(--muted)
+  font-size:var(--fs-2xs);color:var(--muted);line-height:var(--ty-caption-lh)
 }
-.deliverySummary b{color:var(--ink);font-size:var(--fs-xs)}
+.deliverySummary b{color:var(--ink);font-size:var(--fs-xs);line-height:var(--ty-label-lh)}
 /* 折叠行：标题 / 当前值 / 品牌色圆箭头（与工作台其余折叠卡同一套） */
 .acc{border:1px solid var(--line);border-radius:var(--r-sm);background:var(--surface);overflow:hidden;flex:none}
 .accHead{
@@ -860,23 +859,23 @@ function close() {
 }
 .accHead:hover{background:var(--surface-3)}
 .accHead:focus-visible{outline:2px solid var(--primary);outline-offset:-2px}
-.accTitle{font-size:var(--fs-2xs);font-weight:850;white-space:nowrap}
-.accValue{flex:1;min-width:0;text-align:right;font-size:var(--fs-2xs);color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.accTitle{font-size:var(--fs-2xs);font-weight:700;white-space:nowrap;line-height:var(--ty-caption-lh)}
+.accValue{flex:1;min-width:0;text-align:right;font-size:var(--fs-2xs);color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:var(--ty-caption-lh)}
 .accArrow{
   width:24px;height:24px;flex:none;display:inline-flex;align-items:center;justify-content:center;
   border-radius:50%;background:var(--primary-soft);color:var(--primary-ink);
-  font-style:normal;font-size:17px;font-weight:900;line-height:1;
+  font-style:normal;font-size:18px;font-weight:700;line-height:var(--ty-section-lh);
   transition:transform var(--t),background var(--t),color var(--t)
 }
 .acc.open .accArrow{transform:rotate(180deg);background:var(--primary);color:var(--primary-ink)}
 .accBody{padding:9px 12px 10px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:9px}
 .splitSpecRow select{
   width:100%;padding:8px 10px;border:1px solid transparent;border-radius:var(--r-sm);
-  background:var(--surface-3);color:var(--ink);font-size:var(--fs-xs)
+  background:var(--surface-3);color:var(--ink);font-size:var(--fs-xs);line-height:var(--ty-label-lh)
 }
 .specInput{
   width:96px;padding:7px 9px;border:1px solid transparent;border-radius:var(--r-sm);
-  background:var(--surface-3);color:var(--ink);font-size:var(--fs-xs)
+  background:var(--surface-3);color:var(--ink);font-size:var(--fs-xs);line-height:var(--ty-label-lh)
 }
 .splitSpecRow select:focus,.specInput:focus,.settings select:focus,.deliveryFormat:focus{
   background:var(--surface);border-color:var(--pink);box-shadow:0 0 0 3px rgba(255,142,199,.18);outline:0
@@ -886,21 +885,20 @@ function close() {
   text-align:left;padding:8px;border:1.5px solid var(--line);border-radius:var(--r-sm);
   background:var(--surface);display:flex;flex-direction:column;gap:3px;transition:var(--t)
 }
-.dpiBtn b{font-size:var(--fs-2xs)}
-.dpiBtn span{font-size:9px;color:var(--muted);line-height:1.45}
+.dpiBtn b{font-size:var(--fs-2xs);line-height:var(--ty-caption-lh)}
+.dpiBtn span{font-size:12px;color:var(--muted);line-height:var(--ty-caption-lh)}
 .dpiBtn:hover{border-color:#C9C9C3}
 .dpiBtn.on{border-color:var(--primary);background:var(--primary-soft)}
 .dpiBtn.on b{color:var(--ink)}
 .settings{display:flex;flex-wrap:wrap;gap:8px 14px}
-.settings .check{font-size:var(--fs-2xs);display:inline-flex;align-items:center;gap:6px}
+.settings .check{font-size:var(--fs-2xs);display:inline-flex;align-items:center;gap:6px;line-height:var(--ty-caption-lh)}
 .settings select{
   padding:5px 8px;border:1px solid transparent;border-radius:var(--r-sm);
-  background:var(--surface-3);color:var(--ink);font-size:var(--fs-2xs)
+  background:var(--surface-3);color:var(--ink);font-size:var(--fs-2xs);line-height:var(--ty-caption-lh)
 }
 .deliveryFormat{
   width:100%;padding:9px 10px;border:1px solid transparent;border-radius:var(--r-sm);
-  background:var(--surface-3);color:var(--ink);font-size:var(--fs-xs);font-weight:700
-}
+  background:var(--surface-3);color:var(--ink);font-size:var(--fs-xs);font-weight:700;line-height:var(--ty-label-lh)}
 /* 下拉提示：全局 select 的箭头是背景渐变，这里被背景色覆盖了，单独画一颗细箭头 */
 .formatSelect{position:relative}
 .formatSelect .deliveryFormat{padding-right:34px}
@@ -910,29 +908,28 @@ function close() {
   transform:translateY(-50%) rotate(45deg);pointer-events:none
 }
 .formatNote{display:flex;align-items:flex-start;gap:8px}
-.formatNote .hint{margin:0;flex:1;font-size:var(--fs-2xs);line-height:1.55}
-.deliveryRun{width:100%;min-height:46px;font-size:var(--fs-sm);font-weight:850;flex:none}
+.formatNote .hint{margin:0;flex:1;font-size:var(--fs-2xs);line-height:var(--ty-caption-lh)}
+.deliveryRun{width:100%;min-height:46px;font-size:var(--fs-sm);font-weight:700;flex:none;line-height:var(--ty-body-lh)}
 .checks{display:flex;flex-direction:column;gap:5px}
-.checkLine{display:flex;gap:7px;font-size:var(--fs-2xs);line-height:1.6;padding:6px 9px;border-radius:var(--r-xs)}
-.checkLine i{font-style:normal;font-weight:900;flex:0 0 auto}
+.checkLine{display:flex;gap:7px;font-size:var(--fs-2xs);line-height:var(--ty-caption-lh);padding:6px 9px;border-radius:var(--r-xs)}
+.checkLine i{font-style:normal;font-weight:700;flex:0 0 auto}
 .checkLine.ok{background:var(--green-soft);color:var(--green-deep)}
 .checkLine.warn{background:var(--yellow-soft);color:var(--yellow-deep,#8A5A00)}
 .checkLine.fatal{background:var(--danger-soft);color:var(--danger)}
-.checkIcon{font-style:normal;font-weight:900;font-size:12px;flex:none}
+.checkIcon{font-style:normal;font-weight:700;font-size:12px;flex:none;line-height:var(--ty-caption-lh)}
 .acc--checks.is-fatal .accValue,.acc--checks.is-fatal .checkIcon{color:var(--danger)}
 .acc--checks.is-warn .accValue,.acc--checks.is-warn .checkIcon{color:var(--orange-deep,#B45309)}
 .acc--checks.is-ok .accValue,.acc--checks.is-ok .checkIcon{color:var(--green-deep)}
 .warnText{color:var(--orange-deep,#B45309)}
 .statusBar{
   display:flex;align-items:center;justify-content:space-between;gap:10px;flex:none;
-  padding:9px 12px;border-radius:var(--r-sm);font-size:var(--fs-2xs);line-height:1.6
-}
+  padding:9px 12px;border-radius:var(--r-sm);font-size:var(--fs-2xs);line-height:var(--ty-caption-lh)}
 .statusBar.preparing,.statusBar.generating{background:var(--sky-soft);color:var(--sky-deep,#0B6477)}
 .statusBar.success{background:var(--green-soft);color:var(--green-deep)}
 .statusBar.failure{background:var(--danger-soft);color:var(--danger)}
-.footNote{margin:0;line-height:1.55;font-size:var(--fs-2xs);flex:none}
+.footNote{margin:0;line-height:var(--ty-caption-lh);font-size:var(--fs-2xs);flex:none}
 .buildBox{padding:13px;border-radius:var(--r-md);background:var(--surface-2);border:1px solid var(--line)}
-.buildPct{font-size:var(--fs-h3);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.buildPct{font-size:var(--fs-h3);letter-spacing:0;font-variant-numeric:tabular-nums;line-height:var(--ty-card-lh)}
 .buildActions{display:flex;flex-wrap:wrap;gap:8px}
 @media(max-width:820px){
   .delivery{height:auto;min-height:0}

@@ -47,7 +47,7 @@ const mardSets = computed(() => brands.value.filter(b => b.id.startsWith('mard')
         这里按品牌分别列出真实色号，并说明在豆玩里怎么把图纸上的颜色匹配成能买到的豆子。
       </p>
       <div class="row row--wrap" style="margin-top:18px">
-        <RouterLink to="/create" class="btn primary lg">用这些色号生成图纸</RouterLink>
+        <RouterLink to="/editor" class="btn primary lg">用这些色号生成图纸</RouterLink>
         <RouterLink to="/materials/" class="btn btn-secondary lg">免费拼豆素材库</RouterLink>
       </div>
     </header>
@@ -185,7 +185,7 @@ const mardSets = computed(() => brands.value.filter(b => b.id.startsWith('mard')
     </section>
     <div class="toolLinks">
       <RouterLink to="/" class="toolLink">
-        <b>免费拼豆图纸生成器</b>
+        <b>豆玩拼豆图纸生成器</b>
         <span class="hint">上传图片，一键生成带色号的拼豆图纸</span>
       </RouterLink>
       <RouterLink to="/materials/" class="toolLink">
@@ -202,8 +202,8 @@ const mardSets = computed(() => brands.value.filter(b => b.id.startsWith('mard')
 
 <style scoped>
 .colorsHero{max-width:760px}
-.colorsHero h1{font-size:var(--fs-h1);margin:14px 0 10px;letter-spacing:-.02em}
-.lead{font-size:15px;color:var(--ink-2);line-height:1.9}
+.colorsHero h1{font-size:var(--fs-h1);margin:14px 0 10px;letter-spacing:0;line-height:var(--ty-page-lh)}
+.lead{font-size:15px;color:var(--ink-2);line-height:var(--ty-card-lh)}
 .brandGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}
 .brandCard{
   display:flex;flex-direction:column;gap:8px;text-align:left;cursor:pointer;
@@ -212,40 +212,40 @@ const mardSets = computed(() => brands.value.filter(b => b.id.startsWith('mard')
 }
 .brandCard:hover{border-color:var(--primary);transform:translateY(-2px);box-shadow:var(--sh-1)}
 .brandCard.is-on{border-color:var(--primary);box-shadow:0 0 0 2px var(--primary-soft)}
-.brandCard b{font-size:var(--fs-sm);font-weight:800}
-.brandCard__count{font-size:var(--fs-xs);color:var(--primary-deep);font-weight:800}
+.brandCard b{font-size:var(--fs-sm);font-weight:700;line-height:var(--ty-body-lh)}
+.brandCard__count{font-size:var(--fs-xs);color:var(--primary-deep);font-weight:700;line-height:var(--ty-label-lh)}
 .brandCard__swatches{display:flex;flex-wrap:wrap;gap:3px}
 .brandCard__swatches i{
   width:18px;height:18px;border-radius:4px;display:block;
   border:1px solid rgba(0,0,0,.12);
 }
-.brandCard__note{font-size:var(--fs-2xs);color:var(--muted);line-height:1.6}
+.brandCard__note{font-size:var(--fs-2xs);color:var(--muted);line-height:var(--ty-caption-lh)}
 .search{
   width:min(260px,100%);padding:9px 12px;border-radius:var(--r-sm);
-  border:1px solid var(--line);background:var(--surface);font:inherit;font-size:var(--fs-xs);
+  border:1px solid var(--line);background:var(--surface);font:inherit;font-size:var(--fs-xs);line-height:var(--ty-label-lh)
 }
 .tableWrap{overflow-x:auto}
-.colorTable{width:100%;border-collapse:collapse;font-size:var(--fs-xs)}
+.colorTable{width:100%;border-collapse:collapse;font-size:var(--fs-xs);line-height:var(--ty-label-lh)}
 .colorTable th,.colorTable td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--line)}
-.colorTable th{font-weight:800;color:var(--ink-2);white-space:nowrap}
-.colorTable .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap}
+.colorTable th{font-weight:700;color:var(--ink-2);white-space:nowrap}
+.colorTable .mono{font-family:var(--font-numeric);white-space:nowrap}
 .chip{display:inline-block;width:22px;height:22px;border-radius:6px;border:1px solid rgba(0,0,0,.12)}
 .stepRow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
 .stepCard{position:relative;padding:20px;border-radius:var(--r-lg);background:var(--surface);border:1px solid var(--line);box-shadow:var(--sh-1)}
 .stepNo{
   width:30px;height:30px;border-radius:9px;background:var(--primary-soft);color:var(--primary-deep);
-  display:grid;place-items:center;font-weight:900;font-size:var(--fs-sm);margin-bottom:11px;
+  display:grid;place-items:center;font-weight:700;font-size:var(--fs-sm);margin-bottom:11px;line-height:var(--ty-body-lh)
 }
-.stepCard b{font-size:var(--fs-h3);display:block;margin-bottom:6px}
-.stepCard p{font-size:var(--fs-xs);color:var(--muted);line-height:1.75}
+.stepCard b{font-size:var(--fs-h3);display:block;margin-bottom:6px;line-height:var(--ty-card-lh)}
+.stepCard p{font-size:var(--fs-xs);color:var(--muted);line-height:var(--ty-label-lh)}
 .qaItem{margin-bottom:20px}
 .qaItem:last-child{margin-bottom:0}
-.qaItem h3{font-size:var(--fs-h3);margin-bottom:8px}
-.qaItem p{font-size:var(--fs-sm);color:var(--ink-2);line-height:1.95}
+.qaItem h3{font-size:var(--fs-h3);margin-bottom:8px;line-height:var(--ty-card-lh)}
+.qaItem p{font-size:var(--fs-sm);color:var(--ink-2);line-height:var(--ty-body-lh)}
 .toolLinks{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
 .toolLink{display:flex;flex-direction:column;gap:5px;padding:16px;border-radius:var(--r-md);background:var(--surface);border:1px solid var(--line);transition:var(--t)}
 .toolLink:hover{border-color:var(--primary);transform:translateY(-2px);box-shadow:var(--sh-1)}
-.toolLink b{font-size:var(--fs-xs);line-height:1.5}
+.toolLink b{font-size:var(--fs-xs);line-height:var(--ty-label-lh)}
 @media(max-width:900px){
   .stepRow,.toolLinks{grid-template-columns:1fr}
 }

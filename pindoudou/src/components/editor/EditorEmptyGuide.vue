@@ -8,11 +8,11 @@
    ========================================================================= */
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import PixelIcon from '../ui/PixelIcon.vue'
+import Icon from '../ui/Icon.vue'
 import { assetById } from '../../data/assets.js'
 import { remoteAssets, pickAsset } from '../../composables/useAssets.js'
 
-/* 配图用素材库现有的图（后台运营上传、按运营排序最前的 6 个免费素材）：
+/* 配图用素材库现有的图（后台运营上传、按运营排序最前的 6 个素材）：
    第一步展示原图，第二 / 三步拿同一张图真跑一遍像素化。
    素材库是空的或接口失败时退回内置素材，空状态不留空白。 */
 const FALLBACK_DEMO_ID = 'a1f8ajij'
@@ -221,7 +221,7 @@ async function useExample() {
         </span>
         <span v-for="line in s.lines" :key="line" class="stepCard__line">{{ line }}</span>
         <i v-if="i < steps.length - 1" class="stepArrow" aria-hidden="true">
-          <PixelIcon name="arrowRight" :size="14" mono />
+          <Icon name="arrow-right" :size="16" mono />
         </i>
       </li>
     </ol>
@@ -244,7 +244,7 @@ async function useExample() {
 
     <button type="button" class="guide__cta" :disabled="busy" @click="useExample">
       <span v-if="busy" class="spinner" aria-hidden="true" />
-      <PixelIcon v-else name="photo" :size="16" />
+      <Icon v-else name="image" :size="16" />
       <span>{{ busy ? '正在生成图纸…' : '使用示例图片体验' }}</span>
     </button>
   </section>
@@ -253,12 +253,12 @@ async function useExample() {
 <style scoped>
 /* 局部 token：只影响这块引导，不动全局按钮 / 卡片尺寸 */
 .guide{
-  --g-ink:#243341;
-  --g-sub:#8B929B;
-  --g-line:#FCEDCC;
-  --g-accent:#FFD23F;
-  --g-card:#FFFDF8;
-  --g-cream:#FDFAF2;
+  --g-ink:var(--ink);
+  --g-sub:var(--muted);
+  --g-line:#E7EBD8;
+  --g-accent:var(--primary);
+  --g-card:#fff;
+  --g-cream:#FBFDF6;
   width:100%;
   max-width:700px;
   margin:0 auto;
@@ -271,16 +271,16 @@ async function useExample() {
 }
 .guide__title{
   margin:0;
-  font-size:clamp(18px,1.85vw,26px);
-  font-weight:800;
-  line-height:1.35;
-  letter-spacing:.2px;
+  font-size:24px;
+  font-weight:700;
+  line-height:var(--ty-dialog-lh);
+  letter-spacing:0;
   color:var(--g-ink);
 }
 .guide__sub{
   margin:9px 0 0;
-  font-size:clamp(11.5px,1.02vw,14px);
-  line-height:1.6;
+  font-size:14px;
+  line-height:var(--ty-body-lh);
   color:var(--g-sub);
 }
 
@@ -322,22 +322,22 @@ async function useExample() {
   border-radius:50%;
   background:var(--g-accent);
   color:var(--g-ink);
-  font-size:clamp(9px,.85vw,11px);
-  font-weight:800;
-  line-height:1;
+  font-size:12px;
+  font-weight:700;
+  line-height:var(--ty-caption-lh);
   display:grid;
   place-items:center;
 }
 .stepCard__title{
-  font-size:clamp(11px,1vw,13px);
-  font-weight:800;
+  font-size:13px;
+  font-weight:700;
   color:var(--g-ink);
-  white-space:nowrap;
+  white-space:nowrap;line-height:var(--ty-label-lh)
 }
 .stepCard__line{
   margin-top:4px;
-  font-size:clamp(9.5px,.86vw,11px);
-  line-height:1.55;
+  font-size:12px;
+  line-height:var(--ty-caption-lh);
   color:var(--g-sub);
   text-wrap:balance;
 }
@@ -376,7 +376,7 @@ async function useExample() {
 .stepArt__frame{
   position:absolute;
   inset:8px;
-  border:1px dashed #E5DCC8;
+  border:1px dashed #E3E8D6;
   border-radius:6px;
 }
 .stepArt__media{
@@ -436,9 +436,9 @@ async function useExample() {
 }
 .guide__dividerText{
   flex:0 0 auto;
-  font-size:clamp(10px,.9vw,11.5px);
+  font-size:12px;
   color:#9AA1AA;
-  white-space:nowrap;
+  white-space:nowrap;line-height:var(--ty-caption-lh)
 }
 .guide__examples{
   display:flex;
@@ -460,7 +460,7 @@ async function useExample() {
   isolation:isolate;
 }
 .exTile:hover{transform:translateY(-1px)}
-.exTile.on{border-color:var(--g-accent);box-shadow:0 0 0 2px rgba(255,210,63,.25)}
+.exTile.on{border-color:var(--g-accent);box-shadow:0 0 0 2px rgba(200,230,60,.35)}
 .exTile:focus-visible{outline:2px solid var(--g-accent);outline-offset:2px}
 .exArt{display:block;width:100%;height:100%}
 .exArt :deep(svg){display:block;width:100%;height:100%}
@@ -473,19 +473,19 @@ async function useExample() {
   margin-top:clamp(16px,2.4vw,26px);
   height:clamp(36px,3vw,42px);
   padding:0 clamp(18px,2vw,26px);
-  border:1.5px solid #F6E3B4;
+  border:1px solid var(--g-accent);
   border-radius:999px;
-  background:#FDF5DE;
-  color:var(--g-ink);
-  font-size:clamp(12px,1vw,13.5px);
-  font-weight:800;
+  background:var(--g-accent);
+  color:var(--primary-ink);
+  font-size:13px;
+  font-weight:700;
   display:inline-flex;
   align-items:center;
   gap:8px;
   cursor:pointer;
-  transition:var(--t);
+  transition:var(--t);line-height:var(--ty-label-lh)
 }
-.guide__cta:hover{background:#FCEFD0}
+.guide__cta:hover{background:var(--primary-deep);border-color:var(--primary-deep)}
 .guide__cta:disabled{opacity:.6;cursor:default}
 /* 生成要跑一两秒（大图更久）：转个圈，别让按钮看起来没反应 */
 .guide__cta .spinner{width:14px;height:14px;border-width:2px;flex:0 0 auto}
@@ -496,7 +496,7 @@ async function useExample() {
    1320 这一档锁了整页高度，900 高的屏幕舞台只有 ~490px，纵向间距再收一档。 */
 @media(max-width:1100px){
   .stepCard{padding-left:4px;padding-right:4px}
-  .stepCard__line{font-size:clamp(9px,.82vw,10.5px)}
+  .stepCard__line{font-size:12px;line-height:var(--ty-caption-lh)}
   .stepArt{max-width:104px}
 }
 @media(max-height:1000px){
@@ -518,7 +518,7 @@ async function useExample() {
   .guide__cta{margin-top:10px}
 }
 @media(max-height:880px){
-  .guide__title{font-size:clamp(17px,1.5vw,22px)}
+  .guide__title{font-size:18px;line-height:var(--ty-section-lh)}
   .guide__sub{margin-top:6px}
   .guide__steps{margin-top:12px}
   .stepArt{max-width:80px}

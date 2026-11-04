@@ -1,0 +1,228 @@
+<script setup>
+/* 图片调整（设计稿「豆玩 · 图片调整展开」）
+   把「原图调整 → 图纸尺寸 → 色板 → 用色上限 → 保留透明区域」收在一块面板里，
+   底部「应用并生成图纸」一次落到画布。左栏卡片版面与这里共用同一份 options，
+   在哪儿改都一样，这里只是把生成前要定的几件事按设计稿的顺序排好。 */
+import { computed, ref } from 'vue'
+import Icon from '../ui/Icon.vue'
+import { BOARD_SPECS } from '../../lib/boardSpec.js'
+import { PALETTE_BRANDS } from '../../lib/palettes.js'
+import {
+  options, sourceUrl, availableColors, brand, regenerate, setCanvasCapacity,
+  setRemoveBg, sourceFilter, sourceFilterActive, resetSourceFilter
+} from '../../composables/useStudio.js'
+import { toastWarn } from '../../composables/useToast.js'
+
+const emit = defineEmits(['cancel', 'applied'])
+
+const colorMax = computed(() => Math.max(4, availableColors.value.length))
+const boardSize = computed(() => {
+  const w = options.canvasW
+  const h = options.canvasH
+  return w === h ? w : Math.max(w, h)
+})
+
+const adjustOpen = ref(false)
+const customOpen = ref(false)
+const customW = ref(options.canvasW)
+const customH = ref(options.canvasH)
+
+function pickSize(n) {
+  customOpen.value = false
+  if (options.canvasW === n && options.canvasH === n) return
+  setCanvasCapacity(n, n)
+}
+function openCustom() {
+  customOpen.value = true
+  customW.value = options.canvasW
+  customH.value = options.canvasH
+}
+function applyCustom() {
+  const w = Math.round(Number(customW.value) || 0)
+  const h = Math.round(Number(customH.value) || 0)
+  if (!w || !h) return
+  customOpen.value = false
+  setCanvasCapacity(w, h)
+}
+function pickBrand(e) {
+  options.brandId = e.target.value
+}
+
+function onColors(e) {
+  const v = Math.round(Number(e.target.value) || 4)
+  options.targetColors = Math.max(4, Math.min(colorMax.value, v))
+}
+
+function setFilter(key, e) {
+  sourceFilter[key] = Math.round(Number(e.target.value) || 0)
+}
+function resetFilter() {
+  resetSourceFilter()
+}
+
+function apply() {
+  if (!sourceUrl.value) {
+    toastWarn('先选一张图片')
+    return
+  }
+  regenerate()
+  emit('applied')
+}
+</script>
+
+<template>
+  <div class="iap">
+    <button type="button" class="iap__row iap__row--soft" :aria-expanded="adjustOpen" @click="adjustOpen = !adjustOpen">
+      <span class="iap__rowIcon"><Icon name="sliders-horizontal" :size="16" /></span>
+      <span class="iap__rowMain">
+        <b>原图调整</b>
+        <em>{{ sourceFilterActive ? '已调整亮度 / 对比度 / 饱和度' : '亮度 / 对比度 / 饱和度' }}</em>
+      </span>
+      <span class="iap__chev" :class="{ on: adjustOpen }"><Icon name="chevron-down" :size="16" /></span>
+    </button>
+
+    <div v-if="adjustOpen" class="iap__filters">
+      <label v-for="f in [
+        { key: 'brightness', label: '亮度' },
+        { key: 'contrast', label: '对比度' },
+        { key: 'saturation', label: '饱和度' }
+      ]" :key="f.key" class="iap__filter">
+        <span>{{ f.label }}</span>
+        <input
+          type="range" min="-100" max="100" step="1" :value="sourceFilter[f.key]"
+          :aria-label="f.label" @input="setFilter(f.key, $event)"
+        >
+        <b>{{ sourceFilter[f.key] > 0 ? '+' : '' }}{{ sourceFilter[f.key] }}</b>
+      </label>
+      <button type="button" class="iap__link" :disabled="!sourceFilterActive" @click="resetFilter">恢复原图</button>
+    </div>
+
+    <section class="iap__sec">
+      <header class="iap__secHead">
+        <b>图纸设置</b>
+        <span>生成拼豆图纸，不修改原图</span>
+      </header>
+
+      <div class="iap__field">
+        <div class="iap__label">
+          <span>图纸尺寸</span>
+          <span class="iap__lock"><Icon name="lock-keyhole" :size="16" />1:1 · 锁定比例</span>
+        </div>
+        <div class="iap__sizes">
+          <button
+            v-for="n in BOARD_SPECS" :key="n" type="button"
+            class="iap__size" :class="{ on: boardSize === n && !customOpen }"
+            @click="pickSize(n)"
+          >{{ n }}</button>
+          <button type="button" class="iap__size" :class="{ on: customOpen }" @click="openCustom">自定义</button>
+        </div>
+        <div v-if="customOpen" class="iap__custom">
+          <input v-model="customW" type="number" min="8" :max="boardSize" aria-label="图纸宽（格）">
+          <span>×</span>
+          <input v-model="customH" type="number" min="8" :max="boardSize" aria-label="图纸高（格）">
+          <button type="button" class="btn sm" @click="applyCustom">确定</button>
+        </div>
+      </div>
+
+      <div class="iap__field">
+        <div class="iap__label"><span>品牌色板</span></div>
+        <select :value="options.brandId" aria-label="品牌色板" @change="pickBrand">
+          <option v-for="b in PALETTE_BRANDS" :key="b.id" :value="b.id">{{ b.name }}</option>
+        </select>
+      </div>
+
+      <div class="iap__field">
+        <div class="iap__label">
+          <span>用色上限 · 减色</span>
+          <span>最多 {{ colorMax }} 色</span>
+        </div>
+        <input
+          type="range" min="4" :max="colorMax" step="1" :value="options.targetColors"
+          aria-label="用色上限" @input="onColors"
+        >
+        <div class="iap__scale">
+          <span>4 色</span>
+          <b>{{ options.targetColors }} 色</b>
+          <span>{{ colorMax }} 色</span>
+        </div>
+        <p class="iap__hint">上限越低所选颜色越少，当前最多 {{ colorMax }} 色</p>
+      </div>
+
+      <div class="iap__field iap__field--row">
+        <div>
+          <b class="iap__toggleTitle">保留透明区域</b>
+          <p class="iap__hint">当前仅预览原图。应用后生成图纸，即可对照查看，并用画笔、橡皮、填充继续修正。</p>
+        </div>
+        <button
+          type="button" class="iap__switch" :class="{ on: options.removeBg }"
+          role="switch" :aria-checked="options.removeBg" aria-label="保留透明区域"
+          @click="setRemoveBg(!options.removeBg)"
+        ><i></i></button>
+      </div>
+    </section>
+
+    <footer class="iap__foot">
+      <button type="button" class="btn" @click="emit('cancel')">取消</button>
+      <button type="button" class="btn primary" @click="apply">
+        <Icon name="grid-3x3" :size="16" />应用并生成图纸
+      </button>
+    </footer>
+  </div>
+</template>
+
+<style scoped>
+.iap{display:flex;flex-direction:column;gap:14px}
+.iap__row{
+  display:flex;align-items:center;gap:10px;width:100%;padding:11px 12px;text-align:left;
+  border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface);
+}
+.iap__row--soft{background:var(--tint-plain)}
+.iap__rowIcon{
+  width:30px;height:30px;flex:0 0 auto;border-radius:9px;display:grid;place-items:center;
+  background:var(--surface);border:1px solid var(--line);color:var(--ink-2);
+}
+.iap__rowMain{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.iap__rowMain b{font-size:13px;font-weight:700;line-height:var(--ty-label-lh)}
+.iap__rowMain em{font-style:normal;font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:var(--ty-caption-lh)}
+.iap__chev{width:13px;height:13px;flex:0 0 auto;color:var(--muted-2);transform:rotate(-90deg);transition:transform var(--t)}
+.iap__chev.on{transform:none}
+.iap__filters{display:flex;flex-direction:column;gap:9px;padding:12px;border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface-2)}
+.iap__filter{display:grid;grid-template-columns:52px minmax(0,1fr) 40px;align-items:center;gap:8px;font-size:12px;color:var(--ink-2);line-height:var(--ty-caption-lh)}
+.iap__filter b{font-size:12px;text-align:right;font-variant-numeric:tabular-nums;color:var(--ink);line-height:var(--ty-caption-lh)}
+.iap__filter input{width:100%;accent-color:var(--primary-deep)}
+.iap__link{align-self:flex-start;font-size:12px;font-weight:700;color:var(--ink-2);text-decoration:underline;text-underline-offset:3px;line-height:var(--ty-caption-lh)}
+.iap__link:disabled{color:var(--muted-2);text-decoration:none;cursor:default}
+.iap__sec{display:flex;flex-direction:column;gap:16px}
+.iap__secHead{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.iap__secHead b{font-size:13px;font-weight:700;line-height:var(--ty-label-lh)}
+.iap__secHead span{font-size:12px;color:var(--muted-2);line-height:var(--ty-caption-lh)}
+.iap__field{display:flex;flex-direction:column;gap:8px}
+.iap__label{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;font-weight:700;color:var(--ink-2);line-height:var(--ty-caption-lh)}
+.iap__label > span:last-child{font-weight:500;color:var(--muted-2)}
+.iap__lock{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--muted);line-height:var(--ty-caption-lh)}
+.iap__sizes{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px}
+.iap__size{
+  height:38px;border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface);
+  font-size:13px;font-weight:700;color:var(--ink-2);transition:var(--t);line-height:var(--ty-label-lh)
+}
+.iap__size:hover{border-color:var(--line-strong)}
+.iap__size.on{background:var(--primary);border-color:var(--primary);color:var(--ink)}
+.iap__custom{display:flex;align-items:center;gap:6px}
+.iap__custom input{width:72px;min-height:34px;padding:4px 8px;font-size:12px;line-height:var(--ty-caption-lh)}
+.iap__custom span{color:var(--muted)}
+.iap__scale{display:flex;align-items:center;justify-content:space-between;font-size:12px;color:var(--muted-2);line-height:var(--ty-caption-lh)}
+.iap__scale b{color:var(--ink);font-weight:700}
+.iap__hint{margin:0;font-size:12px;line-height:var(--ty-caption-lh);color:var(--muted-2)}
+.iap__field--row{flex-direction:row;align-items:flex-start;justify-content:space-between;gap:14px}
+.iap__field--row > div{min-width:0}
+.iap__toggleTitle{font-size:12px;font-weight:700;color:var(--ink-2);line-height:var(--ty-caption-lh)}
+.iap__switch{
+  width:44px;height:26px;flex:0 0 auto;border-radius:99px;border:1px solid var(--line-strong);
+  background:var(--surface-3);padding:2px;transition:var(--t);
+}
+.iap__switch i{display:block;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(31,31,29,.2);transition:transform var(--t)}
+.iap__switch.on{background:var(--primary);border-color:var(--primary-deep)}
+.iap__switch.on i{transform:translateX(18px)}
+.iap__foot{display:flex;gap:8px;padding-top:4px}
+.iap__foot .btn{flex:1}
+</style>

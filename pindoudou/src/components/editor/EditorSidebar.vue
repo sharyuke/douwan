@@ -5,7 +5,7 @@ import {
   options, sourceUrl, sourceName, projectName, hasPattern, stats, saveStatus,
   width, height, brand, paletteLimited, maxCells, canvasOverSource, availableColors,
   canvasCapW, canvasCapH, regenerate, setCanvasSize, setCanvasCapacity, restoreVariant, canUndo,
-  selectVariant, generating, activeKey, variants as variantList,
+  selectVariant, generating, activeKey, variants as variantList, pattern,
   lastSearch, matteInfo, matteLevels, setRemoveBg, setMatteLevel,
   cartoonInfo, cartoonStyles, setCartoonStyle,
   cartoonPreviewUrl, previewMode, refreshCartoonPreview, yieldForBusyPaint, sourceImg, sourceKind, sourceAspect,
@@ -30,12 +30,14 @@ import { useImageFile } from '../../composables/useStudio.js'
 import { takePendingUpload } from '../../composables/usePendingUpload.js'
 import { ASSET_COUNT, hotAssets, freeAssets, pickAsset, remoteAssets } from '../../composables/useAssets.js'
 import { AI_PENDING_TEXT } from '../../lib/aiPending.js'
-import PixelIcon from '../ui/PixelIcon.vue'
-
+import Icon from '../ui/Icon.vue'
 const props = defineProps({
   /* 手机端弹层：只显示 focus 指定的那张卡（'' = 桌面完整侧栏）。
      create / size / scheme / palette 四个值，对应命令栏里的四个按钮。 */
-  focus: { type: String, default: '' }
+  focus: { type: String, default: '' },
+  /* 全屏工作台的右侧抽屉只有 380px 宽：按窄版排版（尺寸卡用档位列表那套），
+     不跟着视口宽度走，否则抽屉里会塞进宽屏的双栏面板 */
+  narrow: { type: Boolean, default: false }
 })
 
 const emit = defineEmits(['need-pro', 'need-create', 'open-delivery', 'close-panel'])
@@ -82,19 +84,19 @@ const COLOR_STEPS = [4, 6, 8, 10, 12, 16, 20, 24, 30, 32, 36, 40, 48, 56, 64, 72
 
 /* ---------------------------------------------------------------- 三个来源
    参考版的「① 先选你要拼什么」把三条入口做成三个页签（上传图片 / AI生成素材 /
-   免费素材库），选完直接在画布出图 —— 没有中间页。
+   素材库），选完直接在画布出图 —— 没有中间页。
    AI 生成素材依赖服务端生图，目前只放占位文案。
    外链仍然可以用 ?tab=ai / ?tab=library 直接落到某个入口。 */
 const SOURCE_KEYS = ['photo', 'ai', 'library']
 const sourceMode = ref(SOURCE_KEYS.includes(route.query.tab) ? route.query.tab : 'photo')
 const sourceTabs = [
-  { key: 'photo', icon: 'fn-upload', label: '上传图片' },
-  { key: 'ai', icon: 'fn-ai', label: 'AI生成素材' },
-  { key: 'library', icon: 'fn-library', label: '免费素材库' }
+  { key: 'photo', icon: 'image-up', label: '上传图片' },
+  { key: 'ai', icon: 'sparkles', label: 'AI生成素材' },
+  { key: 'library', icon: 'images', label: '素材库' }
 ]
 /**
  * 侧栏只列 6 个「一眼可选」的（完整素材在素材中心）。
- * 这里只放免费素材：这个入口叫「免费素材库」，点第一个就弹「会员专属」
+ * 这里只放素材库里的免费素材：这个入口叫「素材库」，点第一个就弹「会员专属」
  * 是最让人反感的体验；会员素材的可见性留给素材中心那页去做。
  *
  * 素材库从 2026-10-21 起只由后台运营上传，所以这里跟素材库同一份数据
@@ -319,10 +321,10 @@ const sizeRows = computed(() => {
    改成品尺寸落到 setCanvasSize：机器画的图按新尺寸重新取样（regenerate）；
    被逐颗改过的图纸不重画，旧格子 1:1 挪进新画布（useStudio.resizeVariantsPreserving）。 */
 const wide = ref(typeof window !== 'undefined' && !!window.matchMedia
-  ? window.matchMedia('(min-width:781px)').matches
+  ? window.matchMedia('(min-width:781px)').matches && !props.narrow
   : true)
 let wideMq = null
-function onWideMq(e) { wide.value = e.matches }
+function onWideMq(e) { wide.value = e.matches && !props.narrow }
 
 /** 有源图或已有图纸才能调成品尺寸（空画布不显示虚假豆子数） */
 const sizeReady = computed(() => sizeHasSource.value || hasPattern.value)
@@ -533,28 +535,53 @@ function flashSizeNote(text) {
   sizeNoteTimer = window.setTimeout(() => { sizeNote.value = '' }, 3200)
 }
 
-/** 立即把预览尺寸落到画布（机器图重新采样生成；手改过的图保留格子只动画布，见 setCanvasSize） */
+/**
+ * 立即把预览尺寸落到画布。
+ *
+ * 换尺寸分两部分：原图部分按原图重新取样（每个尺寸都来自原图），改过的部分按修改时的
+ * 尺寸落回去 —— 不弹层、不遮盖手改、不出马赛克（2026-11-01 用户定下的口径，
+ * 见 useStudio 的 setCanvasSize 与 editLayer）。
+ * 提示不弹 toast：拖滑杆是连续动作，每一步都弹一条会把提示栏刷满；
+ * 结果由下面那行尺寸说明承担（`flashSizeNote`）。
+ */
 function applySizeNow(w, h, token = ++sizeToken) {
   if (token !== sizeToken) return
-  clearSizeNote()
   if (!sizeReady.value) {
+    clearSizeNote()
     sizePending.value = false
     return
   }
   if (w === width.value && h === height.value) {
+    /* 尺寸已经落到画布上了（拖动时那一次 input 已经改过）：
+       这时**不要**把说明行清掉 —— 清了就再没人写回去，
+       用户拖完看到的会是一行空白。 */
     sizePending.value = false
     return
   }
+  clearSizeNote()
   sizePending.value = true
   void runWithBusy(() => {
     /* 等那一帧的工夫里用户可能又拖了滑杆 */
     if (token !== sizeToken) return
-    setCanvasSize(w, h, { silent: true })
+    const r = setCanvasSize(w, h, { silent: true, announce: false })
     sizePending.value = false
+    if (r && r.resampled) {
+      /* 原图部分按原图重新取样；改过的部分按修改时的尺寸落回 */
+      flashSizeNote(`画面已按原图缩放到 ${w} × ${h} 格${r.keptEdits ? '（手工修改按原尺寸保留）' : ''}`)
+    } else if (r && r.scaled) {
+      /* 没有源图的兜底：按当前图纸块缩放（放大从底稿还原细节、缩小按块合并） */
+      flashSizeNote(r.grew
+        ? (r.restored
+            ? `画面已放大到 ${w} × ${h} 格（从留底细节还原，颜色不变）`
+            : `画面已放大到 ${w} × ${h} 格（每颗豆按比例复制，颜色不变）`)
+        : `画面已缩到 ${w} × ${h} 格（细节按块合并，放大回来会恢复）`)
+    } else if (!r) {
+      flashSizeNote(`画布已调整为 ${w} × ${h} 格`)
+    }
   })
 }
 
-/** 拖动中：只排一次延迟落地，读数已经先更新 */
+/* 拖动中：只排一次延迟落地，读数已经先更新 */
 function queueSizeApply(w, h) {
   if (!sizeReady.value) return
   const token = ++sizeToken
@@ -803,7 +830,8 @@ function applyCustomPreview() {
     /* 成品尺寸快选：只改图案占的那块；底板放不下时才跟着长，已有更大的板就保留留白 */
     options.canvasMaxW = Math.max(canvasCapW.value, box.w)
     options.canvasMaxH = Math.max(canvasCapH.value, box.h)
-    setCanvasSize(box.w, box.h, { silent: true })
+    /* 边输入边预览是连续动作，不弹提示（输入框旁边那行状态已经说明「已实时套用」） */
+    setCanvasSize(box.w, box.h, { silent: true, announce: false })
   })
 }
 
@@ -858,12 +886,14 @@ function pickBox(box) {
      而 setCanvasSize 对相同尺寸直接 return，没人再把它关掉 —— 表现是「生成中」永远转。
      自定义的「完成 · 已是 X × Y 格」按的就是这一条。 */
   if (box.w === width.value && box.h === height.value) return
+  /* 成品尺寸快选：只改图案占的那块；底板放不下时才跟着长（桌面端的底板由规格下拉单独管） */
+  const capW = Math.max(canvasCapW.value, box.w)
+  const capH = Math.max(canvasCapH.value, box.h)
   /* 生成是同步的重活（312 格约 1 秒），先让「正在生成方案…」上屏再动手 */
   void runWithBusy(() => {
     ensureColorsForCanvas(box.w, box.h)
-    /* 成品尺寸快选：只改图案占的那块；底板放不下时才跟着长（桌面端的底板由规格下拉单独管） */
-    options.canvasMaxW = Math.max(canvasCapW.value, box.w)
-    options.canvasMaxH = Math.max(canvasCapH.value, box.h)
+    options.canvasMaxW = capW
+    options.canvasMaxH = capH
     setCanvasSize(box.w, box.h)
   })
 }
@@ -939,7 +969,7 @@ onMounted(() => {
      否则平板横竖屏切换会停在上一次的布局上 */
   if (typeof window !== 'undefined' && window.matchMedia) {
     wideMq = window.matchMedia('(min-width:781px)')
-    wide.value = wideMq.matches
+    wide.value = wideMq.matches && !props.narrow
     if (wideMq.addEventListener) wideMq.addEventListener('change', onWideMq)
     else if (wideMq.addListener) wideMq.addListener(onWideMq)
   }
@@ -1226,7 +1256,7 @@ function onSave() {
             :aria-selected="sourceMode === t.key"
             @click="sourceMode = t.key"
           >
-            <span class="srcIcon" aria-hidden="true"><PixelIcon :name="t.icon" :size="24" /></span>
+            <span class="srcIcon" aria-hidden="true"><Icon :name="t.icon" :size="24" /></span>
             {{ t.label }}
           </button>
         </div>
@@ -1245,7 +1275,7 @@ function onSave() {
             @dragleave="dragOver = false"
             @drop.prevent="onDrop"
           >
-            <div class="upload__plus"><PixelIcon name="fn-upload" :size="36" /></div>
+            <div class="upload__plus"><Icon name="image-up" :size="24" /></div>
             <b>上传一张图片</b>
             <span>宠物、情侣、头像、旅行照都可以</span>
             <span class="hint">JPG / PNG / WebP / GIF · 最大 12MB<span class="only-lg"> · 拖进来也可以</span></span>
@@ -1255,8 +1285,8 @@ function onSave() {
           <div v-else class="thumb">
             <img :src="thumbSrc" :alt="sourceName || '素材预览'">
             <div class="thumb__actions">
-              <button title="换一张" aria-label="换一张" @click="fileInput.click()"><PixelIcon name="swap" :size="14" /></button>
-              <button title="去素材中心" aria-label="去素材中心" @click="emit('need-create')"><PixelIcon name="fn-library" :size="14" /></button>
+              <button title="换一张" aria-label="换一张" @click="fileInput.click()"><Icon name="arrow-left-right" :size="16" /></button>
+              <button title="去素材中心" aria-label="去素材中心" @click="emit('need-create')"><Icon name="images" :size="16" /></button>
             </div>
             <!-- 开了卡通化之后，缩略图上可以直接切换「原图 / 卡通」对照 -->
             <div v-if="options.cartoon" class="thumbModes" role="group" aria-label="预览原图或卡通">
@@ -1277,13 +1307,13 @@ function onSave() {
         <!-- ①-2 AI 生成素材：服务端生图还没接，先放文字占位 -->
         <template v-else-if="sourceMode === 'ai'">
           <div class="soonPanel" data-audit="ai-pending">
-            <span class="soonPanel__icon"><PixelIcon name="fn-ai" :size="20" /></span>
+            <span class="soonPanel__icon"><Icon name="sparkles" :size="20" /></span>
             <b>{{ AI_PENDING_TEXT }}</b>
-            <p>接入后这里可以用一句话生成素材；现在请先上传图片，或从免费素材库挑一个。</p>
+            <p>接入后这里可以用一句话生成素材；现在请先上传图片，或从素材库挑一个。</p>
           </div>
         </template>
 
-        <!-- ①-3 免费素材库 -->
+        <!-- ①-3 素材库 -->
         <template v-else>
           <div class="srcAssets">
             <button
@@ -1298,7 +1328,7 @@ function onSave() {
               <b>{{ a.name }}</b>
             </button>
           </div>
-          <RouterLink to="/materials/" class="btn soft sm block">全部 {{ ASSET_COUNT }} 个素材 ›</RouterLink>
+          <RouterLink to="/materials/" class="btn soft sm block">全部 {{ ASSET_COUNT }} 个素材<Icon name="chevron-right" :size="16" /></RouterLink>
         </template>
 
         <div v-if="busy || generating" class="loading"><span class="spinner"></span>正在生成方案…</div>
@@ -1314,13 +1344,13 @@ function onSave() {
               class="procTab" :class="{ on: processMode === 'original' }"
               :aria-selected="processMode === 'original'"
               @click="processMode = 'original'"
-            ><strong><PixelIcon name="fn-original-mode" :size="18" />原图</strong><span>直接使用</span></button>
+            ><strong><Icon name="image" :size="20" />原图</strong><span>直接使用</span></button>
             <button
               type="button" role="tab"
               class="procTab" :class="{ on: processMode === 'cutout' }"
               :aria-selected="processMode === 'cutout'"
               @click="processMode = 'cutout'"
-            ><strong><PixelIcon name="fn-cutout" :size="18" />智能抠图</strong><span>突出主体</span></button>
+            ><strong><Icon name="scissors" :size="20" />智能抠图</strong><span>突出主体</span></button>
             <button
               type="button" role="tab"
               class="procTab" :class="{ on: processMode === 'cartoon', 'is-soon': processMode !== 'cartoon' }"
@@ -1328,7 +1358,7 @@ function onSave() {
               :aria-disabled="processMode !== 'cartoon'"
               :title="processMode === 'cartoon' ? '当前作品已开着卡通风格' : AI_PENDING_TEXT"
               @click="processMode = 'cartoon'"
-            ><strong><PixelIcon name="fn-cartoon" :size="18" />卡通风格</strong><span>{{ processMode === 'cartoon' ? '更适合拼豆' : '对接中' }}</span></button>
+            ><strong><Icon name="wand-sparkles" :size="20" />卡通风格</strong><span>{{ processMode === 'cartoon' ? '更适合拼豆' : '对接中' }}</span></button>
           </div>
           <div class="mDrop mDrop--proc">
             <select
@@ -1401,7 +1431,7 @@ function onSave() {
           <span class="sizeWideHead__title"><span class="stepNo">2</span>画布与成品尺寸</span>
           <span class="sizeWideHead__sum" data-size-value>{{ sizeRowValue }}</span>
         </span>
-        <i class="cardArrow" :class="{ 'cardArrow--open': sizeOpen }" aria-hidden="true"><PixelIcon name="chevronDown" :size="12" /></i>
+        <i class="cardArrow" :class="{ 'cardArrow--open': sizeOpen }" aria-hidden="true"><Icon name="chevron-down" :size="16" /></i>
       </button>
 
       <div v-show="sizeOpen" id="sizeWideBody" class="sizeWideBody" data-size-panel>
@@ -1481,7 +1511,7 @@ function onSave() {
               <button
                 class="sizeStep" type="button" data-size-minus aria-label="缩小成品尺寸"
                 :disabled="!sizeReady" @click="nudgeLong(-1)"
-              >−</button>
+              ><Icon name="minus" :size="16" /></button>
               <input
                 class="sizeRange" type="range" data-size-range
                 :min="SIZE_MIN_CELLS" :max="capLong" step="1"
@@ -1494,7 +1524,7 @@ function onSave() {
               <button
                 class="sizeStep" type="button" data-size-plus aria-label="放大成品尺寸"
                 :disabled="!sizeReady" @click="nudgeLong(1)"
-              >＋</button>
+              ><Icon name="plus" :size="16" /></button>
             </div>
             <div class="sizeTicks" aria-hidden="true">
               <span v-for="(t, i) in sizeTicks" :key="i">{{ t }}</span>
@@ -1508,7 +1538,7 @@ function onSave() {
               <button
                 class="sizeStep" type="button" :aria-label="axis === 'w' ? '缩小宽度' : '缩小高度'"
                 :disabled="!sizeReady" @click="nudgeSide(axis, -1)"
-              >−</button>
+              ><Icon name="minus" :size="16" /></button>
               <input
                 class="sizeRange" type="range" :data-size-range="axis"
                 :min="SIZE_MIN_CELLS" :max="sideMax(axis)" step="1"
@@ -1521,7 +1551,7 @@ function onSave() {
               <button
                 class="sizeStep" type="button" :aria-label="axis === 'w' ? '放大宽度' : '放大高度'"
                 :disabled="!sizeReady" @click="nudgeSide(axis, 1)"
-              >＋</button>
+              ><Icon name="plus" :size="16" /></button>
               <b class="sizeSideVal">{{ axis === 'w' ? sizePreviewW : sizePreviewH }} 格</b>
             </div>
           </template>
@@ -1568,7 +1598,7 @@ function onSave() {
 
         <!-- ⑥ 恢复默认：用满当前画布规格，不动其它参数 -->
         <button class="sizeReset" type="button" data-size-reset @click="resetSize">
-          <PixelIcon name="restore" :size="13" />恢复默认
+          <Icon name="undo-2" :size="16" />恢复默认
         </button>
       </div>
     </section>
@@ -1586,7 +1616,7 @@ function onSave() {
       >
         <span class="sizeRow__title"><span class="stepNo">2</span>画布与成品</span>
         <span class="sizeRow__value" data-size-value>{{ sizeRowValue }}</span>
-        <i class="cardArrow" :class="{ 'cardArrow--open': sizeOpen }" aria-hidden="true"><PixelIcon name="chevronDown" :size="12" /></i>
+        <i class="cardArrow" :class="{ 'cardArrow--open': sizeOpen }" aria-hidden="true"><Icon name="chevron-down" :size="16" /></i>
       </button>
 
       <div v-show="sizeOpen" class="sizePanel" data-size-panel :style="{ top: panelPos.top + 'px', left: panelPos.left + 'px' }">
@@ -1634,7 +1664,7 @@ function onSave() {
               <button
                 class="sizeStep" type="button" data-size-minus aria-label="缩小成品尺寸"
                 :disabled="!sizeReady" @click="nudgeLong(-1)"
-              >−</button>
+              ><Icon name="minus" :size="16" /></button>
               <input
                 class="sizeRange" type="range" data-size-range
                 :min="SIZE_MIN_CELLS" :max="capLong" step="1"
@@ -1647,7 +1677,7 @@ function onSave() {
               <button
                 class="sizeStep" type="button" data-size-plus aria-label="放大成品尺寸"
                 :disabled="!sizeReady" @click="nudgeLong(1)"
-              >＋</button>
+              ><Icon name="plus" :size="16" /></button>
             </div>
             <div class="sizeTicks" aria-hidden="true">
               <span v-for="(t, i) in sizeTicks" :key="i">{{ t }}</span>
@@ -1661,7 +1691,7 @@ function onSave() {
               <button
                 class="sizeStep" type="button" :aria-label="axis === 'w' ? '缩小宽度' : '缩小高度'"
                 :disabled="!sizeReady" @click="nudgeSide(axis, -1)"
-              >−</button>
+              ><Icon name="minus" :size="16" /></button>
               <input
                 class="sizeRange" type="range" :data-size-range="axis"
                 :min="SIZE_MIN_CELLS" :max="sideMax(axis)" step="1"
@@ -1674,7 +1704,7 @@ function onSave() {
               <button
                 class="sizeStep" type="button" :aria-label="axis === 'w' ? '放大宽度' : '放大高度'"
                 :disabled="!sizeReady" @click="nudgeSide(axis, 1)"
-              >＋</button>
+              ><Icon name="plus" :size="16" /></button>
               <b class="sizeSideVal">{{ axis === 'w' ? sizePreviewW : sizePreviewH }} 格</b>
             </div>
           </template>
@@ -1728,7 +1758,7 @@ function onSave() {
                 : `${row.name} · ${row.note} · 成品 ${row.finish}`"
               @click="pickBox(row)"
             >
-              <strong>{{ row.w }} × {{ row.h }} 颗<span v-if="row.locked" class="sizeLock" aria-label="Pro 功能"><PixelIcon name="lock" :size="11" /></span></strong>
+              <strong>{{ row.w }} × {{ row.h }} 颗<span v-if="row.locked" class="sizeLock" aria-label="Pro 功能"><Icon name="lock-keyhole" :size="16" /></span></strong>
               <span class="pickRowInfo">
                 <b>{{ row.name }} · {{ row.use }}</b>
                 <em>{{ row.beadText }} · 成品 {{ row.finish }}</em>
@@ -1751,7 +1781,7 @@ function onSave() {
             >
               <strong>自定义尺寸</strong>
               <span>{{ customOpen ? '收起来' : `当前 ${width} × ${height} 颗` }}</span>
-              <em class="sizeTag sizeTag--custom" aria-hidden="true"><PixelIcon :name="customOpen ? 'chevronUp' : 'chevronDown'" :size="12" /></em>
+              <em class="sizeTag sizeTag--custom" aria-hidden="true"><Icon :name="customOpen ? 'chevronUp' : 'chevronDown'" :size="16" /></em>
             </button>
 
             <div v-show="customOpen" class="customBox" data-custom-box>
@@ -1860,7 +1890,7 @@ function onSave() {
           class="cardArrowBtn" type="button"
           :aria-expanded="openScheme" aria-label="展开或收起生成方案"
           @click="openScheme = !openScheme"
-        ><i class="cardArrow" :class="{ 'cardArrow--open': openScheme }" aria-hidden="true"><PixelIcon name="chevronDown" :size="12" /></i></button>
+        ><i class="cardArrow" :class="{ 'cardArrow--open': openScheme }" aria-hidden="true"><Icon name="chevron-down" :size="16" /></i></button>
       </div>
       <div class="card__body stack stack--sm">
         <div v-if="!hasPattern" class="processHint" style="margin-top:0">
@@ -1881,11 +1911,11 @@ function onSave() {
             :title="v.desc || v.buildText"
             @click="selectVariant(v.key)"
           >
-            <b>{{ v.label }}<span v-if="v.recommended" class="recStar" aria-label="第一次玩推荐"><PixelIcon name="star" :size="11" /></span></b>
+            <b>{{ v.label }}<span v-if="v.recommended" class="recStar" aria-label="第一次玩推荐"><Icon name="star" :size="16" /></span></b>
             <span>{{ v.recommended ? '第一次玩推荐' : schemeHint(v) }}</span>
           </button>
           <div class="schemeCard schemeCard--ai is-soon" :title="AI_PENDING_TEXT" data-audit="ai-pending-optimize">
-            <b class="aiLabel"><PixelIcon name="sparkles" :size="12" />一键优化</b>
+            <b class="aiLabel"><Icon name="sparkles" :size="16" />一键优化</b>
             <span>{{ AI_PENDING_TEXT }}</span>
           </div>
         </div>
@@ -1901,7 +1931,7 @@ function onSave() {
           <button
             type="button" class="btn btn-secondary sm aiBtn is-soon" disabled
             :title="AI_PENDING_TEXT"
-          ><PixelIcon name="sparkles" :size="13" />一键优化</button>
+          ><Icon name="sparkles" :size="16" />一键优化</button>
         </div>
         <p v-if="hasPattern" class="soonHint mOnly">一键优化：{{ AI_PENDING_TEXT }}</p>
 
@@ -1927,7 +1957,7 @@ function onSave() {
       >
         <h3 class="moreRow__title"><span class="stepNo">4</span>色板选择</h3>
         <span class="moreRow__value">{{ options.targetColors }} 色 · {{ currentBrand.name }}</span>
-        <i class="cardArrow" :class="{ 'cardArrow--open': openMore }" aria-hidden="true"><PixelIcon name="chevronDown" :size="12" /></i>
+        <i class="cardArrow" :class="{ 'cardArrow--open': openMore }" aria-hidden="true"><Icon name="chevron-down" :size="16" /></i>
       </button>
       <div id="morePanel" class="card__body stack stack--sm">
         <!-- 色板：整张卡的重点。展开后第一眼看到的就是它 —— 品牌色描边 + 淡底，
@@ -1960,7 +1990,7 @@ function onSave() {
                 aria-label="色卡来源说明" title="色卡来源说明"
                 data-audit="palette-note-toggle"
                 @click="paletteNoteOpen = !paletteNoteOpen"
-              ><PixelIcon name="info" :size="11" /></button>
+              ><Icon name="info" :size="16" /></button>
             </span>
           </div>
           <p v-if="paletteNoteOpen" id="paletteNote" class="paletteNote">{{ paletteNote }}</p>
@@ -2019,8 +2049,8 @@ function onSave() {
 
         <div class="folds">
           <button class="foldHeader" type="button" :aria-expanded="advancedOpen" @click="advancedOpen = !advancedOpen">
-            <span class="foldLabel"><PixelIcon name="sliders" :size="13" />抖动 / 去孤立豆 / 格内色号</span>
-            <i class="foldChev"><PixelIcon :name="advancedOpen ? 'minus' : 'plus'" :size="12" /></i>
+            <span class="foldLabel"><Icon name="sliders-horizontal" :size="16" />抖动 / 去孤立豆 / 格内色号</span>
+            <i class="foldChev"><Icon :name="advancedOpen ? 'minus' : 'plus'" :size="16" /></i>
           </button>
           <div v-if="advancedOpen" class="foldBody">
             <div class="field">
@@ -2065,7 +2095,7 @@ function onSave() {
               class="btn soft block"
               title="回到这张图的最优方案"
               @click="restoreVariant()"
-            ><PixelIcon name="restore" :size="14" />恢复方案</button>
+            ><Icon name="undo-2" :size="16" />恢复方案</button>
           </div>
         </div>
       </div>
@@ -2081,19 +2111,19 @@ function onSave() {
           class="cardArrowBtn" type="button"
           :aria-expanded="openBuild" aria-label="展开或收起图纸交付"
           @click="openBuild = !openBuild"
-        ><i class="cardArrow" :class="{ 'cardArrow--open': openBuild }" aria-hidden="true"><PixelIcon name="chevronDown" :size="12" /></i></button>
+        ><i class="cardArrow" :class="{ 'cardArrow--open': openBuild }" aria-hidden="true"><Icon name="chevron-down" :size="16" /></i></button>
       </div>
       <div class="card__body stack stack--sm">
         <div class="folds">
           <div class="foldBody" style="padding:12px;gap:9px">
             <div class="row row--between">
-              <b style="font-size:var(--fs-xs)">拼装进度</b>
+              <b style="font-size:var(--fs-xs);line-height:var(--ty-label-lh)">拼装进度</b>
               <b class="buildPct">{{ hasPattern ? (isFinished ? 100 : buildStats.percent) : 0 }}%</b>
             </div>
             <div class="bar"><i :style="{ width: (hasPattern ? (isFinished ? 100 : buildStats.percent) : 0) + '%' }"></i></div>
             <p class="hint">
               <template v-if="isFinished">
-                <span class="iconInline doneMark"><PixelIcon name="check" :size="12" />完成于 {{ timeAgo(finishedAt) }} · 共 {{ num(buildStats.total) }} 颗豆</span>
+                <span class="iconInline doneMark"><Icon name="check" :size="16" />完成于 {{ timeAgo(finishedAt) }} · 共 {{ num(buildStats.total) }} 颗豆</span>
               </template>
               <template v-else-if="hasPattern && nextBoard">
                 第 {{ nextBoard.no }} / {{ buildBoards.length }} 块板 · 已完成 {{ doneBoards }} 块 ·
@@ -2108,7 +2138,7 @@ function onSave() {
         </div>
 
         <button class="btn primary block" :disabled="!hasPattern" data-audit="open-delivery-build" @click="emit('open-delivery', 'build')">
-          打开图纸交付<PixelIcon name="arrowRight" :size="14" />
+          打开图纸交付<Icon name="arrow-right" :size="16" />
         </button>
         <p class="hint" style="margin:0">
           高清 PNG / JPG（150 / 300 / 600 DPI）、分板 PDF 与图片组、材料清单、拼装进度都在这里。
@@ -2131,12 +2161,17 @@ function onSave() {
 .is-focus-mode > .card.is-focus > .card__head,
 .is-focus-mode > .card.is-focus > .moreRow,
 .is-focus-mode > .card.is-focus > .sizeRow{display:none}
+/* 抽屉 / 手机弹层里这张卡就是正文：尺寸面板跟着走文档流，
+   不能再按宽屏那套浮成 fixed 弹层（否则会飘到画布上、还定位不到） */
+.is-focus-mode .card--size .sizePanel{
+  position:static;width:auto;max-height:none;box-shadow:none;border:0;z-index:auto;
+}
 
 /* 缩略图 */
 .thumb{position:relative}
 .thumbName{
   position:absolute;left:8px;bottom:8px;background:rgba(35,49,34,.78);color:#fff;
-  font-size:var(--fs-2xs);font-weight:700;padding:3px 9px;border-radius:var(--r-pill);
+  font-size:var(--fs-2xs);font-weight:700;padding:3px 9px;border-radius:var(--r-pill);line-height:var(--ty-caption-lh)
 }
 /* AI 功能占位：入口保留位置，用一句话说明还在对接 */
 .soonPanel{
@@ -2148,16 +2183,16 @@ function onSave() {
   width:44px;height:44px;border-radius:12px;display:grid;place-items:center;
   background:var(--primary-soft);border:1px solid #F1E4B8;color:var(--primary-deep);
 }
-.soonPanel b{font-size:var(--fs-sm);font-weight:850;color:var(--primary-ink)}
-.soonPanel p{font-size:var(--fs-2xs);color:var(--muted);line-height:1.6;margin:0}
-.soonHint{font-size:var(--fs-2xs);color:var(--muted-2);line-height:1.5;margin-top:6px}
+.soonPanel b{font-size:var(--fs-sm);font-weight:700;color:var(--primary-ink);line-height:var(--ty-body-lh)}
+.soonPanel p{font-size:var(--fs-2xs);color:var(--muted);line-height:var(--ty-caption-lh);margin:0}
+.soonHint{font-size:var(--fs-2xs);color:var(--muted-2);line-height:var(--ty-caption-lh);margin-top:6px}
 .procTab.is-soon{opacity:.62;background:var(--surface-2);border-style:dashed}
 .procTab.is-soon:hover{border-color:var(--line);background:var(--surface-2)}
 .schemeCard.is-soon{opacity:.8;background:var(--surface-2);cursor:not-allowed}
 .schemeCard.is-soon b{color:var(--muted)}
 .schemeCard.is-soon span{color:var(--muted)}
 .aiBtn.is-soon{opacity:.7;cursor:not-allowed}
-/* 免费素材：三列缩略格 */
+/* 素材库：三列缩略格 */
 .srcAssets{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-top:9px}
 .srcAsset{
   display:flex;flex-direction:column;gap:4px;padding:5px;
@@ -2169,21 +2204,21 @@ function onSave() {
 /* 后台素材的缩略图是方形白底 JPEG，按方格铺满即可 */
 .srcAsset__thumb img{width:100%;height:100%;display:block;object-fit:cover}
 .srcAsset b{
-  font-size:var(--fs-2xs);font-weight:750;color:var(--ink-2);text-align:center;
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-size:var(--fs-2xs);font-weight:700;color:var(--ink-2);text-align:center;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:var(--ty-caption-lh)
 }
 /* 处理页签展开的细节面板 */
 .procDetail{margin-top:8px;display:flex;flex-direction:column;gap:7px}
 .matteBar__levels,.cartoonBar__levels{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}
 .matteBar__levels .seg,.cartoonBar__levels .seg{
   padding:6px 0;border-radius:var(--r-xs);border:1px solid var(--line-strong);background:var(--surface);
-  font-size:var(--fs-2xs);font-weight:800;color:var(--muted);transition:var(--t);
+  font-size:var(--fs-2xs);font-weight:700;color:var(--muted);transition:var(--t);line-height:var(--ty-caption-lh)
 }
 .matteBar__levels .seg:hover{border-color:var(--line-strong)}
 .matteBar__levels .seg.on{background:var(--primary-soft);border-color:var(--primary);color:var(--ink)}
 .cartoonBar__levels .seg:hover{border-color:var(--line-strong)}
 .cartoonBar__levels .seg.on{background:var(--primary-soft);border-color:var(--primary);color:var(--ink)}
-.matteBar__note{font-size:var(--fs-2xs);line-height:1.6;color:var(--ink-2)}
+.matteBar__note{font-size:var(--fs-2xs);line-height:var(--ty-caption-lh);color:var(--ink-2)}
 .matteBar__note.warn{color:var(--coral-deep)}
 .matteBar__note.weak{color:#B7791F}
 .matteBar__note.fromSave{color:var(--muted)}
@@ -2193,7 +2228,7 @@ function onSave() {
   border-radius:var(--r-pill);background:rgba(255,255,255,.92);box-shadow:0 4px 12px rgba(0,0,0,.13);
 }
 .thumbModes .thumbMode{
-  padding:3px 10px;border-radius:var(--r-pill);font-size:var(--fs-2xs);font-weight:800;color:var(--muted);
+  padding:3px 10px;border-radius:var(--r-pill);font-size:var(--fs-2xs);font-weight:700;color:var(--muted);line-height:var(--ty-caption-lh)
 }
 .thumbModes .thumbMode.on{background:var(--primary-soft);color:var(--ink)}
 /* 方案格：2×2 —— 名字 + 一句「第一次玩推荐 / 细节更多」，
@@ -2206,8 +2241,8 @@ function onSave() {
   border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface);transition:var(--t);
 }
 .schemeCard:hover{border-color:var(--line-strong);background:var(--surface-warm)}
-.schemeCard b{font-size:var(--fs-2xs);font-weight:850}
-.schemeCard span{font-size:var(--fs-2xs);color:var(--muted-2);line-height:1.35}
+.schemeCard b{font-size:var(--fs-2xs);font-weight:700;line-height:var(--ty-caption-lh)}
+.schemeCard span{font-size:var(--fs-2xs);color:var(--muted-2);line-height:var(--ty-caption-lh)}
 .schemeCard.on{
   border:2px solid var(--primary);background:var(--primary-soft);padding:8px 5px;box-shadow:none;
 }
@@ -2221,7 +2256,7 @@ function onSave() {
 
 /* 「✦ 一键优化」在下拉右边：它是动作不是选项，所以不塞进下拉里 ——
    虚线边沿用网格里 .schemeCard--ai 的同一套语言，一眼看出它不是第四个方案 */
-.aiBtn{border-style:dashed;color:var(--purple-deep);font-weight:850}
+.aiBtn{border-style:dashed;color:var(--purple-deep);font-weight:700}
 
 /* ---------------- 手机端：①③④ 的选项组收成原生下拉（≤780px） ----------------
    桌面端这些下拉一律不出现（.mDrop 默认 display:none），仍然是原来那套按钮网格；
@@ -2254,10 +2289,10 @@ function onSave() {
 .moreRow:hover{background:var(--surface-3)}
 .moreRow:focus-visible{outline:2px solid var(--primary);outline-offset:-2px}
 .card--more.is-open > .moreRow{border-bottom:1px solid var(--line);border-radius:var(--r-lg) var(--r-lg) 0 0}
-.moreRow__title{margin:0;font-size:14px;font-weight:800;letter-spacing:-.01em;white-space:nowrap}
+.moreRow__title{margin:0;font-size:14px;font-weight:700;letter-spacing:0;white-space:nowrap;line-height:var(--ty-body-lh)}
 .moreRow__value{
   flex:1;min-width:0;text-align:right;font-size:var(--fs-2xs);color:var(--muted);
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:var(--ty-caption-lh)
 }
 /* 折叠箭头统一用全局 .cardArrow（见 styles/global.css），这里不再单独写一份。 */
 
@@ -2270,38 +2305,38 @@ function onSave() {
 .paletteHero{
   display:flex;flex-direction:column;gap:9px;padding:11px 12px 12px;
   border:1px solid var(--primary);border-radius:var(--r-md);
-  background:#FFF9F1;
+  background:var(--cream);
 }
 .paletteHero__head{display:flex;align-items:baseline;gap:8px}
-.paletteHero__head b{font-size:var(--fs-sm);font-weight:850;color:var(--ink);white-space:nowrap}
+.paletteHero__head b{font-size:var(--fs-sm);font-weight:700;color:var(--ink);white-space:nowrap;line-height:var(--ty-body-lh)}
 .paletteHero__head span{
   flex:1;min-width:0;font-size:var(--fs-2xs);color:var(--ink);opacity:.8;
-  text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:var(--ty-caption-lh)
 }
 /* 下拉比同排的普通 select 更重：字号大一点、边框用品牌色（背景留给全局 select
    那个箭头小三角，这里不覆盖 background-image，免得多出一层。）
    桌面端 38px 与全局 input 同高（44px 在宽屏上太胖）；手机上回到 46px 好点。 */
 .paletteHero select.paletteHero__pick{
-  min-height:38px;font-size:var(--fs-sm);font-weight:800;color:var(--ink);
-  border-color:var(--primary);background-color:#fff;
+  min-height:38px;font-size:var(--fs-sm);font-weight:700;color:var(--ink);
+  border-color:var(--primary);background-color:#fff;line-height:var(--ty-body-lh)
 }
 @media(max-width:780px){
   .paletteHero select.paletteHero__pick{min-height:46px}
 }
 .paletteHero__foot{
   display:flex;align-items:center;justify-content:space-between;gap:8px;
-  font-size:var(--fs-2xs);color:var(--ink-2);
+  font-size:var(--fs-2xs);color:var(--ink-2);line-height:var(--ty-caption-lh)
 }
-.paletteHero__foot b{color:var(--ink);font-weight:850}
+.paletteHero__foot b{color:var(--ink);font-weight:700}
 /* 这块底是淡黄，链接用黑字 + 下划线最清楚；scoped 的 [data-v-] 比全局单类多一位，压得住。 */
-.paletteHero .inlineLink{color:var(--ink);font-size:var(--fs-2xs);white-space:nowrap}
+.paletteHero .inlineLink{color:var(--ink);font-size:var(--fs-2xs);white-space:nowrap;line-height:var(--ty-caption-lh)}
 /* 右端这一组（升级链接 + 来源「!」）贴齐下拉框右边缘；「!」与左边「本套可用」
    同一基线，所以整行用 align-items:center 压住。 */
 .paletteHero__footEnd{display:flex;align-items:center;gap:8px;flex:none}
 .paletteNoteBtn{
   width:18px;height:18px;flex:none;padding:0;border-radius:50%;
   border:1px solid #B4AEA9;background:transparent;color:#8C8681;
-  font-family:inherit;font-size:12px;font-weight:900;line-height:1;cursor:pointer;
+  font-family:inherit;font-size:12px;font-weight:700;line-height:var(--ty-caption-lh);cursor:pointer;
   display:inline-flex;align-items:center;justify-content:center;
   transition:color .15s,border-color .15s,background .15s;
 }
@@ -2310,13 +2345,13 @@ function onSave() {
 .paletteNote{
   margin:0;padding:7px 9px;border-radius:var(--r-sm,8px);
   border:1px solid #EFE7B8;background:#fff;
-  font-size:var(--fs-2xs);line-height:1.5;color:#7A6A20;
+  font-size:var(--fs-2xs);line-height:var(--ty-caption-lh);color:#7A6A20;
 }
 /* 色板块里剩下的 processHint 只有免费版精简那一条：它是说明而不是表单字段，
    顶距收掉，字号收一档。用 :where() 让权重停在 0-1-0：模板里带
    style="color:var(--coral-deep)" 的升级提示要压得住这里的颜色，不然会被染成普通灰。 */
 .paletteHero .processHint{margin-top:0;line-height:1.5}
-.paletteHero :where(.processHint){font-size:var(--fs-2xs);color:#9A6B5E}
+.paletteHero :where(.processHint){font-size:var(--fs-2xs);color:#9A6B5E;line-height:var(--ty-caption-lh)}
 
 /* ---------------- ② 画布大小：一行 + 可选画布列表 ----------------
    收起状态就是那一行（左标题 / 右当前尺寸 / 最右箭头）；
@@ -2331,24 +2366,24 @@ function onSave() {
 .card--size.is-open .sizeRow{border-bottom:1px solid var(--line);border-radius:var(--r-lg) var(--r-lg) 0 0}
 .sizeRow__title{
   display:inline-flex;align-items:center;gap:8px;
-  font-size:14px;font-weight:850;letter-spacing:-.01em;white-space:nowrap;
+  font-size:14px;font-weight:700;letter-spacing:0;white-space:nowrap;line-height:var(--ty-body-lh)
 }
 .sizeRow__value{
   flex:1;min-width:0;text-align:right;font-size:var(--fs-2xs);color:var(--muted);
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:var(--ty-caption-lh)
 }
 
 .sizePanel{padding:10px 12px 12px;display:flex;flex-direction:column;gap:8px}
 
 /* 列表头那三行口径：默认 2.6mm 豆 / 成品 = 格数 × 豆径 / 板子实测外框。
    这三句是用户对数的依据，不能省 —— 省了他就得自己乘一遍（见 sizeRows 的注释）。 */
-.sizeHint{margin:0;font-size:var(--fs-2xs);line-height:1.55;color:var(--muted-2)}
-.sizeHint b{color:var(--primary-ink);font-weight:850}
+.sizeHint{margin:0;font-size:var(--fs-2xs);line-height:var(--ty-caption-lh);color:var(--muted-2)}
+.sizeHint b{color:var(--primary-ink);font-weight:700}
 
 /* 手机端「常用成品尺寸」小标题：列表是成品快选，底板由上面的画布规格决定 */
 .sizeQuickHead{margin-top:2px}
-.sizeQuickHead b{display:block;font-size:var(--fs-2xs);font-weight:850;color:var(--ink)}
-.sizeQuickHead span{display:block;font-size:var(--fs-2xs);line-height:1.45;color:var(--muted-2)}
+.sizeQuickHead b{display:block;font-size:var(--fs-2xs);font-weight:700;color:var(--ink);line-height:var(--ty-caption-lh)}
+.sizeQuickHead span{display:block;font-size:var(--fs-2xs);line-height:var(--ty-caption-lh);color:var(--muted-2)}
 
 .sizeList{list-style:none;display:flex;flex-direction:column;gap:6px;margin:0;padding:0}
 /* 列表行：尺寸 + 档位说明 + 右侧标记（.pick 的全局样式给了边框与选中态，
@@ -2356,10 +2391,10 @@ function onSave() {
 .pick--row{
   width:100%;min-height:44px;flex-direction:row;align-items:center;gap:8px;padding:8px 10px;
 }
-.pick--row strong{font-size:var(--fs-2xs);font-weight:850;white-space:nowrap}
+.pick--row strong{font-size:var(--fs-2xs);font-weight:700;white-space:nowrap;line-height:var(--ty-caption-lh)}
 .pick--row span{
   flex:1;min-width:0;font-size:var(--fs-2xs);color:var(--muted-2);
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:var(--ty-caption-lh)
 }
 /* 每一行的「适合做什么 + 豆子 / 板子 / 成品」：两行文字，允许折行 ——
    .pick--row span 那条 nowrap 是给单行说明用的，这里必须覆盖（选择器权重也要压过它） */
@@ -2367,11 +2402,11 @@ function onSave() {
   flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;
   white-space:normal;overflow:visible;text-overflow:clip;
 }
-.pickRowInfo b{font-size:var(--fs-2xs);font-weight:850;color:var(--ink-2);line-height:1.3}
-.pickRowInfo em{font-style:normal;font-size:var(--fs-2xs);color:var(--muted-2);line-height:1.45}
+.pickRowInfo b{font-size:var(--fs-2xs);font-weight:700;color:var(--ink-2);line-height:var(--ty-caption-lh)}
+.pickRowInfo em{font-style:normal;font-size:var(--fs-2xs);color:var(--muted-2);line-height:var(--ty-caption-lh)}
 .sizeTag{
-  font-style:normal;font-size:var(--fs-2xs);font-weight:850;padding:2px 7px;border-radius:var(--r-pill);
-  white-space:nowrap;
+  font-style:normal;font-size:var(--fs-2xs);font-weight:700;padding:2px 7px;border-radius:var(--r-pill);
+  white-space:nowrap;line-height:var(--ty-caption-lh)
 }
 .sizeTag--now{background:var(--ink);color:#fff}
 .sizeTag--rec{background:var(--primary-soft);color:var(--primary-ink)}
@@ -2386,7 +2421,7 @@ function onSave() {
   border:1px solid var(--line);border-radius:var(--r-sm);background:var(--surface-2);
 }
 .customRow{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;align-items:center}
-.customRow label{font-size:var(--fs-2xs);font-weight:800;color:#78787F;white-space:nowrap}
+.customRow label{font-size:var(--fs-2xs);font-weight:700;color:#78787F;white-space:nowrap;line-height:var(--ty-caption-lh)}
 .customRow--n{grid-template-columns:auto 54px auto auto 54px auto}
 .customRow--n input{text-align:center;min-height:34px;padding:4px 6px}
 /* 成品尺寸结果条：改规格 / 块数就跟着变，是这块面板的答案 */
@@ -2395,33 +2430,33 @@ function onSave() {
   padding:8px 10px;border-radius:var(--r-sm);
   background:var(--primary-soft);color:var(--primary-ink);
 }
-.customFinish span{font-size:var(--fs-2xs);font-weight:800}
-.customFinish b{font-size:16px;font-weight:900;letter-spacing:-.2px}
-.customFinish em{font-style:normal;font-size:var(--fs-2xs);color:var(--ink-2);margin-left:auto}
+.customFinish span{font-size:var(--fs-2xs);font-weight:700;line-height:var(--ty-caption-lh)}
+.customFinish b{font-size:15px;font-weight:700;letter-spacing:0;line-height:var(--ty-card-lh)}
+.customFinish em{font-style:normal;font-size:var(--fs-2xs);color:var(--ink-2);margin-left:auto;line-height:var(--ty-caption-lh)}
 .customFinish.is-locked{background:var(--surface);color:var(--muted)}
-.customFinish.is-locked b{font-size:14px;color:var(--muted)}
+.customFinish.is-locked b{font-size:14px;color:var(--muted);line-height:var(--ty-body-lh)}
 .customRow select{min-height:34px;padding:4px 26px 4px 8px;background-position:calc(100% - 13px) 15px,calc(100% - 8px) 15px}
-.customSum{font-size:var(--fs-2xs);color:var(--ink-2);line-height:1.55}
-.customSum b{color:var(--ink);font-weight:850}
+.customSum{font-size:var(--fs-2xs);color:var(--ink-2);line-height:var(--ty-caption-lh)}
+.customSum b{color:var(--ink);font-weight:700}
 /* 实时预览的状态行：小圆点 + 一句话，说明「不用点按钮，画布已经跟着变了」 */
-.customLive{display:flex;align-items:center;gap:6px;font-size:var(--fs-2xs);line-height:1.5;color:var(--green-deep)}
+.customLive{display:flex;align-items:center;gap:6px;font-size:var(--fs-2xs);line-height:var(--ty-caption-lh);color:var(--green-deep)}
 .customLive i{
   flex:none;width:6px;height:6px;border-radius:50%;background:var(--green);
   box-shadow:0 0 0 3px var(--green-soft);
 }
-.customNote{font-size:var(--fs-2xs);color:var(--muted-2);line-height:1.55}
+.customNote{font-size:var(--fs-2xs);color:var(--muted-2);line-height:var(--ty-caption-lh)}
 .customNote.warn{color:var(--coral-deep)}
-.buildPct{font-size:var(--fs-h3);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.buildPct{font-size:var(--fs-h3);letter-spacing:0;font-variant-numeric:tabular-nums;line-height:var(--ty-card-lh)}
 .foldLabel{display:inline-flex;align-items:center;gap:6px}
 .foldLabel .icon{color:var(--muted)}
 .foldChev{display:inline-flex;align-items:center;color:var(--muted)}
-.doneMark{color:var(--green-deep);font-weight:750}
+.doneMark{color:var(--green-deep);font-weight:700}
 
 /* ---------------- ② 画布与成品尺寸（电脑 / 平板） ----------------
    收起 = 标题 + 实时摘要；展开后就地铺开，不再从右侧浮出。 */
 .card--sizeWide{
   border-color:#F0DFA6;
-  background:linear-gradient(180deg,#FFFDF5 0%,#fff 62%);
+  background:linear-gradient(180deg,var(--primary-soft) 0%,#fff 62%);
 }
 .sizeWideHead{
   width:100%;padding:11px 14px;display:flex;align-items:center;gap:10px;
@@ -2433,11 +2468,11 @@ function onSave() {
 .sizeWideHead__text{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
 .sizeWideHead__title{
   display:inline-flex;align-items:center;gap:8px;
-  font-size:14px;font-weight:850;letter-spacing:-.01em;white-space:nowrap;color:var(--ink);
+  font-size:14px;font-weight:700;letter-spacing:0;white-space:nowrap;color:var(--ink);line-height:var(--ty-body-lh)
 }
 .sizeWideHead__sum{
   font-size:var(--fs-2xs);color:var(--muted);
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:var(--ty-caption-lh)
 }
 .sizeWideBody{padding:13px 14px 14px;display:flex;flex-direction:column;gap:14px}
 
@@ -2445,7 +2480,7 @@ function onSave() {
 /* 左栏只有 ~282px：标题 + 「!」+ 大号读数放不下时，读数整体换到第二行并靠右，
    不要在「52 × 52」和「颗」中间断行（那看起来像两个读数）。 */
 .sizeField__head{position:relative;display:flex;flex-wrap:wrap;align-items:baseline;column-gap:6px;row-gap:2px}
-.sizeField__head b{font-size:13px;font-weight:850;color:var(--ink)}
+.sizeField__head b{font-size:13px;font-weight:700;color:var(--ink);line-height:var(--ty-label-lh)}
 
 /* 口径注释收进「!」：15px 小圆钮，点开在字段下方铺一张小说明卡。
    注释字号比原来的 11.5px 提示再低两档（13 → 11.5 → 10.5），平时完全不占版面。 */
@@ -2453,7 +2488,7 @@ function onSave() {
 .sizeTipBtn{
   flex:none;width:15px;height:15px;padding:0;border-radius:50%;
   border:1.5px solid var(--muted-2);background:#fff;color:var(--muted-2);
-  font-size:10px;font-weight:900;line-height:1;display:grid;place-items:center;
+  font-size:12px;font-weight:700;line-height:var(--ty-caption-lh);display:grid;place-items:center;
   cursor:pointer;transition:var(--t);
 }
 .sizeTipBtn:hover,.sizeTipBtn.on{border-color:var(--primary);background:var(--primary-soft);color:var(--primary-ink)}
@@ -2462,24 +2497,24 @@ function onSave() {
   position:absolute;top:calc(100% + 6px);left:0;right:0;z-index:40;
   padding:8px 10px;border:1px solid var(--line-strong);border-radius:10px;background:#fff;
   box-shadow:0 12px 26px rgba(24,24,28,.16);
-  font-size:10.5px;font-weight:400;line-height:1.65;color:var(--muted);text-align:left;
+  font-size:12px;font-weight:400;line-height:var(--ty-caption-lh);color:var(--muted);text-align:left;
 }
-.sizeTipPop b{color:var(--ink-2);font-weight:750}
+.sizeTipPop b{color:var(--ink-2);font-weight:700}
 .sizeTipPop--up{top:auto;bottom:calc(100% + 7px)}
 .sizeNote{
   position:relative;display:flex;align-items:center;gap:6px;
-  margin:0;font-size:10.5px;line-height:1.5;color:var(--muted-2);
+  margin:0;font-size:12px;line-height:var(--ty-caption-lh);color:var(--muted-2);
 }
 
 .sizeBig{
-  margin-left:auto;font-size:19px;font-weight:900;letter-spacing:-.4px;white-space:nowrap;
-  color:var(--primary-deep);font-variant-numeric:tabular-nums;
+  margin-left:auto;font-size:18px;font-weight:700;letter-spacing:0;white-space:nowrap;
+  color:var(--primary-deep);font-variant-numeric:tabular-nums;line-height:var(--ty-section-lh)
 }
 .sizeSpecSelect{
   width:100%;min-height:40px;padding:6px 34px 6px 11px;border-radius:10px;
   border:1px solid var(--line-strong);background-color:#fff;
-  font-size:13px;font-weight:750;color:var(--ink);
-  background-position:calc(100% - 17px) 17px,calc(100% - 12px) 17px;
+  font-size:13px;font-weight:700;color:var(--ink);
+  background-position:calc(100% - 17px) 17px,calc(100% - 12px) 17px;line-height:var(--ty-label-lh)
 }
 
 /* 自定义尺寸：规格 × 块数，展开在规格下拉下面 */
@@ -2488,23 +2523,23 @@ function onSave() {
   border:1px solid var(--line);border-radius:10px;background:var(--surface-2);
 }
 .sizeCustom__row{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;align-items:center}
-.sizeCustom__row label{font-size:11.5px;font-weight:800;color:var(--muted);white-space:nowrap}
+.sizeCustom__row label{font-size:12px;font-weight:700;color:var(--muted);white-space:nowrap;line-height:var(--ty-caption-lh)}
 .sizeCustom__row--n{grid-template-columns:auto 54px auto auto 54px auto}
-.sizeCustom__row select,.sizeCustom__row input{min-height:34px;font-size:12px;padding:4px 8px}
+.sizeCustom__row select,.sizeCustom__row input{min-height:34px;font-size:12px;padding:4px 8px;line-height:var(--ty-caption-lh)}
 .sizeCustom__row--n input{text-align:center;padding:4px 4px}
-.sizeCustom__row--n span{font-size:11.5px;color:var(--muted-2)}
-.sizeCustom__sum{margin:0;font-size:11.5px;line-height:1.55;color:var(--ink-2)}
+.sizeCustom__row--n span{font-size:12px;color:var(--muted-2);line-height:var(--ty-caption-lh)}
+.sizeCustom__sum{margin:0;font-size:12px;line-height:var(--ty-caption-lh);color:var(--ink-2)}
 .sizeCustom__sum.warn{color:var(--coral-deep)}
 .sizeCustom .btn.sm{min-height:34px}
 
 /* 滑杆：黄色已填充 + 白心黄环的圆钮 */
 .sizeSlideRow{display:flex;align-items:center;gap:9px}
 .sizeSlideRow--side{gap:7px}
-.sizeSideLabel{flex:none;width:18px;font-size:12px;font-weight:850;color:var(--muted)}
-.sizeSideVal{flex:none;width:44px;text-align:right;font-size:11.5px;font-weight:850;color:var(--ink-2);font-variant-numeric:tabular-nums}
+.sizeSideLabel{flex:none;width:18px;font-size:12px;font-weight:700;color:var(--muted);line-height:var(--ty-caption-lh)}
+.sizeSideVal{flex:none;width:44px;text-align:right;font-size:12px;font-weight:700;color:var(--ink-2);font-variant-numeric:tabular-nums;line-height:var(--ty-caption-lh)}
 .sizeStep{
   flex:none;width:28px;height:28px;border-radius:50%;
-  display:grid;place-items:center;font-size:16px;font-weight:900;line-height:1;
+  display:grid;place-items:center;font-size:15px;font-weight:700;line-height:var(--ty-card-lh);
   background:var(--primary-soft);color:var(--primary-ink);border:0;transition:var(--t);
 }
 .sizeStep:hover:not(:disabled){background:var(--primary)}
@@ -2527,11 +2562,11 @@ function onSave() {
 .sizeSlideRow .sizeRange:disabled{opacity:.45;cursor:not-allowed}
 .sizeTicks{
   display:flex;justify-content:space-between;margin:0 34px;padding:0;
-  font-size:10px;color:var(--muted-2);font-variant-numeric:tabular-nums;
+  font-size:12px;color:var(--muted-2);font-variant-numeric:tabular-nums;line-height:var(--ty-caption-lh)
 }
 .sizeTicks em{font-style:normal}
 
-.sizeEmpty,.sizeLive{margin:0;font-size:11.5px;line-height:1.5;color:var(--muted-2)}
+.sizeEmpty,.sizeLive{margin:0;font-size:12px;line-height:var(--ty-caption-lh);color:var(--muted-2)}
 .sizeEmpty{color:var(--orange-deep)}
 .sizeLive{display:flex;align-items:center;gap:6px;color:var(--green-deep)}
 .sizeLive::before{
@@ -2544,9 +2579,9 @@ function onSave() {
 /* 等比例缩放开关 */
 .sizeLock{
   display:flex;align-items:center;justify-content:space-between;gap:10px;
-  font-size:13px;font-weight:850;color:var(--ink);cursor:pointer;user-select:none;
+  font-size:13px;font-weight:700;color:var(--ink);cursor:pointer;user-select:none;line-height:var(--ty-label-lh)
 }
-.sizeLock em{font-style:normal;font-weight:600;color:var(--muted-2);font-size:12px}
+.sizeLock em{font-style:normal;font-weight:500;color:var(--muted-2);font-size:12px;line-height:var(--ty-caption-lh)}
 .sizeSwitch{position:absolute;opacity:0;width:0;height:0;pointer-events:none}
 .sizeLock i{
   flex:none;position:relative;width:42px;height:24px;border-radius:99px;
@@ -2566,23 +2601,23 @@ function onSave() {
   display:flex;flex-direction:column;gap:7px;
 }
 .sizeSummary > div{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
-.sizeSummary dt{font-size:12px;color:var(--muted)}
+.sizeSummary dt{font-size:12px;color:var(--muted);line-height:var(--ty-caption-lh)}
 .sizeSummary dd{
-  margin:0;font-size:12px;font-weight:850;color:var(--ink);
-  font-variant-numeric:tabular-nums;text-align:right;
+  margin:0;font-size:12px;font-weight:700;color:var(--ink);
+  font-variant-numeric:tabular-nums;text-align:right;line-height:var(--ty-caption-lh)
 }
 
-.sizeLimit{display:flex;gap:7px;margin:0;font-size:11.5px;line-height:1.6;color:var(--muted-2)}
+.sizeLimit{display:flex;gap:7px;margin:0;font-size:12px;line-height:var(--ty-caption-lh);color:var(--muted-2)}
 .sizeLimit--warn{color:var(--orange-deep)}
 .sizeLimit i{
   flex:none;width:15px;height:15px;margin-top:1px;border-radius:50%;
   border:1.5px solid currentColor;display:grid;place-items:center;
-  font-style:normal;font-size:10px;font-weight:900;line-height:1;
+  font-style:normal;font-size:12px;font-weight:700;line-height:var(--ty-caption-lh);
 }
 .sizeReset{
   width:100%;min-height:40px;display:flex;align-items:center;justify-content:center;gap:7px;
   border:1px solid var(--line);border-radius:12px;background:#fff;
-  font-size:13px;font-weight:850;color:var(--ink);transition:var(--t);
+  font-size:13px;font-weight:700;color:var(--ink);transition:var(--t);line-height:var(--ty-label-lh)
 }
 .sizeReset:hover{background:var(--surface-warm);border-color:var(--line-strong)}
 

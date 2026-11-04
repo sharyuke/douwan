@@ -1,9 +1,18 @@
 <script setup>
+/* =========================================================================
+   个人中心（设计稿：Figma「豆玩操作台优化」1:290「个人中心 · 已登录概览」）
+
+   版面按设计稿重排：个人空间导航 → 欢迎行 → 四张概览卡 → 两列
+   （我的作品 / 素材收藏 ‖ 个人信息 / 我的库存）。
+   排版一律走 global.css 的语义类（.ty-page / .ty-section / .ty-card /
+   .ty-body / .ty-label / .ty-caption / .ty-metric / .ty-num），
+   页面里不再自己写字号字重 —— 规范见「豆玩 · 文字与字体规范」1:2。
+   ========================================================================= */
 import { computed, onMounted, ref } from 'vue'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
 import CardRedeemPanel from '../components/ui/CardRedeemPanel.vue'
 import LoginDialog from '../components/ui/LoginDialog.vue'
-import PixelIcon from '../components/ui/PixelIcon.vue'
+import Icon from '../components/ui/Icon.vue'
 import {
   isLoggedIn, bootstrapDevice, bootstrapUser, isAnonymousDevice, displayName,
   currentUser, logout
@@ -12,13 +21,16 @@ import { api, ApiError } from '../lib/api.js'
 import { toastOk, toastErr } from '../composables/useToast.js'
 import { myOrders, loadMyOrders, ensureBackend, syncServerEntitlements } from '../composables/useBackend.js'
 import {
-  ALL_FREE, isPro, planLabel, plan, credits, creditsBalance, usage
+  ALL_FREE, isPro, planLabel, plan, creditsBalance, usage
 } from '../composables/useMembership.js'
-import { projects, projectLimit } from '../composables/useStudio.js'
-import { favorites, ASSET_COUNT } from '../composables/useAssets.js'
-import { inventorySummary } from '../composables/useInventory.js'
+import { projects, projectLimit, options } from '../composables/useStudio.js'
+import { favorites, favoriteAssets, ASSET_COUNT } from '../composables/useAssets.js'
+import { inventorySummary, inventoryColors, stockOf, inventoryUpdatedAt } from '../composables/useInventory.js'
+import { getBrand } from '../lib/palettes.js'
 import { num, timeAgo } from '../lib/forge.js'
 import { packedBeadCount } from '../lib/archive.js'
+
+const router = useRouter()
 
 /* ------------------------------------------------------------------ 账号与订单
    服务端权益（卡密兑换 / 订单发卡）在这里落地：登录后能兑换卡密、看订单与已开通权益。 */
@@ -42,7 +54,7 @@ const entitlements = ref([])
 const accountLoading = ref(false)
 const wechatStatus = ref(null)
 
-/* 登录统一先弹框：手机端的扫码路径在弹窗里说明 */
+/** 登录统一先弹框：手机端的扫码路径在弹窗里说明 */
 function openLogin() {
   loginOpen.value = true
 }
@@ -112,9 +124,9 @@ const entitlementStartsAt = computed(() => {
 })
 
 const entitlementExpiresAt = computed(() => {
-  if (!activeEntitlements.value.length) return null
-  if (activeEntitlements.value.some(e => !e.expires_at)) return null
   const list = activeEntitlements.value.map(e => e.expires_at).filter(Boolean).sort()
+  if (!list.length) return null
+  if (activeEntitlements.value.some(e => !e.expires_at)) return null
   return list[list.length - 1] || null
 })
 
@@ -126,6 +138,14 @@ function fmtDateTime(value) {
   if (Number.isNaN(d.getTime())) return '—'
   const pad = n => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function fmtDate(value) {
+  if (!value) return '—'
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return '—'
+  const pad = n => String(n).padStart(2, '0')
+  return `${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日`
 }
 
 function identityName(row) {
@@ -187,6 +207,8 @@ const daysLeft = computed(() => {
   return Math.max(0, Math.ceil((expireAt.value.getTime() - Date.now()) / 86400000))
 })
 
+/* ------------------------------------------------------------------ 概览数据 */
+
 /** 我做过多少作品、攒了多少豆子 */
 const myStats = computed(() => {
   const all = projects.value
@@ -210,469 +232,766 @@ const myStats = computed(() => {
     return total && Math.min((p.buildProgress || []).length, total) >= total
   }
   const done = all.filter(isDone).length
-  const beadsDone = all.reduce((s, p) => s + (p.finishedAt ? (p.completedBeads || 0) : 0), 0)
+  const beadsDone = all.reduce((s, p) => (p.finishedAt ? (p.completedBeads || 0) : 0), 0)
   return { count: all.length, beads, maxColors: colors, done, beadsDone }
 })
 
-/** 成长体系（PRD §53）：按完成作品数 */
-const badges = computed(() => {
-  const n = myStats.value.done
-  return [
-    { name: '新手', need: 1, icon: 'smile', got: n >= 1 || myStats.value.count >= 1 },
-    { name: '入门', need: 5, icon: 'layers', got: n >= 5 },
-    { name: '爱好者', need: 20, icon: 'palette', got: n >= 20 },
-    { name: '拼豆达人', need: 50, icon: 'star', got: n >= 50 },
-    { name: '设计师', need: 10, icon: 'sparkles', got: false, desc: '发布 10 个原创作品' }
-  ]
+/** 最近 7 天里动过的作品（概览卡右侧那句「N 份最近编辑」） */
+const recentCount = computed(() => {
+  const week = Date.now() - 7 * 86400000
+  return projects.value.filter(p => Number(p.updatedAt || p.createdAt || 0) >= week).length
 })
 
-const nextBadge = computed(() => badges.value.find(b => !b.got) || null)
+/** 库存低于这条线的颜色算「待补充」 */
+const STOCK_LOW = 100
+const lowStock = computed(() => inventoryColors.value.filter(c => stockOf(c.id) < STOCK_LOW))
+/** 库存表按数量升序：最缺的排前面 */
+const stockRows = computed(() =>
+  [...inventoryColors.value]
+    .map(c => ({ color: c, qty: stockOf(c.id) }))
+    .sort((a, b) => a.qty - b.qty)
+)
 
-/* 会员开通 / 退订 / Credits 购买都走服务端。
-   这里不再提供任何本地演示入口，避免改前端状态就能解锁收费功能。 */
+/** 常用色板（工作台当前用的那一套） */
+const brandLabel = computed(() => {
+  const b = getBrand(options.brandId)
+  return b ? b.name.replace(/\s*套装$/, '') : 'MARD'
+})
+
+/* ------------------------------------------------------------------ 我的作品 */
+
+const workFilter = ref('recent')
+const workQuery = ref('')
+
+const sortedWorks = computed(() =>
+  [...projects.value].sort((a, b) => (Number(b.updatedAt || 0) - Number(a.updatedAt || 0)))
+)
+
+const visibleWorks = computed(() => {
+  const q = workQuery.value.trim()
+  let list = sortedWorks.value
+  if (workFilter.value === 'free') list = list.filter(p => p.createMode === 'free')
+  else if (workFilter.value === 'edit') list = list.filter(p => p.createMode !== 'free')
+  if (q) list = list.filter(p => String(p.name || '').includes(q))
+  return list.slice(0, 3)
+})
+
+/** 作品卡片上的类型标签（设计稿：自由画布 / 图纸转换；老存档没有 createMode，按图纸转换算） */
+function workModeLabel(p) {
+  return p.createMode === 'free' ? '自由画布' : '图纸转换'
+}
+
+function workStats(p) {
+  const v = (p.variants || [])[0]
+  const s = (v && v.stats) || {}
+  return {
+    size: s.artW && s.artH ? `${s.artW} × ${s.artH} 格` : '尺寸未记录',
+    colors: s.colorCount || 0,
+    beads: s.beadCount || 0
+  }
+}
+
+function openWork(p) {
+  /* 装载交给工作台：它要先按作品的创作模式把当前那份文档收好，
+     直接在这里 openProject 会把另一种模式正在编辑的图纸覆盖掉 */
+  router.push(`/editor/${p.id}`)
+}
+
+/* ------------------------------------------------------------------ 素材收藏 */
+
+const favAssets = computed(() => favoriteAssets.value.slice(0, 3))
+
+function assetSize(a) {
+  if (a.beadCols && a.beadRows) return `${a.beadCols} × ${a.beadRows} 格`
+  return a.size || '—'
+}
+
+/* ------------------------------------------------------------------ 个人信息 */
+
+const userName = computed(() => displayName.value || (isLoggedIn.value ? '本机访客' : '豆友'))
+const userInitial = computed(() => (userName.value || '豆').slice(0, 1))
+const userBio = computed(() => {
+  if (!isLoggedIn.value) return '登录后可绑定微信或使用邮箱账号，换设备也能恢复身份。'
+  if (isAnonymousDevice.value) return '本机匿名身份，也可以登录其他账号同步作品。'
+  if (wechatIdentity.value) return '微信账号，也可以绑定邮箱。'
+  if (currentUser.value && currentUser.value.email) return '邮箱账号，也可以绑定微信。'
+  return '登录后可绑定微信或使用邮箱账号，换设备也能恢复身份。'
+})
+
+/** 手机号打码：138 **** 0628 */
+function maskPhone(phone) {
+  const s = String(phone || '')
+  if (!s) return '未绑定'
+  if (s.length < 7) return s.slice(0, 1) + ' **** ' + s.slice(-2)
+  return `${s.slice(0, 3)} **** ${s.slice(-4)}`
+}
+
+/* ------------------------------------------------------------------ 库存时间 */
+
+/** 库存最后一次更新的日期（设计稿：我的库存卡右下角「最近更新 11 月 1 日」） */
+const inventoryUpdatedLabel = computed(() => {
+  const ts = inventoryUpdatedAt.value
+  if (!ts) return '还没有记录'
+  const d = new Date(ts)
+  if (Number.isNaN(d.getTime())) return '还没有记录'
+  const now = new Date()
+  const sameYear = d.getFullYear() === now.getFullYear()
+  const sameDay = sameYear &&
+    d.getMonth() === now.getMonth() && d.getDate() === now.getDate()
+  if (sameDay) return '今天'
+  return sameYear
+    ? `${d.getMonth() + 1} 月 ${d.getDate()} 日`
+    : `${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日`
+})
 </script>
 
 <template>
-  <div class="wrap main--pad">
-    <div class="pagehead">
-      <div>
-        <h1>我的账户</h1>
-        <p>
-          当前身份：<b>{{ isLoggedIn ? (displayName || '本机访客') : '尚未创建' }}</b>
-          <span v-if="isAnonymousDevice" class="tag">本机匿名身份</span>
-          · <template v-if="ALL_FREE">全部功能免费开放，</template><template v-else>会员权益由服务端记录，</template>作品与库存保存在本机浏览器。
-        </p>
+  <div class="ac">
+    <!-- ============================ 个人空间导航 ============================ -->
+    <nav class="acNav" aria-label="个人空间">
+      <div class="acNav__inner">
+        <span class="acNav__tab is-on">个人概览</span>
+        <RouterLink class="acNav__tab" to="/projects">我的作品</RouterLink>
+        <RouterLink class="acNav__tab" to="/materials/?col=fav">素材收藏</RouterLink>
+        <RouterLink class="acNav__tab" to="/inventory">我的库存</RouterLink>
+        <span class="acNav__spacer"></span>
+        <RouterLink class="acNav__tab acNav__tab--quiet" to="/settings">设置</RouterLink>
+        <RouterLink class="acNav__lib" to="/materials/">
+          <Icon name="images" :size="16" />素材库
+        </RouterLink>
       </div>
-      <div class="pagehead__actions">
-        <button
-          v-if="!isLoggedIn || isAnonymousDevice"
-          type="button"
-          class="btn primary"
-          data-audit="account-login"
-          @click="openLogin"
-        >登录</button>
-      </div>
-    </div>
+    </nav>
 
-    <!-- 账号与登录方式（需求 §3.2「账号与安全」） -->
-    <section class="authCard" data-audit="account-auth">
-      <div class="authCard__head">
-        <div class="authWho">
-          <img
-            v-if="currentUser && currentUser.avatar_url"
-            class="authAvatar"
-            :src="currentUser.avatar_url"
-            alt=""
-            referrerpolicy="no-referrer"
-          >
-          <div v-else class="authAvatar authAvatar--fallback">{{ isLoggedIn ? '豆' : '?' }}</div>
-          <div>
-            <h2>{{ isLoggedIn ? (displayName || '本机访客') : '还没有登录' }}</h2>
-            <p class="hint">
-              <template v-if="isLoggedIn">
-                {{ currentUser && currentUser.username ? '@' + currentUser.username : '' }}
-                <span v-if="isAnonymousDevice" class="tag warn">本机匿名身份</span>
-                <template v-else>
-                  <span v-if="wechatIdentity" class="tag free">微信账号</span>
-                  <span v-else-if="currentUser && currentUser.email" class="tag free">邮箱账号</span>
-                </template>
-              </template>
-              <template v-else>登录后可绑定微信或使用邮箱账号，换设备也能恢复身份。</template>
+    <div class="acInner">
+      <!-- ============================ 欢迎行 ============================ -->
+      <header class="acHero">
+        <div class="acHero__text">
+          <h1 class="ty-page">{{ userName }}，今天也来拼点喜欢的。</h1>
+          <p class="ty-body is-muted">在这里收好你的图纸、灵感和每一颗拼豆。</p>
+        </div>
+        <RouterLink class="acBtn acBtn--lime" to="/editor">
+          <Icon name="arrow-right" :size="16" />返回操作台
+        </RouterLink>
+      </header>
+
+      <!-- ============================ 四张概览卡 ============================ -->
+      <section class="acStats" aria-label="概览">
+        <div class="acStat">
+          <span class="ty-label acStat__name">
+            保存的作品<Icon name="folder-open" :size="14" />
+          </span>
+          <div class="acStat__row">
+            <p class="acStat__value">
+              <b class="ty-metric">{{ myStats.count }}</b><span class="ty-caption">份</span>
             </p>
+            <span class="ty-caption acStat__note">{{ recentCount }} 份最近编辑</span>
           </div>
         </div>
-        <div class="authCard__actions">
-          <button v-if="!isLoggedIn || isAnonymousDevice" class="btn primary sm" @click="openLogin">
-            {{ isLoggedIn ? '登录其他账号' : '登录' }}
-          </button>
-          <button v-if="isLoggedIn" class="btn btn-secondary sm" @click="doLogout">退出登录</button>
-        </div>
-      </div>
 
-      <div class="authMethods">
-        <div class="authMethod">
-          <div class="authMethod__icon authMethod__icon--wechat">微</div>
-          <div class="authMethod__body">
-            <b>微信登录</b>
-            <span v-if="wechatIdentity" class="hint">
-              已绑定 {{ identityName(wechatIdentity) }}
-              <template v-if="wechatIdentity.last_login_at"> · 最近登录 {{ fmtDateTime(wechatIdentity.last_login_at) }}</template>
-            </span>
-            <span v-else class="hint">未绑定。绑定后可以直接用微信登录这个账号。</span>
-            <span v-if="wechatNotConfigured || wechatBlocked" class="hint warn" data-audit="account-wechat-status">
-              {{ wechatUnavailableReason }}
-            </span>
-          </div>
-          <div class="authMethod__action">
-            <button
-              v-if="isLoggedIn && wechatIdentity"
-              class="btn btn-secondary sm"
-              :disabled="identities.length <= 1"
-              :title="identities.length <= 1 ? '账号至少要保留一种登录方式' : '解绑微信'"
-              @click="unbindIdentity(wechatIdentity)"
-            >解绑</button>
-            <button
-              v-else-if="isLoggedIn"
-              class="btn primary sm"
-              data-audit="account-bind-wechat"
-              :disabled="wechatBlocked || wechatNotConfigured"
-              :title="wechatBlocked || wechatNotConfigured ? wechatUnavailableReason : '绑定微信'"
-              @click="bindWeChat"
-            >绑定微信</button>
-            <button v-else class="btn btn-secondary sm" @click="openLogin">去登录</button>
+        <div class="acStat">
+          <span class="ty-label acStat__name">
+            素材收藏<Icon name="heart" :size="14" />
+          </span>
+          <div class="acStat__row">
+            <p class="acStat__value">
+              <b class="ty-metric">{{ favorites.length }}</b><span class="ty-caption">个</span>
+            </p>
+            <span class="ty-caption acStat__note">来自素材库</span>
           </div>
         </div>
-      </div>
 
-      <p class="authNote">
-        账号与安全：解绑前必须保留至少一种可用的登录方式。
-        微信身份按 openid 唯一，不会按昵称或头像自动合并；如需合并账号请联系客服人工核验。
-      </p>
-    </section>
+        <div class="acStat">
+          <span class="ty-label acStat__name">
+            拼豆库存<Icon name="package" :size="14" />
+          </span>
+          <div class="acStat__row">
+            <p class="acStat__value">
+              <b class="ty-metric">{{ num(inventorySummary.beads) }}</b><span class="ty-caption">颗</span>
+            </p>
+            <span class="ty-caption acStat__note">{{ brandLabel }} · {{ inventorySummary.colors }} 色</span>
+          </div>
+        </div>
 
-    <!-- 权益状态（服务端时间）：临时免费期间不展示会员与卡密相关模块 -->
-    <section v-if="!ALL_FREE" class="entCard" data-audit="account-entitlement" :data-state="entitlementState.key">
-      <div class="entCard__head">
-        <div>
-          <h2>我的权益</h2>
-          <p class="hint">状态与时间由服务端判定，前端只负责展示。</p>
+        <div class="acStat acStat--warn">
+          <span class="ty-label acStat__name">
+            待补充颜色<Icon name="info" :size="14" />
+          </span>
+          <div class="acStat__row">
+            <p class="acStat__value">
+              <b class="ty-metric">{{ lowStock.length }}</b><span class="ty-caption">色</span>
+            </p>
+            <span class="ty-caption acStat__note">低于 {{ STOCK_LOW }} 颗提醒线</span>
+          </div>
         </div>
-        <div class="entCard__actions">
-          <button class="btn primary sm" @click="scrollToRedeem">兑换卡密</button>
-        </div>
-      </div>
-      <div class="entGrid">
-        <div class="entItem">
-          <span class="muted">权益状态</span>
-          <b class="entState" :class="entitlementState.key">{{ entitlementState.label }}</b>
-        </div>
-        <div class="entItem">
-          <span class="muted">当前套餐</span>
-          <b>{{ currentPlanNames }}</b>
-        </div>
-        <div class="entItem">
-          <span class="muted">激活时间</span>
-          <b>{{ entitlementStartsAt ? fmtDateTime(entitlementStartsAt) : '—' }}</b>
-        </div>
-        <div class="entItem">
-          <span class="muted">到期时间</span>
-          <b>{{ isLifetime ? '不限时长' : (entitlementExpiresAt ? fmtDateTime(entitlementExpiresAt) : '—') }}</b>
-        </div>
-      </div>
-      <p v-if="entitlementState.key === 'expired'" class="entHint warn">
-        权益已到期，免费功能仍可继续使用；兑换新卡密即可恢复付费功能。
-      </p>
-      <p v-else-if="entitlementState.key === 'disabled'" class="entHint warn">
-        账号已被停用，请联系客服处理。
-      </p>
-      <p v-else-if="entitlementState.key === 'inactive'" class="entHint">
-        还没有兑换过卡密。基础图纸生成与编辑一直免费。
-      </p>
-      <p v-if="accountLoading" class="hint">正在刷新账号与权益…</p>
-    </section>
+      </section>
 
-    <!-- 账号与卡密兑换 + 我的订单：临时免费期间整块停用 -->
-    <section v-if="!ALL_FREE" id="redeem" class="accountBox">
-      <div class="accountBox__col">
-        <h2 class="accountBox__title">账号与卡密兑换</h2>
-        <CardRedeemPanel />
-      </div>
-      <div class="accountBox__col">
-        <h2 class="accountBox__title">我的订单</h2>
-        <template v-if="isLoggedIn">
-          <div v-if="myOrders.length" class="orderList">
-            <div v-for="o in myOrders" :key="o.id" class="orderRow">
-              <div>
-                <b>{{ o.plan_name }}</b>
-                <div class="muted orderRow__no">{{ o.order_no }}</div>
+      <!-- ============================ 两列主体 ============================ -->
+      <div class="acGrid">
+        <!-- ---------------------------- 左列 ---------------------------- -->
+        <div class="acCol">
+          <!-- 我的作品 -->
+          <section class="acCard" data-audit="account-works">
+            <header class="acCard__head">
+              <h2 class="ty-section">我的作品 <span class="acCard__count ty-num">{{ myStats.count }}</span></h2>
+              <RouterLink class="acLink" to="/projects">管理全部 <Icon name="chevron-right" :size="16" /></RouterLink>
+            </header>
+
+            <div class="acWorks__bar">
+              <div class="acPills" role="tablist" aria-label="作品筛选">
+                <button
+                  v-for="f in [
+                    { key: 'recent', label: '最近编辑' },
+                    { key: 'free', label: '自由画布' },
+                    { key: 'edit', label: '图纸转换' }
+                  ]" :key="f.key" type="button" role="tab"
+                  :aria-selected="workFilter === f.key"
+                  class="acPill" :class="{ 'is-on': workFilter === f.key }"
+                  @click="workFilter = f.key"
+                >{{ f.label }}</button>
               </div>
-              <div class="orderRow__right">
-                <span class="tag" :class="o.payment_status === 'paid' ? 'free' : 'warn'">{{ o.payment_status_text }}</span>
-                <span class="muted">¥{{ Number(o.amount_due).toFixed(2) }}</span>
-                <span class="tag" :class="o.fulfillment_status === 'issued' ? 'free' : ''">{{ o.fulfillment_status_text }}</span>
+              <label class="acSearch">
+                <Icon name="search" :size="16" />
+                <input v-model="workQuery" type="search" placeholder="搜索我的图纸" aria-label="搜索我的图纸">
+              </label>
+            </div>
+
+            <div v-if="visibleWorks.length" class="acWorks">
+              <article v-for="p in visibleWorks" :key="p.id" class="acWork">
+                <div class="acWork__art">
+                  <img v-if="p.thumbnail" :src="p.thumbnail" :alt="p.name">
+                  <div v-else class="acWork__art--empty"><Icon name="image" :size="20" /></div>
+                  <span class="acWork__tag ty-caption is-strong">{{ workModeLabel(p) }}</span>
+                  <RouterLink class="acWork__more" :to="'/editor/' + p.id" :aria-label="`${p.name} 的更多操作`">
+                    <Icon name="ellipsis" :size="16" />
+                  </RouterLink>
+                </div>
+                <div class="acWork__body">
+                  <h3 class="ty-card acWork__name">{{ p.name }}</h3>
+                  <p class="ty-caption acWork__meta">
+                    {{ workStats(p).size }} · {{ workStats(p).colors }} 色 · {{ num(workStats(p).beads) }} 颗
+                  </p>
+                  <div class="acWork__foot">
+                    <span class="ty-caption">{{ timeAgo(p.updatedAt) }}编辑</span>
+                    <button type="button" class="acLink acLink--strong" @click="openWork(p)">
+                      继续创作 <Icon name="arrow-right" :size="16" />
+                    </button>
+                  </div>
+                </div>
+              </article>
+            </div>
+            <p v-else class="acEmpty ty-body is-muted">
+              还没有作品。上传一张图，豆玩就能把它变成拼豆图纸。
+              <RouterLink class="acLink acLink--strong" to="/editor">去创作</RouterLink>
+            </p>
+          </section>
+
+          <!-- 素材收藏 -->
+          <section class="acCard" data-audit="account-favorites">
+            <header class="acCard__head">
+              <h2 class="ty-section">素材收藏 <span class="acCard__count ty-num">{{ favorites.length }}</span></h2>
+              <RouterLink class="acLink" to="/materials/?col=fav">查看全部 <Icon name="chevron-right" :size="16" /></RouterLink>
+            </header>
+            <p class="ty-caption acCard__desc">
+              从素材库收集的灵感，使用后会另存为你的作品。
+            </p>
+
+            <div v-if="favAssets.length" class="acFavs">
+              <article v-for="a in favAssets" :key="a.id" class="acFav">
+                <div class="acFav__art">
+                  <img v-if="a.image" :src="a.image" :alt="a.name">
+                  <div v-else class="acFav__art--empty" v-html="a.svg"></div>
+                  <span class="acFav__heart"><Icon name="heart" :size="16" /></span>
+                </div>
+                <div class="acFav__body">
+                  <div class="acFav__row">
+                    <h3 class="ty-card acFav__name">{{ a.name }}</h3>
+                    <RouterLink class="acLink acLink--strong" :to="'/materials/' + a.slug">
+                      使用素材 <Icon name="arrow-right" :size="16" />
+                    </RouterLink>
+                  </div>
+                  <p class="ty-caption acFav__meta">{{ assetSize(a) }} · {{ a.difficulty || '图片素材' }}</p>
+                </div>
+              </article>
+            </div>
+            <p v-else class="acEmpty ty-body is-muted">
+              还没有收藏素材。先去素材库逛逛，把喜欢的图案存起来。
+            </p>
+
+            <footer class="acFav__foot">
+              <span class="ty-caption">下一个想拼的，也许就在这里。</span>
+              <RouterLink class="acLink acLink--strong" to="/materials/">
+                逛逛素材库 <Icon name="arrow-right" :size="16" />
+              </RouterLink>
+            </footer>
+          </section>
+        </div>
+
+        <!-- ---------------------------- 右列 ---------------------------- -->
+        <div class="acCol acCol--side">
+          <!-- 个人信息 -->
+          <section class="acCard" data-audit="account-info">
+            <header class="acCard__head">
+              <h2 class="ty-section">个人信息</h2>
+              <RouterLink class="acLink" to="/settings">编辑资料 <Icon name="chevron-right" :size="16" /></RouterLink>
+            </header>
+
+            <div class="acInfo__who">
+              <div class="acAvatar">
+                <img v-if="currentUser && currentUser.avatar_url" :src="currentUser.avatar_url" alt="" referrerpolicy="no-referrer">
+                <span v-else>{{ userInitial }}</span>
+              </div>
+              <div class="acInfo__id">
+                <h3 class="ty-section">{{ userName }}</h3>
+                <p class="ty-caption">{{ userBio }}</p>
               </div>
             </div>
+
+            <dl class="acInfo__rows">
+              <div class="acInfo__row">
+                <dt class="ty-caption">豆玩 ID</dt>
+                <dd class="ty-num">{{ (currentUser && currentUser.username) || '—' }}</dd>
+              </div>
+              <div class="acInfo__row">
+                <dt class="ty-caption">绑定手机</dt>
+                <dd class="ty-num">{{ maskPhone(currentUser && currentUser.phone) }}</dd>
+              </div>
+              <div class="acInfo__row">
+                <dt class="ty-caption">加入豆玩</dt>
+                <dd class="ty-body">{{ currentUser && currentUser.created_at ? fmtDate(currentUser.created_at) : '—' }}</dd>
+              </div>
+            </dl>
+
+            <p class="acInfo__palette">
+              <Icon name="palette" :size="16" />
+              <span class="ty-label">常用色板 {{ brandLabel }} · 2.6 mm 拼豆</span>
+            </p>
+
+            <div class="acInfo__actions">
+              <button
+                v-if="!isLoggedIn || isAnonymousDevice"
+                type="button" class="acBtn acBtn--lime" data-audit="account-login" @click="openLogin"
+              >{{ isLoggedIn ? '登录其他账号' : '登录' }}</button>
+              <button
+                v-else-if="!wechatIdentity"
+                type="button" class="acBtn acBtn--lime" data-audit="account-bind-wechat"
+                :disabled="wechatBlocked || wechatNotConfigured"
+                :title="wechatBlocked || wechatNotConfigured ? wechatUnavailableReason : '绑定微信'"
+                @click="bindWeChat"
+              >绑定微信</button>
+              <button
+                v-else type="button" class="acBtn acBtn--ghost"
+                :disabled="identities.length <= 1"
+                :title="identities.length <= 1 ? '账号至少要保留一种登录方式' : '解绑微信'"
+                @click="unbindIdentity(wechatIdentity)"
+              >解绑微信</button>
+              <button v-if="isLoggedIn" type="button" class="acBtn acBtn--ghost" @click="doLogout">退出登录</button>
+            </div>
+            <p v-if="wechatNotConfigured || wechatBlocked" class="ty-caption acInfo__warn" data-audit="account-wechat-status">
+              {{ wechatUnavailableReason }}
+            </p>
+            <p v-if="accountLoading" class="ty-caption">正在刷新账号与权益…</p>
+          </section>
+
+          <!-- 我的库存 -->
+          <section class="acCard" data-audit="account-stock">
+            <header class="acCard__head">
+              <h2 class="ty-section">我的库存</h2>
+              <RouterLink class="acLink" to="/inventory">管理库存 <Icon name="chevron-right" :size="16" /></RouterLink>
+            </header>
+
+            <div class="acStock__bar">
+              <span class="ty-label">{{ brandLabel }} · 2.6 mm</span>
+              <span class="ty-caption">已录入 {{ inventorySummary.colors }} 色</span>
+            </div>
+
+            <p v-if="lowStock.length" class="acStock__warn">
+              <Icon name="info" :size="16" />
+              <span class="ty-caption">{{ lowStock.length }} 色不足 {{ STOCK_LOW }} 颗，开拼前记得补充。</span>
+            </p>
+
+            <div v-if="stockRows.length" class="acStock">
+              <div class="acStock__head">
+                <span class="ty-caption">色号 / 颜色</span>
+                <span class="ty-caption">剩余颗数</span>
+                <span class="ty-caption">状态</span>
+              </div>
+              <div v-for="row in stockRows.slice(0, 4)" :key="row.color.id" class="acStock__row">
+                <span class="acStock__name">
+                  <i class="acStock__chip" :style="{ background: row.color.hex }"></i>
+                  <b class="ty-label">{{ row.color.code }}</b>
+                  <span class="ty-caption">{{ row.color.name }}</span>
+                </span>
+                <span class="ty-num acStock__qty">{{ num(row.qty) }}</span>
+                <span class="ty-caption acStock__state" :class="{ 'is-low': row.qty < STOCK_LOW }">
+                  {{ row.qty < STOCK_LOW ? '待补充' : '充足' }}
+                </span>
+              </div>
+              <p v-if="stockRows.length > 4" class="ty-caption acStock__more">
+                还有 {{ stockRows.length - 4 }} 色，<RouterLink class="acLink acLink--strong" to="/inventory">去库存页查看</RouterLink>
+              </p>
+            </div>
+            <p v-else class="acEmpty ty-body is-muted">
+              还没有录入库存。<RouterLink class="acLink acLink--strong" to="/inventory">记录第一颗豆子</RouterLink>
+            </p>
+
+            <footer class="acStock__foot">
+              <span class="ty-caption">最近更新 {{ inventoryUpdatedLabel }}</span>
+              <RouterLink class="acBtn acBtn--lime acBtn--sm" to="/inventory">
+                <Icon name="plus" :size="16" />记录补豆
+              </RouterLink>
+            </footer>
+          </section>
+        </div>
+      </div>
+
+      <!-- ============================ 会员与账号（临时免费期间整块隐藏） ============================ -->
+      <section v-if="!ALL_FREE" class="acCard acCard--wide" data-audit="account-entitlement" :data-state="entitlementState.key">
+        <header class="acCard__head">
+          <h2 class="ty-section">我的权益</h2>
+          <button type="button" class="acBtn acBtn--lime acBtn--sm" @click="scrollToRedeem">兑换卡密</button>
+        </header>
+        <div class="acEnt">
+          <div class="acEnt__item">
+            <span class="ty-caption">权益状态</span>
+            <b class="ty-label is-strong" :class="'is-' + entitlementState.key">{{ entitlementState.label }}</b>
           </div>
-          <div v-else class="empty" style="padding:22px 10px">
-            <strong>还没有订单</strong>
-            <p>在「会员与定价」里下单后，未接入在线支付时需要管理员确认到账才会发放卡密。</p>
+          <div class="acEnt__item">
+            <span class="ty-caption">当前套餐</span>
+            <b class="ty-label is-strong">{{ currentPlanNames }}</b>
           </div>
-          <button class="btn btn-secondary sm" @click="refreshOrders">刷新订单</button>
-        </template>
-        <div v-else class="empty" style="padding:22px 10px">
-          <strong>还没有本机身份</strong>
-          <p>第一次兑换卡密或下单时会自动创建，不需要注册。订单与权益记录在服务端。</p>
-        </div>
-      </div>
-    </section>
-
-    <!-- 会员卡：临时免费期间换成免费开放说明 -->
-    <section v-if="ALL_FREE" class="memberCard pro" data-audit="account-free">
-      <div class="memberCard__left">
-        <div class="memberCard__icon"><PixelIcon name="sparkles" :size="28" /></div>
-        <div>
-          <h2>全部功能免费开放</h2>
-          <p class="muted" style="margin-top:5px">
-            卡密与会员制暂时停用，所有已上线功能直接可用，不需要兑换或开通。
-          </p>
-        </div>
-      </div>
-      <div class="memberCard__right">
-        <RouterLink to="/editor" class="btn primary">继续创作</RouterLink>
-      </div>
-    </section>
-
-    <section v-else class="memberCard" :class="{ pro: isPro }">
-      <div class="memberCard__left">
-        <div class="memberCard__icon"><PixelIcon :name="isPro ? 'star' : 'palette'" :size="28" /></div>
-        <div>
-          <h2>{{ planLabel }}</h2>
-          <p class="muted" style="margin-top:5px">
-            <template v-if="isPro">
-              <template v-if="expireAt">有效期至 {{ expireAt.toLocaleDateString() }}（还剩 {{ daysLeft }} 天）</template>
-              <template v-else>永久有效（Founder / Early Bird）</template>
-            </template>
-            <template v-else>基础图片转换、基础编辑、免费素材、PNG 导出一直免费且不限次数</template>
-          </p>
-          <p v-if="startedAt" class="hint" style="margin-top:4px">开通于 {{ startedAt.toLocaleDateString() }}</p>
-        </div>
-      </div>
-      <div class="memberCard__right">
-        <RouterLink v-if="isPro" to="/editor" class="btn primary">继续创作</RouterLink>
-      </div>
-    </section>
-
-    <!-- 数据 -->
-    <div class="statRow">
-      <div class="summaryCard">
-        <span class="muted">我的作品</span>
-        <b>{{ myStats.count }} / {{ projectLimit() }}</b>
-        <span class="hint">其中已完成 {{ myStats.done }} 件 · {{ num(myStats.beadsDone) }} 颗豆</span>
-      </div>
-      <div class="summaryCard">
-        <span class="muted">累计设计豆数</span>
-        <b>{{ num(myStats.beads) }}</b>
-        <span class="hint">最多一作用到 {{ myStats.maxColors }} 色</span>
-      </div>
-      <RouterLink to="/materials/?col=fav" class="summaryCard summaryCard--link" data-audit="account-favorites">
-        <span class="muted">收藏素材</span>
-        <b>{{ favorites.length }}</b>
-        <span class="hint">素材库{{ ASSET_COUNT ? `共 ${ASSET_COUNT} 个` : '上新中' }} · 查看收藏 →</span>
-      </RouterLink>
-      <div class="summaryCard">
-        <span class="muted">库存</span>
-        <b>{{ inventorySummary.colors }} 色</b>
-        <span class="hint">{{ num(inventorySummary.beads) }} 颗</span>
-      </div>
-    </div>
-
-    <!-- 成长体系 -->
-    <section class="secHead">
-      <div>
-        <h2>成长记录</h2>
-        <p>完成的每一件作品都会累积，这些徽章会出现在分享卡上</p>
-      </div>
-    </section>
-    <div class="card">
-      <div class="card__body">
-        <div class="badgeRow">
-          <div v-for="b in badges" :key="b.name" class="badgeItem" :class="{ got: b.got }">
-            <div class="badgeIcon"><PixelIcon :name="b.got ? b.icon : 'lock'" :size="26" /></div>
-            <b>{{ b.name }}</b>
-            <span class="hint">{{ b.desc || `完成 ${b.need} 个作品` }}</span>
+          <div class="acEnt__item">
+            <span class="ty-caption">激活时间</span>
+            <b class="ty-body">{{ entitlementStartsAt ? fmtDateTime(entitlementStartsAt) : '—' }}</b>
+          </div>
+          <div class="acEnt__item">
+            <span class="ty-caption">到期时间</span>
+            <b class="ty-body">{{ isLifetime ? '不限时长' : (entitlementExpiresAt ? fmtDateTime(entitlementExpiresAt) : '—') }}</b>
           </div>
         </div>
-        <p v-if="nextBadge" class="hint" style="margin-top:14px">
-          下一个徽章：<b>{{ nextBadge.name }}</b> ——
-          {{ nextBadge.desc || `再完成 ${Math.max(0, nextBadge.need - myStats.done)} 个作品` }}。
-          去 <RouterLink to="/build" style="color:var(--coral-deep);font-weight:800">完成页</RouterLink>
-          点「我拼完了 · 完成作品」就会记上一件（免费版也能用）。
+        <p v-if="entitlementState.key === 'expired'" class="ty-caption acCard__note">
+          权益已到期，免费功能仍可继续使用；兑换新卡密即可恢复付费功能。
         </p>
-      </div>
-    </div>
-
-    <!-- Credits -->
-    <section class="secHead">
-      <div>
-        <h2>AI Credits（未开放）</h2>
-        <p>基础图片转换不消耗 Credits；只有服务端 AI 功能才计费</p>
-      </div>
-    </section>
-    <div class="creditBox">
-      <div>
-        <b style="font-size:22px;letter-spacing:-.02em">{{ creditsBalance }} credits</b>
-        <p class="hint" style="margin-top:5px">
-          已使用 {{ usage.aiCalls || 0 }} 次 AI 调用 ·
-          累计生成 {{ usage.generated || 0 }} 次图案 · 导出 {{ usage.exported || 0 }} 次
+        <p v-else-if="entitlementState.key === 'disabled'" class="ty-caption acCard__note">
+          账号已被停用，请联系客服处理。
         </p>
-      </div>
-      <div class="row row--wrap">
-        <span class="tag warn">AI 生图尚未接入，暂不售卖 Credits</span>
-      </div>
-    </div>
-    <p class="hint" style="margin-top:8px">
-      基础图片转拼豆完全在浏览器本地完成，不消耗 Credits。
-      服务端 AI 功能接入并通过测试后，才会开放购买与计费。
-    </p>
+        <p v-else-if="entitlementState.key === 'inactive'" class="ty-caption acCard__note">
+          还没有兑换过卡密。基础图纸生成与编辑一直免费。
+        </p>
+      </section>
 
-    <div v-if="credits.log && credits.log.length" class="tableWrap" style="margin-top:14px">
-      <table class="table">
-        <thead><tr><th>时间</th><th>说明</th><th class="num">Credits</th></tr></thead>
-        <tbody>
-          <tr v-for="(l, i) in credits.log.slice(0, 12)" :key="i">
-            <td>{{ timeAgo(l.at) }}</td>
-            <td>{{ l.note || 'AI 调用' }}</td>
-            <td class="num" :style="l.cost > 0 ? 'color:var(--danger)' : 'color:var(--green)'">
-              {{ l.cost > 0 ? '-' + l.cost : '+' + (-l.cost) }}
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+      <section v-if="!ALL_FREE" id="redeem" class="acGrid acGrid--pair">
+        <div class="acCard">
+          <header class="acCard__head"><h2 class="ty-section">账号与卡密兑换</h2></header>
+          <CardRedeemPanel />
+        </div>
+        <div class="acCard">
+          <header class="acCard__head">
+            <h2 class="ty-section">我的订单</h2>
+            <button type="button" class="acLink" @click="refreshOrders">刷新</button>
+          </header>
+          <template v-if="isLoggedIn">
+            <div v-if="myOrders.length" class="acOrders">
+              <div v-for="o in myOrders" :key="o.id" class="acOrder">
+                <div>
+                  <b class="ty-label is-strong">{{ o.plan_name }}</b>
+                  <div class="ty-caption">{{ o.order_no }}</div>
+                </div>
+                <div class="acOrder__right">
+                  <span class="ty-caption">{{ o.payment_status_text }}</span>
+                  <span class="ty-num">¥{{ Number(o.amount_due).toFixed(2) }}</span>
+                  <span class="ty-caption">{{ o.fulfillment_status_text }}</span>
+                </div>
+              </div>
+            </div>
+            <p v-else class="acEmpty ty-body is-muted">还没有订单。</p>
+          </template>
+          <p v-else class="acEmpty ty-body is-muted">第一次兑换卡密或下单时会自动创建账号。</p>
+        </div>
+      </section>
 
-    <!-- 入口 -->
-    <section class="secHead">
-      <div><h2>快捷入口</h2><p>你常用的几个地方</p></div>
-    </section>
-    <div class="quickGrid">
-      <RouterLink to="/projects" class="quickItem">
-        <b>我的作品</b><span class="hint">草稿、进度、导出</span>
-      </RouterLink>
-      <RouterLink to="/inventory" class="quickItem">
-        <b>我的库存</b><span class="hint">只用我的豆</span>
-      </RouterLink>
-      <RouterLink to="/materials/" class="quickItem">
-        <b>素材中心</b><span class="hint">{{ ASSET_COUNT ? `${ASSET_COUNT} 个原创素材` : '素材持续上新' }}</span>
-      </RouterLink>
-      <RouterLink to="/settings" class="quickItem">
-        <b>设置</b><span class="hint">数据与隐私</span>
-      </RouterLink>
+      <!-- ============================ 说明 ============================ -->
+      <footer class="acFoot">
+        <span class="ty-body">一颗一颗，把灵感变成作品。</span>
+        <span class="ty-caption">
+          作品云同步 · 库存与收藏按本机记录<template v-if="isPro">
+            · {{ planLabel }} · 有效期至 {{ expireAt ? expireAt.toLocaleDateString() : '不限时长' }}</template>
+        </span>
+      </footer>
     </div>
-
-    <p v-if="ALL_FREE" class="hint" style="margin-top:26px">
-      说明：作品、库存、收藏存在本机浏览器里。当前全部功能免费开放，不需要卡密或套餐；
-      登录只用于绑定账号与恢复身份。
-    </p>
-    <p v-else class="hint" style="margin-top:26px">
-      说明：作品、库存、收藏存在本机浏览器里。会员权益记录在服务端：
-      第一次兑换卡密或下单时会自动创建本机匿名身份，清理浏览器数据或换设备后可能无法自动恢复，
-      请保留卡密；权益丢失可以联系客服核验兑换记录。
-    </p>
-    <p class="hint" style="margin-top:8px">
-      账号删除与数据导出：当前版本尚未提供自助入口，可联系客服人工处理（待办）。
-    </p>
 
     <LoginDialog v-model="loginOpen" @success="loadAccountData" />
   </div>
 </template>
 
 <style scoped>
-.pagehead__actions{display:flex;gap:9px;flex-wrap:wrap}
-.authCard,.entCard{
-  padding:20px;border-radius:var(--r-lg);background:var(--surface);border:1px solid var(--line);
-  box-shadow:var(--sh-1);margin-bottom:18px;
+/* =========================================================================
+   个人中心版面（Figma 1:290）
+   底色体系与排版令牌都取自 global.css 的 --ty-* 变量，
+   这里只写布局与形状，不写字号字重。
+   ========================================================================= */
+.ac{
+  font-family:var(--font-sans);
+  letter-spacing:0;
+  color:var(--ty-body-ink);
+  background:var(--ty-bg);
+  min-height:100%;
+  padding-bottom:32px;
 }
-.authCard__head{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;align-items:center}
-.authWho{display:flex;align-items:center;gap:13px;min-width:0}
-.authAvatar{width:46px;height:46px;border-radius:50%;object-fit:cover;border:1px solid var(--line);flex:0 0 auto}
-.authAvatar--fallback{
-  display:grid;place-items:center;background:var(--primary-soft);color:var(--primary-deep);
-  font-weight:900;font-size:20px;
-}
-.authCard__head h2{font-size:var(--fs-h3)}
-.authCard__actions{display:flex;gap:8px;flex-wrap:wrap}
-.authMethods{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:16px}
-.authMethod{
-  display:flex;align-items:center;gap:11px;padding:12px;border-radius:var(--r-md);
-  background:var(--surface-2);border:1px solid var(--line);
-}
-.authMethod__icon{
-  width:34px;height:34px;border-radius:50%;display:grid;place-items:center;flex:0 0 auto;
-  font-size:12px;font-weight:900;background:var(--surface-3);color:var(--ink-2);
-}
-.authMethod__icon--wechat{background:#07C160;color:#fff}
-.authMethod__body{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
-.authMethod__body b{font-size:var(--fs-xs)}
-.authMethod__body .hint{font-size:var(--fs-2xs)}
-.authMethod__action{flex:0 0 auto}
-.authNote{font-size:var(--fs-2xs);color:var(--muted);line-height:1.8;margin-top:12px}
-.entCard__head{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start}
-.entCard__actions{display:flex;gap:8px;flex-wrap:wrap}
-.entGrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:14px}
-.entItem{
-  display:flex;flex-direction:column;gap:4px;padding:12px;border-radius:var(--r-md);
-  background:var(--surface-2);border:1px solid var(--line);font-size:var(--fs-xs);
-}
-.entItem b{font-size:var(--fs-sm)}
-.entState.active{color:var(--green-deep)}
-.entState.expired,.entState.disabled{color:var(--primary-deep)}
-.entState.inactive{color:var(--muted)}
-.entHint{font-size:var(--fs-2xs);color:var(--muted);line-height:1.8;margin-top:10px}
-.entHint.warn{color:var(--orange-deep)}
-@media(max-width:900px){
-  .authMethods{grid-template-columns:1fr}
-  .entGrid{grid-template-columns:repeat(2,minmax(0,1fr))}
-}
-.accountBox{
-  display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:22px;
-}
-.accountBox__col{
-  padding:20px;border-radius:var(--r-lg);background:var(--surface);border:1px solid var(--line);
-  box-shadow:var(--sh-1);display:flex;flex-direction:column;gap:12px;
-}
-.accountBox__title{font-size:var(--fs-h3)}
-.orderList{display:flex;flex-direction:column;gap:8px;max-height:320px;overflow-y:auto}
-.orderRow{
-  display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;
-  padding:10px 12px;border-radius:var(--r-sm);background:var(--surface-2);border:1px solid var(--line);
-  font-size:var(--fs-xs);
-}
-.orderRow__no{font-size:var(--fs-2xs);font-family:ui-monospace,Menlo,Consolas,monospace;margin-top:2px}
-.orderRow__right{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-@media(max-width:900px){.accountBox{grid-template-columns:1fr}}
 
-.memberCard{
-  display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap;
-  padding:22px;border-radius:var(--r-xl);background:var(--surface);border:1px solid var(--line);
-  box-shadow:var(--sh-1);
+/* ---------------- 个人空间导航 ---------------- */
+.acNav{
+  background:var(--ty-surface);
+  border-bottom:1px solid var(--ty-line);
 }
-.memberCard.pro{background:linear-gradient(140deg,var(--yellow-soft),var(--surface-warm),var(--primary-soft));border-color:#F0E3B4}
-.memberCard__left{display:flex;align-items:center;gap:16px}
-.memberCard__icon{
-  width:56px;height:56px;border-radius:var(--r-lg);display:grid;place-items:center;font-size:26px;
-  background:rgba(255,255,255,.7);border:1px solid var(--line);
+.acNav__inner{
+  width:min(1440px,100%);margin:0 auto;
+  padding:0 64px;
+  display:flex;align-items:center;gap:28px;height:50px;
 }
-.memberCard__left h2{font-size:var(--fs-h2)}
-.memberCard__right{display:flex;gap:9px;flex-wrap:wrap}
-.statRow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:13px;margin-top:18px}
-.summaryCard{
-  padding:15px;border-radius:var(--r-md);background:var(--surface);border:1px solid var(--line);
-  display:flex;flex-direction:column;gap:4px;box-shadow:var(--sh-1);
+.acNav__tab{
+  position:relative;display:inline-flex;align-items:center;height:50px;
+  font-family:var(--font-sans);font-size:var(--ty-label);font-weight:500;
+  line-height:var(--ty-label-lh);letter-spacing:0;color:var(--ty-body-ink);
+  text-decoration:none;white-space:nowrap;
 }
-.summaryCard b{font-size:20px;font-weight:850;letter-spacing:-.02em}
-.summaryCard--link{transition:var(--t);cursor:pointer}
-.summaryCard--link:hover{border-color:var(--primary-deep);transform:translateY(-2px);box-shadow:var(--sh-2)}
-.summaryCard--link .hint{color:var(--yellow-deep);font-weight:700}
-.badgeRow{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
-.badgeItem{
-  text-align:center;padding:16px 10px;border-radius:var(--r-md);border:1px dashed var(--line-strong);
-  background:var(--surface-2);opacity:.72;transition:var(--t);
+.acNav__tab:hover{color:var(--ty-ink)}
+.acNav__tab.is-on{font-weight:700;color:var(--ty-ink)}
+.acNav__tab.is-on::after{
+  content:'';position:absolute;left:0;right:0;bottom:-1px;height:2px;
+  background:var(--ty-accent);border-radius:2px 2px 0 0;
 }
-.badgeItem.got{border-style:solid;border-color:#F0E3B4;background:linear-gradient(160deg,var(--yellow-soft),var(--surface));opacity:1}
-.badgeIcon{font-size:26px;margin-bottom:8px}
-.badgeItem b{display:block;font-size:var(--fs-xs);margin-bottom:3px}
-.creditBox{
+.acNav__tab--quiet{color:var(--ty-muted)}
+.acNav__spacer{flex:1 1 auto}
+.acNav__lib{
+  display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;
+  border:1px solid var(--ty-line);border-radius:99px;background:var(--ty-surface);
+  font-family:var(--font-sans);font-size:var(--ty-label);font-weight:500;
+  line-height:var(--ty-label-lh);letter-spacing:0;color:var(--ty-ink);text-decoration:none;
+}
+.acNav__lib:hover{background:var(--ty-surface-soft)}
+
+/* ---------------- 内容区 ---------------- */
+.acInner{width:min(1440px,100%);margin:0 auto;padding:32px 64px 0}
+
+/* ---------------- 欢迎行 ---------------- */
+.acHero{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;margin-bottom:24px}
+.acHero__text h1{margin:0}
+.acHero__text p{margin:4px 0 0}
+
+/* ---------------- 通用按钮与链接 ---------------- */
+.acBtn{
+  display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 16px;
+  border:1px solid transparent;border-radius:99px;background:transparent;
+  font-family:var(--font-sans);font-size:var(--ty-label);font-weight:500;
+  line-height:var(--ty-label-lh);letter-spacing:0;color:var(--ty-ink);
+  text-decoration:none;cursor:pointer;white-space:nowrap;transition:var(--t);
+}
+.acBtn--lime{background:var(--ty-accent);color:var(--ty-ink);font-weight:700}
+.acBtn--lime:hover{filter:brightness(.97)}
+.acBtn--ghost{border-color:var(--ty-line);background:var(--ty-surface)}
+.acBtn--ghost:hover{background:var(--ty-surface-soft)}
+.acBtn--sm{height:30px;padding:0 12px;font-size:var(--ty-caption);line-height:var(--ty-caption-lh)}
+.acBtn:disabled{opacity:.45;cursor:not-allowed}
+.acLink{
+  display:inline-flex;align-items:center;gap:2px;
+  font-family:var(--font-sans);font-size:var(--ty-caption);font-weight:400;
+  line-height:var(--ty-caption-lh);letter-spacing:0;color:var(--ty-muted);
+  text-decoration:none;cursor:pointer;transition:var(--t);
+}
+.acLink:hover{color:var(--ty-ink)}
+.acLink--strong{font-weight:700;color:var(--ty-ink)}
+.acLink--strong:hover{text-decoration:underline;text-underline-offset:3px}
+
+/* ---------------- 概览卡 ---------------- */
+.acStats{
+  display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin-bottom:24px;
+}
+.acStat{
+  display:flex;flex-direction:column;gap:2px;
+  min-height:96px;padding:0 20px;justify-content:center;
+  background:var(--ty-surface);border:1px solid var(--ty-line);border-radius:16px;
+}
+.acStat--warn{background:var(--ty-accent-soft);border-color:#E3EFC0}
+.acStat__name{display:inline-flex;align-items:center;gap:6px;color:var(--ty-body-ink)}
+.acStat__row{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-top:2px}
+.acStat__value{display:flex;align-items:baseline;gap:6px;margin:0}
+.acStat__value b{font-size:var(--ty-metric);line-height:var(--ty-metric-lh)}
+.acStat__value span{color:var(--ty-muted)}
+.acStat__note{color:var(--ty-muted);text-align:right}
+
+/* ---------------- 两列 ---------------- */
+.acGrid{display:grid;grid-template-columns:minmax(0,1fr) 408px;gap:24px;align-items:start}
+.acGrid--pair{grid-template-columns:1fr 1fr;margin-top:24px}
+.acCol{display:flex;flex-direction:column;gap:24px;min-width:0}
+
+/* ---------------- 卡片 ---------------- */
+.acCard{
+  background:var(--ty-surface);border:1px solid var(--ty-line);border-radius:16px;
+  padding:24px;
+}
+.acCard--wide{margin-top:24px}
+.acCard__head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.acCard__head h2{margin:0;display:inline-flex;align-items:baseline;gap:8px}
+.acCard__count{color:var(--ty-muted);font-weight:400}
+.acCard__desc{margin:6px 0 0}
+.acCard__note{margin:12px 0 0;display:block}
+
+/* ---------------- 我的作品 ---------------- */
+.acWorks__bar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:16px 0 14px;flex-wrap:wrap}
+.acPills{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
+.acPill{
+  height:26px;padding:0 10px;border:1px solid transparent;border-radius:99px;background:transparent;
+  font-family:var(--font-sans);font-size:var(--ty-caption);font-weight:400;
+  line-height:var(--ty-caption-lh);letter-spacing:0;color:var(--ty-muted);cursor:pointer;
+}
+.acPill:hover{color:var(--ty-ink)}
+.acPill.is-on{background:var(--ty-surface-soft);border-color:var(--ty-line);font-weight:700;color:var(--ty-ink)}
+.acSearch{
+  display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;
+  border:1px solid var(--ty-line);border-radius:99px;background:var(--ty-surface-page);
+  color:var(--ty-muted);
+}
+.acSearch input{
+  width:140px;border:0;outline:0;background:transparent;
+  font-family:var(--font-sans);font-size:var(--ty-caption);font-weight:400;
+  line-height:var(--ty-caption-lh);letter-spacing:0;color:var(--ty-body-ink);
+}
+.acSearch input::placeholder{color:var(--ty-muted)}
+.acWorks{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.acWork{
+  display:flex;flex-direction:column;border:1px solid var(--ty-line);border-radius:14px;overflow:hidden;
+  background:var(--ty-surface);transition:var(--t);
+}
+.acWork:hover{border-color:#C9D8BE;box-shadow:0 2px 10px rgba(26,45,34,.06)}
+.acWork__art{position:relative;aspect-ratio:16/11;background:var(--ty-surface-soft);display:grid;place-items:center}
+.acWork__art img{width:100%;height:100%;object-fit:cover;display:block}
+.acWork__art--empty{color:var(--ty-muted)}
+.acWork__tag{
+  position:absolute;left:8px;top:8px;padding:2px 8px;border-radius:99px;
+  background:rgba(255,255,255,.92);color:var(--ty-ink);
+}
+.acWork__more{
+  position:absolute;right:8px;top:8px;width:26px;height:26px;border-radius:50%;
+  display:grid;place-items:center;background:rgba(255,255,255,.92);color:var(--ty-ink);
+}
+.acWork__more:hover{background:#fff}
+.acWork__body{padding:12px 14px 14px;display:flex;flex-direction:column;gap:2px}
+.acWork__name{margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acWork__meta{margin:0}
+.acWork__foot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px}
+
+/* ---------------- 素材收藏 ---------------- */
+.acFavs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-top:14px}
+.acFav{
+  border:1px solid var(--ty-line);border-radius:14px;overflow:hidden;background:var(--ty-surface);transition:var(--t);
+}
+.acFav:hover{border-color:#C9D8BE;box-shadow:0 2px 10px rgba(26,45,34,.06)}
+.acFav__art{position:relative;aspect-ratio:16/11;background:var(--ty-surface-soft);display:grid;place-items:center;overflow:hidden}
+.acFav__art img{width:100%;height:100%;object-fit:cover;display:block}
+.acFav__art--empty{line-height:0}
+.acFav__art--empty :deep(svg){width:100%;height:100%;display:block}
+.acFav__heart{
+  position:absolute;right:8px;top:8px;width:26px;height:26px;border-radius:50%;
+  display:grid;place-items:center;background:rgba(255,255,255,.92);color:var(--ty-ink);
+}
+.acFav__body{padding:10px 12px 12px}
+.acFav__row{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.acFav__name{margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acFav__meta{margin:2px 0 0}
+.acFav__foot{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+  margin-top:16px;padding-top:14px;border-top:1px solid var(--ty-line);
+}
+
+/* ---------------- 成长记录 ---------------- */
+/* ---------------- 个人信息 ---------------- */
+.acInfo__who{display:flex;align-items:center;gap:14px;margin-top:16px}
+.acAvatar{
+  width:56px;height:56px;flex:0 0 auto;border-radius:16px;overflow:hidden;
+  background:var(--ty-accent-soft);color:#548561;
+  display:grid;place-items:center;
+  font-family:var(--font-sans);font-size:18px;font-weight:700;line-height:var(--ty-section-lh);letter-spacing:0;
+}
+.acAvatar img{width:100%;height:100%;object-fit:cover}
+.acInfo__id h3{margin:0}
+.acInfo__id p{margin:2px 0 0}
+.acInfo__rows{margin:16px 0 0;display:flex;flex-direction:column}
+.acInfo__row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:7px 0}
+.acInfo__row dt{margin:0;color:var(--ty-muted)}
+.acInfo__row dd{margin:0;color:var(--ty-ink)}
+.acInfo__palette{
+  display:flex;align-items:center;gap:8px;margin:14px 0 0;padding:10px 12px;
+  border-radius:10px;background:var(--ty-surface-soft);color:var(--ty-secondary);
+}
+.acInfo__actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:14px}
+.acInfo__warn{margin:8px 0 0;display:block;color:var(--ty-warn)}
+
+/* ---------------- 我的库存 ---------------- */
+.acStock__bar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px}
+.acStock__warn{
+  display:flex;align-items:center;gap:8px;margin:12px 0 0;padding:9px 12px;
+  border-radius:10px;background:var(--ty-warn-soft);color:var(--ty-warn);
+}
+.acStock{margin-top:14px}
+.acStock__head,
+.acStock__row{display:grid;grid-template-columns:minmax(0,1fr) 72px 56px;align-items:center;gap:8px}
+.acStock__head{padding-bottom:6px;border-bottom:1px solid var(--ty-line)}
+.acStock__head span:nth-child(2),
+.acStock__head span:nth-child(3){text-align:right}
+.acStock__row{padding:8px 0;border-bottom:1px solid var(--ty-line)}
+.acStock__name{display:flex;align-items:center;gap:8px;min-width:0}
+.acStock__chip{width:20px;height:20px;flex:0 0 auto;border-radius:6px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08)}
+.acStock__name b{color:var(--ty-ink)}
+.acStock__name span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acStock__qty{text-align:right}
+.acStock__state{text-align:right}
+.acStock__state.is-low{color:var(--ty-warn)}
+.acStock__more{margin:10px 0 0;display:block}
+.acStock__foot{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:14px;
+}
+
+/* ---------------- 权益 / 订单 ---------------- */
+.acEnt{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:14px}
+.acEnt__item{
+  display:flex;flex-direction:column;gap:2px;padding:12px;border-radius:12px;
+  background:var(--ty-surface-page);border:1px solid var(--ty-line);
+}
+.acEnt__item b{color:var(--ty-ink)}
+.acEnt__item b.is-active{color:#2F7D4F}
+.acEnt__item b.is-expired,.acEnt__item b.is-disabled{color:var(--ty-warn)}
+.acOrders{display:flex;flex-direction:column;gap:8px;margin-top:14px}
+.acOrder{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;
+  padding:10px 12px;border-radius:12px;background:var(--ty-surface-page);border:1px solid var(--ty-line);
+}
+.acOrder__right{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+
+/* ---------------- 空态与页脚 ---------------- */
+.acEmpty{margin:16px 0 0;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.acFoot{
   display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;
-  padding:17px;border-radius:var(--r-lg);background:var(--surface-2);border:1.5px dashed var(--line-strong);
+  margin-top:24px;padding:18px 0 0;border-top:1px solid var(--ty-line);
 }
-.quickGrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:13px}
-.quickItem{
-  display:flex;flex-direction:column;gap:4px;padding:17px;border-radius:var(--r-md);
-  background:var(--surface);border:1px solid var(--line);transition:var(--t);
+
+/* ---------------- 平板 / 手机 ---------------- */
+@media(max-width:1180px){
+  .acInner,.acNav__inner{padding-left:32px;padding-right:32px}
+  .acGrid{grid-template-columns:minmax(0,1fr)}
+  .acStats{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
-.quickItem:hover{border-color:var(--primary);transform:translateY(-2px);box-shadow:var(--sh-1)}
-.quickItem b{font-size:var(--fs-sm)}
-@media(max-width:900px){
-  .statRow,.badgeRow,.quickGrid{grid-template-columns:repeat(2,minmax(0,1fr))}
+@media(max-width:780px){
+  .acInner,.acNav__inner{padding-left:16px;padding-right:16px}
+  .acNav__inner{gap:18px;overflow-x:auto}
+  .acNav__lib{display:none}
+  .acHero{flex-direction:column;align-items:flex-start;gap:14px}
+  .acStats{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+  .acStat{padding:0 14px}
+  .acWorks,.acFavs{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .acGrid--pair{grid-template-columns:1fr}
+  .acEnt{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:520px){
+  .acWorks,.acFavs{grid-template-columns:1fr}
 }
 </style>

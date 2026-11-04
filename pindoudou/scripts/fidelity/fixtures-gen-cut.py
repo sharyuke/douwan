@@ -455,6 +455,107 @@ def gray_on_white(size=512):
     save_cut('gray_on_white', rgb, mask)
 
 
+# --------------------------------------------------------------------- 10
+
+def low_contrast(size=512):
+    """白底 + **浅米色**主体（ΔE00 ≈ 7），考「主体与背景色相近时别把主体吃掉」。
+
+    这是用户最常抱怨的一类图：米白 / 奶油色的主体摆在白底上，
+    颜色差只有几个 ΔE00 —— 颜色模型分不开，**唯一的信号是轮廓**。
+    主体没有描边（描边是作弊），只有 1 像素抗锯齿的软边。
+    期望：主体整块保住（宁可边缘糊一点，也不能整块消失）。
+    """
+    bg = np.array([255.0, 255.0, 255.0])
+    obj = np.array([243.0, 238.0, 224.0])  # ΔE00(white) ≈ 7.2
+
+    a_circle = cmask((size, size), size * 0.40, size * 0.46, size * 0.19)
+    a_box = rounded_rect_mask((size, size), size * 0.56, size * 0.34, size * 0.82, size * 0.66, 18)
+    a_obj = np.clip(np.maximum(a_circle, a_box), 0, 1)
+
+    rgb, mask = cover(obj, bg, a_obj)
+    save_cut('low_contrast', rgb, mask)
+
+
+# --------------------------------------------------------------------- 11
+
+def touch_edge(size=512):
+    """主体被画面裁掉一截（贴到右边缘），考「背景模型别被主体污染」。
+
+    外圈取样环会同时取到「白底」与「橙色主体」两种颜色：
+    背景色模型一旦把橙色也收进去，主体就会被当成背景吃掉。
+    期望：主体只保住画面内的那部分，边缘不整块消失。
+    """
+    bg = np.array([255.0, 255.0, 255.0])
+    obj = np.array([237.0, 124.0, 46.0])
+
+    # 圆心在画面外侧 ⇒ 只有左半边在画面里
+    a_obj = cmask((size, size), size * 0.86, size * 0.50, size * 0.22)
+    rgb, mask = cover(obj, bg, a_obj)
+    save_cut('touch_edge', rgb, mask)
+
+
+# --------------------------------------------------------------------- 12
+
+def low_contrast_shadow(size=512):
+    """白底 + 浅米色主体（ΔE00 ≈ 7）+ 一团柔和投影，考两个难点叠在一起。
+
+    主体颜色接近背景（轮廓是唯一信号），同时脚下有投影（颜色更接近背景，
+    但轮廓是渐变的）。期望：主体保住，投影去掉。
+    """
+    bg = np.array([255.0, 255.0, 255.0])
+    obj = np.array([243.0, 238.0, 224.0])
+
+    s = ellipse_falloff((size, size), 0.44, 0.72, 0.26, 0.075, 1.3, 0.45)
+    ground = apply_shadow(np.full((size, size, 3), bg, np.float64), s * 0.85, (0.55, 0.57, 0.62))
+
+    a_obj = cmask((size, size), size * 0.42, size * 0.44, size * 0.20)
+    rgb = obj * a_obj[..., None] + ground * (1 - a_obj[..., None])
+    save_cut('low_contrast_shadow', rgb, a_obj)
+
+
+# --------------------------------------------------------------------- 13
+
+def busy_bg(size=512):
+    """彩色渐变 + 条纹的复杂背景 + 居中主体，考「背景不是纯色时主体还准不准」。
+
+    背景里同时有渐变和横向条纹（外圈色模型会看到好几簇），
+    主体是带描边的红色圆角块。期望：主体边界干净，背景整块去掉。
+    """
+    yy, xx = np.mgrid[0:size, 0:size].astype(np.float64)
+    t = (xx / size + yy / size) / 2
+    c0 = np.array([236.0, 240.0, 250.0])
+    c1 = np.array([248.0, 232.0, 214.0])
+    img = c0[None, None, :] * (1 - t[..., None]) + c1[None, None, :] * t[..., None]
+    stripes = (np.sin(yy / 9.0) * 0.5 + 0.5) * 14.0
+    img = img - stripes[..., None] * np.array([0.3, 0.5, 0.9])
+
+    body = np.array([214.0, 70.0, 60.0])
+    edge = np.array([44.0, 40.0, 46.0])
+    a_edge = rounded_rect_mask((size, size), size * 0.28, size * 0.26, size * 0.72, size * 0.74, 30)
+    a_body = rounded_rect_mask((size, size), size * 0.30, size * 0.28, size * 0.70, size * 0.72, 24)
+    img = edge * a_edge[..., None] + img * (1 - a_edge[..., None])
+    img = body * a_body[..., None] + img * (1 - a_body[..., None])
+    save_cut('busy_bg', img, a_edge)
+
+
+# --------------------------------------------------------------------- 14
+
+def low_contrast_big(size=512):
+    """大面积浅米色主体（占约 55%），考「主体被吃掉一部分」这种最糟的翻车。
+
+    上一张 low_contrast 里主体只占 22%，颜色模型把主体当成背景之后，
+    整张图 94% 以上都成了背景 —— 触发安全网，算法干脆放弃抠图（保留整图）。
+    这张主体更大：吃掉主体之后背景占比只有 ~78%，**够不到安全网**，
+    于是算法会"成功"地交出一张主体被啃掉一大半的图 —— 这才是真正的事故。
+    """
+    bg = np.array([255.0, 255.0, 255.0])
+    obj = np.array([243.0, 238.0, 224.0])  # ΔE00(white) ≈ 7.2
+
+    a_obj = rounded_rect_mask((size, size), size * 0.10, size * 0.10, size * 0.90, size * 0.90, 40)
+    rgb, mask = cover(obj, bg, a_obj)
+    save_cut('low_contrast_big', rgb, mask)
+
+
 FIXTURES = {
     'circle_white': circle_white,
     'twotone_card': twotone_card,
@@ -465,6 +566,11 @@ FIXTURES = {
     'shadow_soft': shadow_soft,
     'shadow_hard': shadow_hard,
     'gray_on_white': gray_on_white,
+    'low_contrast': low_contrast,
+    'touch_edge': touch_edge,
+    'low_contrast_shadow': low_contrast_shadow,
+    'busy_bg': busy_bg,
+    'low_contrast_big': low_contrast_big,
 }
 
 

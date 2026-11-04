@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import PatternPreview from '../components/ui/PatternPreview.vue'
 import AssetCard from '../components/ui/AssetCard.vue'
-import PixelIcon from '../components/ui/PixelIcon.vue'
+import Icon from '../components/ui/Icon.vue'
 import { filterAssets, loadRemoteAssets, pickAsset, remoteAssets } from '../composables/useAssets.js'
 import { DEFAULT_BRAND_ID, getColors, getBrand } from '../lib/palettes.js'
 import { BUILD_TOOL_CONTENT } from '../data/tools.js'
@@ -59,18 +59,18 @@ async function onPick(asset) {
   busy.value = true
   const res = await pickAsset(asset.id)
   busy.value = false
-  if (res.ok) router.push('/create')
+  if (res.ok) router.push('/editor')
 }
 </script>
 
 <template>
   <div class="wrap main--pad">
     <div v-if="!content" class="empty">
-      <div class="empty__icon"><PixelIcon name="search" :size="24" /></div>
+      <div class="empty__icon"><Icon name="search" :size="24" /></div>
       <strong>找不到这个工具页</strong>
       <p>可能链接有误。你可以直接从素材库或上传照片开始。</p>
       <div class="row" style="gap:9px">
-        <RouterLink to="/create" class="btn primary">开始创作</RouterLink>
+        <RouterLink to="/editor" class="btn primary">开始创作</RouterLink>
         <RouterLink to="/materials/" class="btn btn-secondary">素材中心</RouterLink>
       </div>
     </div>
@@ -82,7 +82,7 @@ async function onPick(asset) {
           <h1 style="margin:14px 0 10px">{{ content.h1 }}</h1>
           <p class="toolLead">{{ content.lead }}</p>
           <div class="row row--wrap" style="margin-top:18px">
-            <RouterLink to="/create" class="btn primary lg">免费生成一张图纸</RouterLink>
+            <RouterLink to="/editor" class="btn primary lg">免费生成一张图纸</RouterLink>
             <RouterLink to="/materials/" class="btn btn-secondary lg">先看素材库</RouterLink>
           </div>
           <p class="hint" style="margin-top:12px">
@@ -120,7 +120,7 @@ async function onPick(asset) {
       <div class="featureListGrid">
         <div v-for="f in content.features" :key="f.title" class="featureItem">
           <div class="featureItem__icon" :style="{ background: f.bg, color: f.color }">
-            <PixelIcon :name="f.icon" :size="22" />
+            <Icon :name="f.icon" :size="24" />
           </div>
           <div>
             <b>{{ f.title }}</b>
@@ -157,7 +157,7 @@ async function onPick(asset) {
       <!-- 相关素材 -->
       <section v-if="related.length" class="secHead">
         <div><h2>相关素材</h2><p>点一下直接生成</p></div>
-        <RouterLink to="/materials/">全部素材 ›</RouterLink>
+        <RouterLink to="/materials/">全部素材<Icon name="chevron-right" :size="16" /></RouterLink>
       </section>
       <div v-if="related.length" class="assetGrid">
         <AssetCard v-for="a in related" :key="a.id" :asset="a" @pick="onPick" />
@@ -179,11 +179,11 @@ async function onPick(asset) {
 
 <style scoped>
 .toolHero{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr);gap:32px;align-items:center}
-.toolLead{font-size:15px;color:var(--ink-2);line-height:1.85;max-width:600px}
+.toolLead{font-size:15px;color:var(--ink-2);line-height:var(--ty-card-lh);max-width:600px}
 .demoBody{display:grid;place-items:center;background:var(--surface-2);border-radius:var(--r-md);padding:18px;min-height:250px}
 .demoFacts{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px;text-align:center}
-.demoFacts b{display:block;font-size:16px;font-weight:850;letter-spacing:-.02em}
-.demoFacts span{font-size:var(--fs-2xs);color:var(--muted)}
+.demoFacts b{display:block;font-size:15px;font-weight:700;letter-spacing:0;line-height:var(--ty-card-lh)}
+.demoFacts span{font-size:var(--fs-2xs);color:var(--muted);line-height:var(--ty-caption-lh)}
 .featureListGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .stepRow{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
 .stepCard{
@@ -192,22 +192,22 @@ async function onPick(asset) {
 }
 .stepNo{
   width:30px;height:30px;border-radius:9px;background:var(--primary-soft);color:var(--primary-deep);
-  display:grid;place-items:center;font-weight:900;font-size:var(--fs-sm);margin-bottom:11px;
+  display:grid;place-items:center;font-weight:700;font-size:var(--fs-sm);margin-bottom:11px;line-height:var(--ty-body-lh)
 }
-.stepCard b{font-size:var(--fs-h3);display:block;margin-bottom:6px}
-.stepCard p{font-size:var(--fs-xs);color:var(--muted);line-height:1.75}
+.stepCard b{font-size:var(--fs-h3);display:block;margin-bottom:6px;line-height:var(--ty-card-lh)}
+.stepCard p{font-size:var(--fs-xs);color:var(--muted);line-height:var(--ty-label-lh)}
 .article{max-width:900px}
 .articleSec{margin-bottom:22px}
 .articleSec:last-child{margin-bottom:0}
-.articleSec h3{font-size:var(--fs-h3);margin-bottom:9px}
-.articleSec p{font-size:var(--fs-sm);color:var(--ink-2);line-height:1.95;margin-bottom:9px}
+.articleSec h3{font-size:var(--fs-h3);margin-bottom:9px;line-height:var(--ty-card-lh)}
+.articleSec p{font-size:var(--fs-sm);color:var(--ink-2);line-height:var(--ty-body-lh);margin-bottom:9px}
 .toolLinks{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
 .toolLink{
   display:flex;flex-direction:column;gap:5px;padding:16px;border-radius:var(--r-md);
   background:var(--surface);border:1px solid var(--line);transition:var(--t);
 }
 .toolLink:hover{border-color:var(--primary);transform:translateY(-2px);box-shadow:var(--sh-1)}
-.toolLink b{font-size:var(--fs-xs);line-height:1.5}
+.toolLink b{font-size:var(--fs-xs);line-height:var(--ty-label-lh)}
 @media(max-width:1000px){
   .toolHero{grid-template-columns:1fr;gap:22px}
   .featureListGrid,.stepRow,.toolLinks{grid-template-columns:1fr}

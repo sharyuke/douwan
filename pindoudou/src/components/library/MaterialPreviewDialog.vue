@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import BaseDialog from '../ui/BaseDialog.vue'
-import PixelIcon from '../ui/PixelIcon.vue'
+import Icon from '../ui/Icon.vue'
 import { isFavorite, pickAsset, toggleFavorite } from '../../composables/useAssets.js'
 import { difficultyTone } from '../../lib/forge.js'
 
@@ -36,7 +36,7 @@ async function onUse() {
   busy.value = false
   if (res.ok) {
     close()
-    router.push('/create').catch(() => {})
+    router.push('/editor').catch(() => {})
   }
 }
 </script>
@@ -58,7 +58,7 @@ async function onUse() {
         >
         <div v-else-if="asset.svg && !imgError" class="preview__svg" v-html="asset.svg"></div>
         <div v-else class="preview__fallback">
-          <PixelIcon name="photo" :size="34" />
+          <Icon name="image" :size="24" />
           <span>{{ imageSrc ? '图片加载失败' : '暂无预览图' }}</span>
         </div>
       </div>
@@ -96,7 +96,7 @@ async function onUse() {
             :aria-pressed="fav"
             @click="toggleFavorite(asset.id)"
           >
-            <PixelIcon name="heart" :size="15" />{{ fav ? '已收藏' : '收藏' }}
+            <Icon name="star" :size="16" />{{ fav ? '已收藏' : '收藏' }}
           </button>
         </div>
       </div>
@@ -108,7 +108,7 @@ async function onUse() {
 .preview{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr);gap:20px;align-items:start}
 .preview__media{
   aspect-ratio:4 / 3;min-height:280px;border-radius:14px;overflow:hidden;
-  background:linear-gradient(135deg,#FFF9E4,#EAF8FB);
+  background:linear-gradient(135deg,var(--primary-soft),var(--sky-soft));
   display:grid;place-items:center;padding:18px;
 }
 .preview__media img{width:100%;height:100%;object-fit:contain;display:block}
@@ -116,7 +116,7 @@ async function onUse() {
 .preview__svg :deep(svg){width:94%;height:94%;display:block}
 .preview__fallback{
   display:flex;flex-direction:column;align-items:center;gap:8px;
-  color:var(--muted-2);font-size:var(--fs-2xs);
+  color:var(--muted-2);font-size:var(--fs-2xs);line-height:var(--ty-caption-lh)
 }
 .preview__info{min-width:0;display:flex;flex-direction:column;gap:13px}
 .preview__tags{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
@@ -126,13 +126,13 @@ async function onUse() {
   border:1px solid var(--line);display:flex;flex-direction:column;gap:2px;min-width:0;
 }
 .pStats > div.wide{grid-column:1 / -1}
-.pStats b{font-size:15px;font-weight:850;line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.pStats span{font-size:var(--fs-2xs);color:var(--muted-2)}
+.pStats b{font-size:15px;font-weight:700;line-height:var(--ty-card-lh);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pStats span{font-size:var(--fs-2xs);color:var(--muted-2);line-height:var(--ty-caption-lh)}
 .preview__desc{
-  font-size:var(--fs-xs);color:var(--ink-2);line-height:1.7;
+  font-size:var(--fs-xs);color:var(--ink-2);line-height:var(--ty-label-lh);
   padding:10px 12px;border-radius:11px;background:var(--surface-2);border:1px solid var(--line);
 }
-.preview__hint{font-size:var(--fs-2xs);color:var(--muted);line-height:1.7}
+.preview__hint{font-size:var(--fs-2xs);color:var(--muted);line-height:var(--ty-caption-lh)}
 .preview__actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:2px}
 .preview__actions .btn{flex:1 1 auto}
 .preview__actions .is-fav{color:var(--coral-deep);border-color:#F6D3E3;background:var(--coral-soft)}

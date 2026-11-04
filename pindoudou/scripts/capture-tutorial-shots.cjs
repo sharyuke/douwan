@@ -359,8 +359,8 @@ async function main() {
       focus: ['.stageWrap']
     })
 
-    // ① 创建里的「免费素材库」：没有照片也能开始（本地素材，不依赖后端）
-    await clickText('.card--create .sourceTabs button', '免费素材库')
+    // ① 创建里的「素材库」：没有照片也能开始（本地素材，不依赖后端）
+    await clickText('.card--create .sourceTabs button', '素材库')
     await sleep(500)
     await capture('desktop', 'd04-library', {
       scroll: '.card--create',
@@ -483,10 +483,10 @@ async function main() {
     await clickText('.quickItem', '更多')
     await sleep(500)
     await capture('mobile', 'm02-functions', { focus: ['.modal--sheet .moreGrid'] })
-    // 快捷区 → 换图 → 免费素材库：没有照片也能开始（本地素材，不依赖后端）
+    // 快捷区 → 换图 → 素材库：没有照片也能开始（本地素材，不依赖后端）
     await clickText('.quickItem', '换图')
     await sleep(900)
-    await clickText('.modal.show .sourceTabs button', '免费素材库')
+    await clickText('.modal.show .sourceTabs button', '素材库')
     await sleep(500)
     await capture('mobile', 'm03-library', {
       focus: ['.card--create .srcAsset']

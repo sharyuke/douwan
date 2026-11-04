@@ -98,12 +98,16 @@ function mkPattern(w, h, colors = 48, emptyShare = 0.12) {
 
 /* ------------------------------------------------- 1:1 外壳与设备 DPR 无关 */
 console.log('\n1:1 画布外壳：导出的像素尺寸必须和 devicePixelRatio 无关')
+/* 导出的是**标版整页**（页眉 + 图纸 + 底部双卡），所以比对的是标版页面的尺寸，
+   不是图纸主体的尺寸 —— 两者不是一回事：标版页更宽、也更高。
+   pngExportPlan 传 includeLegend/includeStats 时返回的就是整页尺寸（pageW / pageH）。 */
 for (const dpr of [1, 1.25, 1.5, 2, 3]) {
   globalThis.window.devicePixelRatio = dpr
   for (const n of [116, 450]) {
     const p = mkPattern(n, n)
     const res = exportPatternPNG(p, { projectName: 'verify' })
-    const want = pngExportPlan(p, 24).geometry
+    const plan = pngExportPlan(p, 24, { includeLegend: true, includeStats: true })
+    const want = { width: Math.ceil(plan.pageW), height: Math.ceil(plan.pageH) }
     check(
       res.ok === true && res.width === want.width && res.height === want.height,
       `DPR=${dpr} ${n}×${n} → ${want.width}×${want.height}`,
@@ -115,7 +119,12 @@ for (const dpr of [1, 1.25, 1.5, 2, 3]) {
 /* ------------------------------------------------- 全链路不抛 + 文案与尺寸 */
 console.log('\n各导出入口（文本里必须带真实数字）')
 globalThis.window.devicePixelRatio = 2
-const expectCell = { 116: 24, 300: 13, 450: 8, 464: 8 }
+/* 标版整页（页眉 + 图纸 + 底部双卡）比图纸主体大不少，整页还要过 4096 px 边长与
+   1600 万像素两条墙，所以每格像素比「只有图纸主体」时降得更快：
+     116×116 → 23 px/格、300×300 → 9、450×450 → 6、464×464 → 6。
+   这几个数字是标版版式的直接结果，改版式（页眉高度 / 卡片高度 / 坐标留白）就会跟着变，
+   变了要回来改这一行 —— 但别为了让数字好看去动上限。 */
+const expectCell = { 116: 22, 300: 9, 450: 6, 464: 5 }
 for (const n of [116, 300, 450, 464]) {
   const p = mkPattern(n, n)
   const png = exportPatternPNG(p, { projectName: 'verify', cell: 24, codes: true })
@@ -182,7 +191,8 @@ for (const n of [116, 300, 450]) {
   const tds = (html.match(/<td/g) || []).length
   check(tds < 400, `${n}×${n} 没有逐格 <td>（td=${tds}）`)
   const imgs = (html.match(/<img/g) || []).length
-  check(imgs === boards + 1, `${n}×${n} 板图数量 = ${boards} 页 + 1 张封面`, `img=${imgs}`)
+  /* 封面里有两张图：豆玩 Logo + 封面预览图。所以图数 = 板图数 + 2（不是 +1）。 */
+  check(imgs === boards + 2, `${n}×${n} 板图数量 = ${boards} 页 + 封面（Logo + 预览图）`, `img=${imgs}`)
 
   const widths = [...html.matchAll(/class="boardImg" style="width:([\d.]+)mm"/g)].map(m => +m[1])
   check(widths.length === boards, `${n}×${n} 每一页都带纸面宽度`, `widths=${widths.length} / boards=${boards}`)

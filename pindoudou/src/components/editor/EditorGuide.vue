@@ -8,20 +8,19 @@
    气泡文案、编号圆点、黄色描边、跳过按钮按切片还原。
    ========================================================================= */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import PixelIcon from '../ui/PixelIcon.vue'
+import Icon from '../ui/Icon.vue'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
   /* desktop ≥1320 / tablet 781~1319 / mobile ≤780，由 EditorView 判定 */
-  mode: { type: String, default: 'desktop' },
-  /* 临时收起（不关闭）：模式切换弹层打开时把指引让位，
-     但保留当前步骤 —— 弹层关掉后指引还停在原来那一步，不会从头再来。 */
-  suspend: { type: Boolean, default: false }
+  mode: { type: String, default: 'desktop' }
 })
 const emit = defineEmits(['update:modelValue', 'done'])
 
 const isMobile = computed(() => props.mode === 'mobile')
 const isTablet = computed(() => props.mode === 'tablet')
+/* 全屏创作工作台（≥1100px）用另一套文案；打开指引时按页面里有没有 .csTop 判定一次 */
+const isConsole = ref(false)
 
 /* ---------------------------------------------------------------- 步骤文案
    桌面 / 平板的正文来自切片，一字未改；只有两处「点击箭头展开更多工具」
@@ -36,23 +35,64 @@ const BOARD_STEPS = [
       ['②~⑤', '画布与成品尺寸 / 生成方案 / 色板选择 / 图纸交付'],
       ['右栏', '作品分析 / 颜色用量 / 我的库存']
     ],
-    target: () => document.querySelector('.card--create'),
+    /* 全屏工作台把面板收进了顶部命令栏与右侧入口，原来的左栏卡片只在
+       窄屏 / 滑出面板里存在 —— 找不到就指向命令栏里的「上传图片」。 */
+    target: () => document.querySelector('.card--create') || document.querySelector('[data-console="upload"]'),
     place: 'right', pad: 8
   },
   {
     key: 'tools', no: 2, title: '编辑工具',
-    body: '点击下方的编辑工具进行图纸编辑：移动、画笔、橡皮、填充、取色等。',
+    body: '点击左侧的编辑工具进行图纸编辑：移动、画笔、橡皮、填充、换色、取色等。',
     extra: [
-      ['工具', '移动 / 画笔 / 橡皮 / 填充 / 取色'],
-      ['操作', '撤销 / 重做 / 左右镜像'],
+      ['工具', '移动 / 画笔 / 橡皮 / 填充 / 换色 / 取色'],
+      ['操作', '撤销 / 重做 / 左右镜像 / 去除杂色'],
       ['笔刷', '画笔和橡皮都能调笔刷大小，一笔刷过几格算一步']
     ],
-    target: () => document.querySelector('.canvasCard__foot'),
-    place: 'top', pad: 8
+    target: () => document.querySelector('.canvasCard__foot') || document.querySelector('.csRail'),
+    place: 'right', pad: 8
   },
   {
     key: 'canvas', no: 3, title: '画布区域',
     body: '这里是你的创作画布，上传图片或选择素材后，会在这里生成拼豆图纸。你可以使用下方的编辑工具进行调整。',
+    extra: [
+      ['视图', '图纸 / 原图 / 对照 / 分板 / 材料'],
+      ['缩放', '适应 / 实际大小（1:1 实物预览）'],
+      ['手势', '滚轮缩放 · 按住空白处拖拽平移']
+    ],
+    target: () => document.querySelector('.stage'),
+    place: 'inside-right', pad: 8
+  }
+]
+
+/* 全屏创作工作台（≥1100px）是另一套版面：功能在顶部命令栏、工具在左侧竖轨、
+   参数在右侧滑出面板，底部还有一条色板条。文案跟着换，指的位置也跟着换 ——
+   否则指引会让用户去找已经不存在的左栏卡片。 */
+const CONSOLE_STEPS = [
+  {
+    key: 'panel', no: 1, title: '功能面板',
+    body: '顶部命令栏放上传图片 / AI 生成 / 素材库、智能抠图力度和钉板尺寸；成品尺寸、生成方案、作品分析、我的库存从右侧四行点开，面板会从右边滑出来。',
+    extra: [
+      ['命令栏', '上传图片 / AI 生成 / 素材库'],
+      ['右侧', '成品尺寸 / 生成方案 / 作品分析 / 我的库存'],
+      ['底栏', '色板条：点色块换笔色，两侧箭头翻页']
+    ],
+    target: () => document.querySelector('[data-console="upload"]') || document.querySelector('.csCmd'),
+    place: 'below', pad: 8
+  },
+  {
+    key: 'tools', no: 2, title: '编辑工具',
+    body: '点击左侧工具轨进行图纸编辑：移动、画笔、橡皮、填充、吸色、换色、去杂色。',
+    extra: [
+      ['工具', '移动 / 画笔 / 橡皮 / 填充 / 吸色 / 换色 / 去杂色'],
+      ['操作', '撤销 / 重做 / 左右镜像'],
+      ['笔刷', '画笔和橡皮都能调笔刷大小，一笔刷过几格算一步']
+    ],
+    target: () => document.querySelector('.csRail'),
+    place: 'right', pad: 8
+  },
+  {
+    key: 'canvas', no: 3, title: '画布区域',
+    body: '这里是你的创作画布，上传图片或选择素材后，会在这里生成拼豆图纸。上方页签切换图纸 / 原图 / 对照 / 分板 / 材料。',
     extra: [
       ['视图', '图纸 / 原图 / 对照 / 分板 / 材料'],
       ['缩放', '适应 / 实际大小（1:1 实物预览）'],
@@ -114,23 +154,32 @@ const DESKTOP_SUMMARY = {
   title: '桌面端指引重点',
   sub: '三栏工作区 · 上传、生成、编辑、交付都在同一屏',
   items: [
-    { no: 1, icon: 'grid', title: '功能面板', text: '上传图片、素材库、画布大小、生成方案、色板选择、作品分析、用量统计、图纸交付、我的库存等。' },
-    { no: 2, icon: 'brush', title: '编辑工具', text: '移动、画笔、橡皮、填充、取色、撤销、重做、镜像等，全部排在这一行。' },
-    { no: 3, icon: 'layout', title: '画布区域', text: '显示和编辑拼豆图纸，支持缩放、适应画布大小，实时预览修改效果。' }
+    { no: 1, icon: 'grid-3x3', title: '功能面板', text: '上传图片、素材库、画布大小、生成方案、色板选择、作品分析、用量统计、图纸交付、我的库存等。' },
+    { no: 2, icon: 'pencil', title: '编辑工具', text: '移动、画笔、橡皮、填充、取色、撤销、重做、镜像等，全部排在这一行。' },
+    { no: 3, icon: 'layout-grid', title: '画布区域', text: '显示和编辑拼豆图纸，支持缩放、适应画布大小，实时预览修改效果。' }
   ]
 }
 const TABLET_SUMMARY = {
   title: '平板端指引重点',
   sub: '触屏操作 · 大按钮，点选更轻松',
   items: [
-    { no: 1, icon: 'grid', title: '功能面板', text: '左侧就是功能面板，包含画布、方案、色板、分析、用量、交付、库存等核心功能。' },
-    { no: 2, icon: 'brush', title: '编辑工具', text: '移动、画笔、橡皮、填充、取色等，大按钮设计，适合触屏操作。' },
-    { no: 3, icon: 'layout', title: '画布区域', text: '支持手势缩放和拖动画布，轻松调整和编辑图纸。' }
+    { no: 1, icon: 'grid-3x3', title: '功能面板', text: '左侧就是功能面板，包含画布、方案、色板、分析、用量、交付、库存等核心功能。' },
+    { no: 2, icon: 'pencil', title: '编辑工具', text: '移动、画笔、橡皮、填充、取色等，大按钮设计，适合触屏操作。' },
+    { no: 3, icon: 'layout-grid', title: '画布区域', text: '支持手势缩放和拖动画布，轻松调整和编辑图纸。' }
+  ]
+}
+const CONSOLE_SUMMARY = {
+  title: '桌面端指引重点',
+  sub: '全屏工作台 · 上传、生成、编辑、交付都在同一屏',
+  items: [
+    { no: 1, icon: 'grid-3x3', title: '功能面板', text: '顶部命令栏放上传、AI 生成、素材库、智能抠图力度与钉板；右侧四行点开就是成品尺寸、生成方案、作品分析、我的库存。' },
+    { no: 2, icon: 'pencil', title: '编辑工具', text: '左侧工具轨：移动、画笔、橡皮、填充、吸色、换色、去杂色，下面是撤销 / 重做 / 镜像。' },
+    { no: 3, icon: 'layout-grid', title: '画布区域', text: '中间是图纸画布，上方页签切图纸 / 原图 / 对照 / 分板 / 材料，底部色板条换笔色。' }
   ]
 }
 
-const steps = computed(() => (isMobile.value ? MOBILE_STEPS : BOARD_STEPS))
-const summary = computed(() => (isTablet.value ? TABLET_SUMMARY : DESKTOP_SUMMARY))
+const steps = computed(() => (isMobile.value ? MOBILE_STEPS : isConsole.value ? CONSOLE_STEPS : BOARD_STEPS))
+const summary = computed(() => (isTablet.value ? TABLET_SUMMARY : isConsole.value ? CONSOLE_SUMMARY : DESKTOP_SUMMARY))
 
 const index = ref(0)
 const phase = ref('steps') // steps | summary
@@ -426,6 +475,7 @@ watch(tipEl, el => {
 
 watch(() => props.modelValue, open => {
   if (open) {
+    isConsole.value = !!document.querySelector('.csTop')
     index.value = 0
     phase.value = 'steps'
     holes.value = []
@@ -465,7 +515,7 @@ function onResize() {
 onMounted(() => {
   window.addEventListener('keydown', onKey)
   window.addEventListener('resize', onResize)
-  if (props.modelValue) { applyStep(); startLoop() }
+  if (props.modelValue) { isConsole.value = !!document.querySelector('.csTop'); applyStep(); startLoop() }
 })
 onBeforeUnmount(() => {
   stopLoop()
@@ -479,7 +529,7 @@ onBeforeUnmount(() => {
 <template>
   <Teleport to="body">
     <div
-      v-if="modelValue && !suspend" class="guide" role="dialog" aria-modal="true"
+      v-if="modelValue" class="guide" role="dialog" aria-modal="true"
       :aria-label="`${isTablet ? '平板端' : isMobile ? '手机端' : '桌面端'}新手指引`"
       :data-guide="mode" :data-guide-phase="phase"
     >
@@ -508,15 +558,15 @@ onBeforeUnmount(() => {
       <svg v-if="phase === 'steps' && arrow" class="guide__arrows" aria-hidden="true">
         <defs>
           <marker id="guideArrowHead" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-            <path d="M0,0 L10,5 L0,10 Z" fill="#FFD62E" />
+            <path d="M0,0 L10,5 L0,10 Z" fill="#C8E63C" />
           </marker>
         </defs>
-        <path :d="arrow.d" fill="none" stroke="#FFD62E" stroke-width="2" stroke-dasharray="7 6" marker-end="url(#guideArrowHead)" />
+        <path :d="arrow.d" fill="none" stroke="#C8E63C" stroke-width="2" stroke-dasharray="7 6" marker-end="url(#guideArrowHead)" />
       </svg>
 
       <!-- 桌面 / 平板：右上角跳过 -->
       <button v-if="!isMobile" type="button" class="guide__skip" data-guide-skip @click="close">
-        {{ isTablet ? '关闭指引' : '跳过指引' }} <span aria-hidden="true">×</span>
+        {{ isTablet ? '关闭指引' : '跳过指引' }} <Icon name="x" :size="16" />
       </button>
 
       <!-- 步骤气泡 -->
@@ -553,14 +603,15 @@ onBeforeUnmount(() => {
         <button type="button" class="guide__skipText" data-guide-skip @click="close">跳过引导</button>
         <span class="guide__dots" aria-hidden="true"><i v-for="(s, i) in steps" :key="s.key" :class="{ on: i === index }"></i></span>
         <button type="button" class="guide__next" data-guide-next @click="next">
-          {{ index === steps.length - 1 ? '完成' : '下一步 →' }}
+          {{ index === steps.length - 1 ? '完成' : '下一步' }}
+          <Icon v-if="index !== steps.length - 1" name="arrow-right" :size="16" />
         </button>
       </div>
 
       <!-- 桌面 / 平板：指引重点摘要 -->
       <section v-if="phase === 'summary'" class="guide__summary" data-guide-summary>
         <header class="guide__summaryHead">
-          <span class="guide__summaryIcon"><PixelIcon :name="isTablet ? 'layout' : 'grid'" :size="18" /></span>
+          <span class="guide__summaryIcon"><Icon :name="isTablet ? 'layout' : 'grid'" :size="20" /></span>
           <div class="guide__summaryTitle">
             <b>{{ summary.title }}</b>
             <span>{{ summary.sub }}</span>
@@ -570,13 +621,13 @@ onBeforeUnmount(() => {
           <article v-for="item in summary.items" :key="item.no">
             <span class="guide__no">{{ item.no }}</span>
             <div>
-              <b><PixelIcon :name="item.icon" :size="14" />{{ item.title }}</b>
+              <b><Icon :name="item.icon" :size="16" />{{ item.title }}</b>
               <p>{{ item.text }}</p>
             </div>
           </article>
         </div>
         <footer class="guide__summaryFoot">
-          <span class="guide__summaryNote">指引随时可以从「新手教程」里重看</span>
+          <span class="guide__summaryNote">关掉之后，下次进入不再自动出现</span>
           <button type="button" class="guide__next" data-guide-finish @click="finish">开始创作</button>
         </footer>
       </section>
@@ -604,11 +655,11 @@ onBeforeUnmount(() => {
   position:fixed;top:14px;right:16px;z-index:2;pointer-events:auto;
   display:inline-flex;align-items:center;gap:7px;padding:9px 15px;
   border:1.5px solid var(--line);border-radius:999px;background:var(--surface);
-  box-shadow:var(--sh-1);font-size:13px;font-weight:850;color:var(--ink);
-  white-space:nowrap;transition:var(--t);
+  box-shadow:var(--sh-1);font-size:13px;font-weight:700;color:var(--ink);
+  white-space:nowrap;transition:var(--t);line-height:var(--ty-label-lh)
 }
 .guide__skip:hover{background:var(--surface-2);border-color:var(--line-strong)}
-.guide__skip span{font-size:15px;line-height:1;color:var(--muted)}
+.guide__skip span{font-size:15px;line-height:var(--ty-card-lh);color:var(--muted)}
 
 /* ---------------------------------------------------------------- 气泡 */
 .guide__tip{
@@ -622,14 +673,14 @@ onBeforeUnmount(() => {
 .guide__no{
   width:28px;height:28px;flex:0 0 auto;border-radius:50%;
   display:grid;place-items:center;background:var(--primary);color:var(--primary-ink);
-  font-size:14px;font-weight:900;line-height:1;
+  font-size:14px;font-weight:700;line-height:var(--ty-body-lh);
 }
-.guide__no--frac{width:auto;min-width:46px;height:26px;padding:0 9px;border-radius:999px;font-size:12px;letter-spacing:.02em}
-.guide__title{font-size:15px;font-weight:900;color:var(--ink);letter-spacing:.01em;line-height:1.35}
-.guide__body{margin:9px 0 0;font-size:13px;line-height:1.75;color:var(--ink-2)}
+.guide__no--frac{width:auto;min-width:46px;height:26px;padding:0 9px;border-radius:999px;font-size:12px;letter-spacing:0;line-height:var(--ty-caption-lh)}
+.guide__title{font-size:15px;font-weight:700;color:var(--ink);letter-spacing:0;line-height:var(--ty-card-lh)}
+.guide__body{margin:9px 0 0;font-size:13px;line-height:var(--ty-label-lh);color:var(--ink-2)}
 .guide__extra{margin:10px 0 0;display:flex;flex-direction:column;gap:5px}
-.guide__extra div{display:flex;gap:8px;font-size:12px;line-height:1.55}
-.guide__extra dt{flex:0 0 auto;min-width:38px;font-weight:850;color:var(--yellow-deep)}
+.guide__extra div{display:flex;gap:8px;font-size:12px;line-height:var(--ty-caption-lh)}
+.guide__extra dt{flex:0 0 auto;min-width:38px;font-weight:700;color:var(--yellow-deep)}
 .guide__extra dd{margin:0;color:var(--ink-2)}
 
 .guide__tipFoot{
@@ -641,13 +692,14 @@ onBeforeUnmount(() => {
 .guide__dots i.on{width:16px;border-radius:3px;background:var(--primary)}
 .guide__back{
   margin-left:auto;padding:8px 10px;border:0;background:transparent;
-  font-size:12px;font-weight:800;color:var(--muted);
+  font-size:12px;font-weight:700;color:var(--muted);line-height:var(--ty-caption-lh)
 }
 .guide__back:hover{color:var(--ink)}
 .guide__next{
+  display:inline-flex;align-items:center;gap:6px;
   padding:8px 16px;border:0;border-radius:999px;
   background:var(--primary);color:var(--primary-ink);
-  font-size:13px;font-weight:900;line-height:1.2;white-space:nowrap;
+  font-size:13px;font-weight:700;line-height:var(--ty-label-lh);white-space:nowrap;
   box-shadow:0 2px 0 var(--primary-deep);transition:var(--t);
 }
 .guide__next:hover{filter:brightness(1.03)}
@@ -663,7 +715,7 @@ onBeforeUnmount(() => {
 .guide__bar .guide__dots{flex:1;justify-content:center}
 .guide__skipText{
   padding:6px 4px;border:0;background:transparent;
-  font-size:13px;font-weight:800;color:var(--muted);white-space:nowrap;
+  font-size:13px;font-weight:700;color:var(--muted);white-space:nowrap;line-height:var(--ty-label-lh)
 }
 
 /* ---------------------------------------------------------------- 摘要 */
@@ -680,24 +732,24 @@ onBeforeUnmount(() => {
   background:var(--primary-soft);color:var(--primary-ink);
 }
 .guide__summaryTitle{display:flex;flex-direction:column;gap:3px;min-width:0}
-.guide__summaryTitle b{font-size:18px;font-weight:900;color:var(--ink);line-height:1.3}
-.guide__summaryTitle span{font-size:12px;color:var(--muted)}
+.guide__summaryTitle b{font-size:18px;font-weight:700;color:var(--ink);line-height:var(--ty-section-lh)}
+.guide__summaryTitle span{font-size:12px;color:var(--muted);line-height:var(--ty-caption-lh)}
 .guide__summaryGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:16px}
 .guide__summaryGrid article{
-  display:flex;gap:10px;padding:12px;border:1.5px solid #FFE58A;border-radius:14px;
+  display:flex;gap:10px;padding:12px;border:1.5px solid #C8E63C;border-radius:14px;
   background:var(--cream-2);min-width:0;
 }
 .guide__summaryGrid article > div{min-width:0}
 .guide__summaryGrid b{
-  display:flex;align-items:center;gap:6px;font-size:13px;font-weight:900;color:var(--ink);
+  display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:var(--ink);line-height:var(--ty-label-lh)
 }
 .guide__summaryGrid b .icon{color:var(--primary-deep)}
-.guide__summaryGrid p{margin:5px 0 0;font-size:12px;line-height:1.7;color:var(--ink-2)}
+.guide__summaryGrid p{margin:5px 0 0;font-size:12px;line-height:var(--ty-caption-lh);color:var(--ink-2)}
 .guide__summaryFoot{
   display:flex;align-items:center;gap:12px;margin-top:16px;padding-top:13px;
   border-top:1px solid var(--line);
 }
-.guide__summaryNote{margin-right:auto;font-size:11px;color:var(--muted)}
+.guide__summaryNote{margin-right:auto;font-size:12px;color:var(--muted);line-height:var(--ty-caption-lh)}
 
 @media(max-width:900px){
   .guide__summaryGrid{grid-template-columns:1fr}
@@ -705,8 +757,8 @@ onBeforeUnmount(() => {
 }
 @media(max-width:780px){
   .guide__tip{width:min(330px,calc(100vw - 24px));padding:13px 14px 12px}
-  .guide__title{font-size:14px}
-  .guide__body{font-size:12.5px;line-height:1.7}
-  .guide__extra div{font-size:11.5px}
+  .guide__title{font-size:14px;line-height:var(--ty-body-lh)}
+  .guide__body{font-size:12px;line-height:var(--ty-caption-lh)}
+  .guide__extra div{font-size:12px;line-height:var(--ty-caption-lh)}
 }
 </style>

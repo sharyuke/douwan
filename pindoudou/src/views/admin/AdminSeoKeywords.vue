@@ -1037,7 +1037,7 @@ onMounted(() => {
 .adm-hint {
   margin: 0;
   font-size: var(--fs-xs);
-  line-height: 1.7;
+  line-height: var(--ty-label-lh);
   color: var(--muted);
 }
 
@@ -1055,7 +1055,7 @@ onMounted(() => {
   gap: 6px;
   font-size: var(--fs-xs);
   color: var(--text);
-  cursor: pointer;
+  cursor: pointer;line-height:var(--ty-label-lh)
 }
 
 @media (max-width: 980px) {

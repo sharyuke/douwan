@@ -239,7 +239,7 @@ export const MAX_SOURCE_SIDE = 2048
  *       - 目标像素的颜色只由「主体样本」平均（覆盖率 ≥0.5 的源像素），
  *         **不与背景做平均** —— 否则轮廓一圈会混出原图没有的浅色，也就是白边。
  */
-export function resampleRGBA(src, sw, sh, tw, th, fit = 'contain', srcRect = null, mask = null) {
+export function resampleRGBA(src, sw, sh, tw, th, fit = 'contain', srcRect = null, mask = null, nearest = false) {
   const out = new Uint8ClampedArray(tw * th * 4)
   const cover = mask ? new Float32Array(tw * th) : null
   for (let i = 0; i < out.length; i += 4) {
@@ -275,6 +275,35 @@ export function resampleRGBA(src, sw, sh, tw, th, fit = 'contain', srcRect = nul
   const x1 = Math.min(tw, Math.ceil(dx + dw - 0.5))
   const y0 = Math.max(0, Math.ceil(dy - 0.5))
   const y1 = Math.min(th, Math.ceil(dy + dh - 0.5))
+
+  /* 最近邻采样：目标像素取「中心落进的那一个源像素」，不做面积平均。
+     给「源图是图纸重建的」（useStudio 的 rebuildThumbSource：落色后每个源像素
+     都是图案本来的颜色）用 —— 面积平均会在色块边界上混出中间色（放大发虚的根源），
+     最近邻让每个样本都是真色，格内多数投票就能选出干净的边界。
+     只在「目标比源小或等大」时有意义（超采样倍率封顶保证了这一点，见
+     maxUsefulSupersample）；拿它放大点阵源图会退化成马赛克，调用方负责分流。 */
+  if (nearest) {
+    for (let y = y0; y < y1; y++) {
+      const vy = Math.max(0, Math.min(rh - 1, Math.floor((y + 0.5 - dy) * sy)))
+      const rowOff = (vy + ry) * sw + rx
+      for (let x = x0; x < x1; x++) {
+        const ux = Math.max(0, Math.min(rw - 1, Math.floor((x + 0.5 - dx) * sx)))
+        const i = (rowOff + ux) * 4
+        const o = (y * tw + x) * 4
+        if (mask) {
+          const a = mask[rowOff + ux]
+          if (cover) cover[y * tw + x] = a >= 0.5 ? 1 : 0
+          if (a < 0.5) continue
+        }
+        const a = src[i + 3] / 255
+        out[o] = Math.round(src[i] * a + 255 * (1 - a))
+        out[o + 1] = Math.round(src[i + 1] * a + 255 * (1 - a))
+        out[o + 2] = Math.round(src[i + 2] * a + 255 * (1 - a))
+        out[o + 3] = 255
+      }
+    }
+    return { data: out, rect: { x: dx, y: dy, w: dw, h: dh }, cover }
+  }
 
   for (let y = y0; y < y1; y++) {
     // 目标像素 y 覆盖的源区间（像素中心对齐：目标像素 y 的中心在 dy + y + 0.5 - dy）
@@ -529,11 +558,11 @@ export const VOTE_MIN_SHARE = 0.34
  * 纯函数：从 RGBA 像素直接算出 gw×gh 的每格颜色。
  * matte 为抠图结果（见 matte.js）时，会按主体包围盒采样并额外返回每格覆盖率。
  */
-export function sampleCellsMatted(src, sw, sh, gw, gh, fit = 'contain', SS = 3, voteMinShare = VOTE_MIN_SHARE, matte = null, srcRect = null) {
+export function sampleCellsMatted(src, sw, sh, gw, gh, fit = 'contain', SS = 3, voteMinShare = VOTE_MIN_SHARE, matte = null, srcRect = null, nearest = false) {
   const hiW = gw * SS
   const hiH = gh * SS
   const rect = srcRect || (matte && matte.bbox) || null
-  const { data, cover } = resampleRGBA(src, sw, sh, hiW, hiH, fit, rect, matte ? matte.alpha : null)
+  const { data, cover } = resampleRGBA(src, sw, sh, hiW, hiH, fit, rect, matte ? matte.alpha : null, nearest)
   return cellsFromSupersampled(data, hiW, hiH, gw, gh, SS, voteMinShare, cover)
 }
 
@@ -1043,7 +1072,6 @@ export function cleanupIsolated(idx, gw, gh, labs, maxDE = CLEANUP_MAX_DE) {
   return { idx: out, changed }
 }
 
-/** 色阶概括：把颜色通道按步进取整，做出「艺术版」的分明色块 */
 function posterizeRgb(cellRgb, step) {
   if (!step) return cellRgb
   const out = Float32Array.from(cellRgb)
@@ -1266,6 +1294,7 @@ export function generateFromCells(cellRgbRaw, opts = {}) {
   if (!(gw > 0) || !(gh > 0)) throw new Error('画布尺寸不合法')
 
   const paletteAll = colors && colors.length ? colors : getColors(brandId)
+
   const vp = vpOverride || variantParams(variantKey, targetColors)
 
   /* 空格：抠背景之后「主体之外」的格子。
@@ -1324,7 +1353,9 @@ export function generateFromCells(cellRgbRaw, opts = {}) {
   if (vp.cleanup) {
     const cleaned = cleanupIsolated(finalIdx, gw, gh, labs, vp.cleanupMaxDE ?? CLEANUP_MAX_DE)
     finalIdx = cleaned.idx
-    if (cleaned.changed) notes.push(`修正 ${cleaned.changed} 颗孤立豆`)
+    if (cleaned.changed) {
+      notes.push(`修正 ${cleaned.changed} 颗孤立豆`)
+    }
   }
 
   // 只保留真正用到的颜色，并重映射索引（保证 palette 里没有死色）
@@ -1483,10 +1514,18 @@ export function generateFromPixels(src, sw, sh, opts = {}) {
   const rh = rect ? Math.max(1, Math.min(sh - ry, Math.round(rect.h))) : sh
   const SS = supersample || Math.min(supersampleFactor(gw, gh), maxUsefulSupersample(rw, rh, gw, gh, fit))
 
+  /* 源图是图纸重建的（opts.sourceNearest，见 useStudio 的 rebuildThumbSource）走最近邻：
+     每个样本都是落过色的真色，投票门槛放到「1 个样本也算多数」—— 平票时取先扫到的
+     那个真色，绝不允许混出中间色（面积平均混中间色就是「放大发虚」的根源）。
+     缩小时调用方不传这个开关：块合并要靠面积平均。 */
+  const nearest = !!opts.sourceNearest
+  const share = nearest ? Math.min(voteMinShare ?? VOTE_MIN_SHARE, 1 / (SS * SS)) : voteMinShare ?? VOTE_MIN_SHARE
+
   const { rgb, coverage } = sampleCellsMatted(
-    pixels, sw, sh, gw, gh, fit, SS, voteMinShare ?? VOTE_MIN_SHARE,
+    pixels, sw, sh, gw, gh, fit, SS, share,
     applied ? matte : null,
-    null
+    null,
+    nearest
   )
   /* 档位同时决定「一格里主体占多少才留豆」：
      保守档更容易留豆（阈值低），激进档会削掉更多边缘格。 */

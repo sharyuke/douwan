@@ -501,7 +501,14 @@ export function chartCellCap(gw, gh, rulerPx = 0) {
 export function chartGeometry(pattern, opts = {}) {
   const o = { ...DRAW_DEFAULTS, ...opts }
   const cell = Math.max(0.5, o.cell)
-  const ruler = o.ruler ? Math.max(13, Math.min(52, Math.round(cell * 1.8))) : 0
+  /* rulerPx：显式指定标尺带宽度。导出标版要的是「坐标留白占几格」的比例
+     （设计稿里坐标带约 4.6 格宽），跟编辑器里 cell×1.8 的取值不一样，
+     所以给它一个单独的入口，编辑器那边不受影响。 */
+  const ruler = o.ruler
+    ? (o.rulerPx != null
+      ? Math.max(13, Math.round(o.rulerPx))
+      : Math.max(13, Math.min(52, Math.round(cell * 1.8))))
+    : 0
   const gridW = pattern.width * cell
   const gridH = pattern.height * cell
   return {
@@ -551,14 +558,16 @@ export function drawChart(el, pattern, opts = {}, geo = null) {
   ctx.fillRect(0, 0, W, H)
 
   // 标尺底色
-  if (g.ruler > 0) {
+  /* theme.coordBg = null 表示不要标尺底色（导出标版的坐标直接落在浅蓝面板上） */
+  const coordBg = o.theme && o.theme.coordBg !== undefined ? o.theme.coordBg : '#F4F5F7'
+  if (g.ruler > 0 && coordBg) {
     const R = g.ruler
-    ctx.fillStyle = '#F4F5F7'
+    ctx.fillStyle = coordBg
     ctx.fillRect(0, 0, W, R)
     ctx.fillRect(0, OY + gridH, W, R)
     ctx.fillRect(0, R, R, gridH)
     ctx.fillRect(OX + gridW, R, R, gridH)
-    ctx.fillStyle = '#E9EAEE'
+    ctx.fillStyle = o.theme && o.theme.coordCorner ? o.theme.coordCorner : '#E9EAEE'
     ctx.fillRect(0, 0, R, R)
     ctx.fillRect(OX + gridW, 0, R, R)
     ctx.fillRect(0, OY + gridH, R, R)
@@ -616,7 +625,7 @@ function paintChartOverlay(ctx, g, pattern) {
 
   // 细格线
   if (o.grid && cell >= 3.5) {
-    ctx.strokeStyle = 'rgba(28,28,32,.14)'
+    ctx.strokeStyle = (o.theme && o.theme.grid) || 'rgba(28,28,32,.14)'
     ctx.lineWidth = 1
     ctx.beginPath()
     for (let i = 0; i <= gw; i++) {
@@ -636,7 +645,7 @@ function paintChartOverlay(ctx, g, pattern) {
 
   // 每 10 格加粗
   if (o.bold && cell >= 4) {
-    ctx.strokeStyle = 'rgba(28,28,32,.44)'
+    ctx.strokeStyle = (o.theme && o.theme.bold) || 'rgba(28,28,32,.44)'
     ctx.lineWidth = Math.max(1, Math.round(cell / 11))
     ctx.beginPath()
     for (let i = 10; i < gw; i += 10) {
@@ -662,7 +671,7 @@ function paintChartOverlay(ctx, g, pattern) {
   const bRows = Math.ceil(gh / BS.y)
   if (o.boardLines && (bCols > 1 || bRows > 1)) {
     ctx.save()
-    ctx.strokeStyle = 'rgba(240,61,46,.92)'
+    ctx.strokeStyle = (o.theme && o.theme.board) || 'rgba(240,61,46,.92)'
     ctx.lineWidth = Math.max(1.5, Math.round(cell / 7))
     ctx.setLineDash([Math.max(4, cell / 2.5), Math.max(3, cell / 4)])
     ctx.beginPath()
@@ -738,29 +747,32 @@ function paintChartOverlay(ctx, g, pattern) {
   // 标尺坐标
   if (R > 0) {
     /* 格子越小，坐标间隔越大：大图纸缩到一屏时 cell 只有 0.5px，
-       再按每 10 格印一次，8px 的数字会挤成一团墨。 */
-    const step = cell >= 15 ? 1 : cell >= 9 ? 5 : cell >= 4 ? 10 : cell >= 2 ? 20 : cell >= 1 ? 50 : 100
-    const majorStep = Math.max(10, step)
-    const fs = Math.max(8, Math.min(Math.round(cell * 0.46), Math.round(R * 0.52)))
+       再按每 10 格印一次，8px 的数字会挤成一团墨。
+       导出标版用 theme.coordStep 固定间隔（设计稿是每 5 格一标），
+       并用 theme.coordSize 定字号 —— 编辑器那边完全不受影响。 */
+    const th = o.theme || {}
+    const step = th.coordStep || (cell >= 15 ? 1 : cell >= 9 ? 5 : cell >= 4 ? 10 : cell >= 2 ? 20 : cell >= 1 ? 50 : 100)
+    const majorStep = th.coordStep ? step : Math.max(10, step)
+    const fs = th.coordSize || Math.max(8, Math.min(Math.round(cell * 0.46), Math.round(R * 0.52)))
     ctx.font = `${fs}px -apple-system, Arial, sans-serif`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
     for (let i = 1; i <= gw; i++) {
       const major = i % majorStep === 0
-      if (!major && i % step !== 0) continue
+      if (!major && i % step !== 0 && !(th.coordFirst && i === 1)) continue
       const cx = OX + (i - 0.5) * cell
       /* 标尺在图纸四边，只有贴着脏矩形的才需要重画 */
       if (!hitCol(cx)) continue
-      ctx.fillStyle = major ? '#1B1B1F' : '#9A9AA2'
+      ctx.fillStyle = th.coord || (major ? '#1B1B1F' : '#9A9AA2')
       ctx.fillText(String(i), cx, R * 0.5)
       ctx.fillText(String(i), cx, OY + gridH + R * 0.5)
     }
     for (let j = 1; j <= gh; j++) {
       const major = j % majorStep === 0
-      if (!major && j % step !== 0) continue
+      if (!major && j % step !== 0 && !(th.coordFirst && j === 1)) continue
       const cy = OY + (j - 0.5) * cell
       if (!hitRow(cy)) continue
-      ctx.fillStyle = major ? '#1B1B1F' : '#9A9AA2'
+      ctx.fillStyle = th.coord || (major ? '#1B1B1F' : '#9A9AA2')
       ctx.fillText(String(j), R * 0.5, cy)
       ctx.fillText(String(j), OX + gridW + R * 0.5, cy)
     }
@@ -789,8 +801,8 @@ function paintChartOverlay(ctx, g, pattern) {
 
   // 外框
   if (o.outerFrame && hitRect(OX - 1, OY - 1, gridW + 2, gridH + 2)) {
-    ctx.strokeStyle = '#1B1B1F'
-    ctx.lineWidth = 2
+    ctx.strokeStyle = (o.theme && o.theme.frame) || '#1B1B1F'
+    ctx.lineWidth = (o.theme && o.theme.frameWidth) || 2
     ctx.strokeRect(OX - 1, OY - 1, gridW + 2, gridH + 2)
   }
 

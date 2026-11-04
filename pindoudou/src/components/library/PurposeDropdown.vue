@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
-import PixelIcon from '../ui/PixelIcon.vue'
+import Icon from '../ui/Icon.vue'
 import { PURPOSE_OPTIONS } from '../../data/libraryCategories.js'
 
 const props = defineProps({
@@ -108,7 +108,7 @@ onBeforeUnmount(() => {
       @keydown="onButtonKey"
     >
       <span>{{ buttonLabel }}</span>
-      <PixelIcon :name="open ? 'chevronUp' : 'chevronDown'" :size="11" />
+      <Icon :name="open ? 'chevronUp' : 'chevronDown'" :size="16" />
     </button>
 
     <transition name="purposeMenu">
@@ -126,7 +126,7 @@ onBeforeUnmount(() => {
           @click="pick(o.value)"
         >
           <span>{{ o.label }}</span>
-          <PixelIcon v-if="modelValue === o.value" name="check" :size="13" />
+          <Icon v-if="modelValue === o.value" name="check" :size="16" />
         </button>
       </div>
     </transition>
@@ -138,24 +138,24 @@ onBeforeUnmount(() => {
 .purpose__btn{
   display:inline-flex;align-items:center;justify-content:space-between;gap:10px;
   min-width:106px;height:38px;padding:0 11px;border-radius:10px;
-  border:1px solid #EDE4D7;background:#fff;color:#27201B;
-  font-size:13px;font-weight:650;white-space:nowrap;transition:var(--t);
+  border:1px solid var(--line-strong);background:#fff;color:var(--ink);
+  font-size:13px;font-weight:700;white-space:nowrap;transition:var(--t);line-height:var(--ty-label-lh)
 }
 .purpose__btn:hover{border-color:#E5D6BF}
-.purpose__btn.on{border-color:#FFC84B;box-shadow:0 0 0 3px rgba(255,200,75,.14)}
+.purpose__btn.on{border-color:var(--primary);box-shadow:0 0 0 3px rgba(200,230,60,.24)}
 .purpose__menu{
   position:absolute;left:0;top:calc(100% + 8px);z-index:70;
   min-width:190px;max-width:calc(100vw - 40px);padding:6px;
-  background:#fff;border:1px solid #EDE4D7;border-radius:14px;
+  background:#fff;border:1px solid var(--line-strong);border-radius:14px;
   box-shadow:0 14px 34px rgba(92,64,30,.14);
 }
 .purpose__option{
   display:flex;align-items:center;justify-content:space-between;gap:16px;
   width:100%;height:36px;padding:0 10px;border-radius:9px;
-  font-size:13px;color:#4B5563;text-align:left;white-space:nowrap;
+  font-size:13px;color:#4B5563;text-align:left;white-space:nowrap;line-height:var(--ty-label-lh)
 }
-.purpose__option:hover{background:#F8F5F0;color:#27201B}
-.purpose__option.on{background:#FFF3C4;color:#27201B;font-weight:750}
+.purpose__option:hover{background:var(--surface-3);color:var(--ink)}
+.purpose__option.on{background:var(--primary-soft);color:var(--ink);font-weight:700}
 .purposeMenu-enter-active,.purposeMenu-leave-active{transition:opacity .14s var(--ease),transform .14s var(--ease)}
 .purposeMenu-enter-from,.purposeMenu-leave-to{opacity:0;transform:translateY(-4px)}
 @media(max-width:780px){

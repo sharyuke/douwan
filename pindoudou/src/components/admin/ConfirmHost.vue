@@ -31,7 +31,7 @@ function submit() {
     @update:model-value="v => { if (!v) cancelConfirm() }"
   >
     <div class="adm-stack">
-      <p v-if="confirmState.message" style="line-height:1.8">{{ confirmState.message }}</p>
+      <p v-if="confirmState.message" style="line-height:var(--ty-body-lh)">{{ confirmState.message }}</p>
       <div v-if="confirmState.detail" class="adm-note" :class="confirmState.danger ? 'adm-note--danger' : 'adm-note--warn'">
         {{ confirmState.detail }}
       </div>

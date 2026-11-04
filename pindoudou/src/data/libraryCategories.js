@@ -74,7 +74,7 @@ export const FEATURED_COLLECTIONS = [
     children: ['爆款素材', '热门话题', '季节流行', '精选合集']
   },
   {
-    key: 'shop', name: '店主专区', pixelIcon: 'box', tone: 'shop',
+    key: 'shop', name: '店主专区', pixelIcon: 'package', tone: 'shop',
     children: ['热卖款', '可批量制作', '成套商品', '节日上新'],
     available: false, badge: '即将上线'
   },

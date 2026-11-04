@@ -11,7 +11,7 @@
 import { computed, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import BaseDialog from '../ui/BaseDialog.vue'
-import PixelIcon from '../ui/PixelIcon.vue'
+import Icon from '../ui/Icon.vue'
 
 const props = defineProps({ modelValue: { type: Boolean, default: false } })
 const emit = defineEmits(['update:modelValue', 'guide'])
@@ -39,7 +39,7 @@ const SETS = {
           '左栏「① 先选你要拼什么」上传照片，主体自动裁到画布。',
           '「智能抠图」去背景和投影；透明 PNG 可以不开。',
           '背景杂乱时把力度切到「激进」，边缘保守一点。',
-          '没有照片就用「免费素材库」里的现成图案。'
+          '没有照片就用「素材库」里的现成图案。'
         ]
       },
       {
@@ -109,7 +109,7 @@ const SETS = {
           '空画布先看引导，上传入口就在画布中间。',
           '顶栏切 图纸 / 原图 / 对照，右边调缩放、点「适应」回整张。',
           '快捷区：画布、色板、换图、导出、更多。',
-          '换图时也能进「免费素材库」挑现成图案。'
+          '换图时也能进「素材库」挑现成图案。'
         ]
       },
       {
@@ -269,7 +269,7 @@ watch([current, device], () => {
             :aria-label="`播放第 ${current + 1} 课：${active.title}`" @click="play"
           >
             <img class="player__poster" :src="posterSrc(device, active.id)" alt="">
-            <span class="player__play" aria-hidden="true"><PixelIcon name="play" :size="26" /></span>
+            <span class="player__play" aria-hidden="true"><Icon name="arrow-right" :size="24" /></span>
           </button>
           <div v-if="failed" class="player__fallback">
             <b>视频暂时加载失败</b>
@@ -286,7 +286,7 @@ watch([current, device], () => {
           <p>{{ active.desc }}</p>
           <ul class="lessonPoints">
             <li v-for="p in active.points" :key="p">
-              <PixelIcon name="check" :size="12" class="pointCheck" /><span>{{ p }}</span>
+              <Icon name="check" :size="16" class="pointCheck" /><span>{{ p }}</span>
             </li>
           </ul>
         </div>
@@ -331,8 +331,8 @@ watch([current, device], () => {
 }
 .deviceTab:hover{border-color:#C9C9C3}
 .deviceTab.on{border-color:var(--primary);background:var(--primary-soft)}
-.deviceTab b{font-size:var(--fs-sm)}
-.deviceTab small{font-size:var(--fs-2xs);color:var(--muted)}
+.deviceTab b{font-size:var(--fs-sm);line-height:var(--ty-body-lh)}
+.deviceTab small{font-size:var(--fs-2xs);color:var(--muted);line-height:var(--ty-caption-lh)}
 .player{position:relative;aspect-ratio:16/9;background:#14161a;border-radius:var(--r-md);overflow:hidden;border:1px solid var(--line)}
 .player video{display:block;width:100%;height:100%;object-fit:contain;background:#14161a}
 /* 手机端教程是竖屏录的：播放器跟着换成 9:16，限宽限高避免把弹窗顶出屏幕 */
@@ -353,20 +353,20 @@ watch([current, device], () => {
   position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
   gap:6px;padding:24px;text-align:center;color:#fff;background:#14161a;
 }
-.player__fallback p{margin:0;font-size:var(--fs-sm);color:rgba(255,255,255,.78)}
+.player__fallback p{margin:0;font-size:var(--fs-sm);color:rgba(255,255,255,.78);line-height:var(--ty-body-lh)}
 .player__fallback a{color:#fff;text-decoration:underline}
 .lessonMeta{padding:13px 2px 0}
 .lessonMeta__head{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
-.lessonMeta__head b{font-size:var(--fs-h3)}
-.lessonMeta__head .muted{margin-left:auto;font-size:var(--fs-xs)}
-.lessonMeta p{margin:8px 0 0;font-size:var(--fs-sm);line-height:1.8;color:var(--ink-2)}
+.lessonMeta__head b{font-size:var(--fs-h3);line-height:var(--ty-card-lh)}
+.lessonMeta__head .muted{margin-left:auto;font-size:var(--fs-xs);line-height:var(--ty-label-lh)}
+.lessonMeta p{margin:8px 0 0;font-size:var(--fs-sm);line-height:var(--ty-body-lh);color:var(--ink-2)}
 .lessonPoints{margin:10px 0 0;padding:0;list-style:none;display:grid;gap:7px}
-.lessonPoints li{display:flex;gap:6px;font-size:var(--fs-xs);line-height:1.7;color:var(--ink-2)}
+.lessonPoints li{display:flex;gap:6px;font-size:var(--fs-xs);line-height:var(--ty-label-lh);color:var(--ink-2)}
 .pointCheck{flex:none;margin-top:4px;color:var(--green-deep)}
 .tutorial__list{display:flex;flex-direction:column;gap:8px;padding:11px;border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface-2)}
 .tutorial__listHead{display:flex;flex-direction:column;gap:2px;padding:2px 3px 5px}
-.tutorial__listHead b{font-size:var(--fs-sm)}
-.tutorial__listHead span{font-size:var(--fs-xs);color:var(--muted)}
+.tutorial__listHead b{font-size:var(--fs-sm);line-height:var(--ty-body-lh)}
+.tutorial__listHead span{font-size:var(--fs-xs);color:var(--muted);line-height:var(--ty-label-lh)}
 .lessonItem{
   display:flex;align-items:center;gap:10px;width:100%;padding:10px 11px;text-align:left;
   border:1px solid var(--line);border-radius:var(--r-sm);background:var(--surface);
@@ -374,14 +374,14 @@ watch([current, device], () => {
 }
 .lessonItem:hover{border-color:#C9C9C3}
 .lessonItem.on{border-color:var(--primary);background:var(--primary-soft);box-shadow:none}
-.lessonItem__no{font-size:var(--fs-xs);font-weight:800;color:var(--primary-deep);font-variant-numeric:tabular-nums}
+.lessonItem__no{font-size:var(--fs-xs);font-weight:700;color:var(--primary-deep);font-variant-numeric:tabular-nums;line-height:var(--ty-label-lh)}
 .lessonItem.on .lessonItem__no{color:var(--ink)}
 .lessonItem__body{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1}
-.lessonItem__body b{font-size:var(--fs-sm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.lessonItem__body small{font-size:var(--fs-2xs);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.lessonItem__time{font-size:var(--fs-2xs);color:var(--muted);font-variant-numeric:tabular-nums}
+.lessonItem__body b{font-size:var(--fs-sm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:var(--ty-body-lh)}
+.lessonItem__body small{font-size:var(--fs-2xs);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:var(--ty-caption-lh)}
+.lessonItem__time{font-size:var(--fs-2xs);color:var(--muted);font-variant-numeric:tabular-nums;line-height:var(--ty-caption-lh)}
 .tutorial__foot{display:flex;flex-direction:column;gap:7px;margin-top:4px}
-.tutorial__note{margin-right:auto;font-size:var(--fs-xs);color:var(--muted);line-height:1.5}
+.tutorial__note{margin-right:auto;font-size:var(--fs-xs);color:var(--muted);line-height:var(--ty-label-lh)}
 
 @media(max-width:820px){
   .tutorial{grid-template-columns:1fr;gap:13px}
@@ -389,7 +389,7 @@ watch([current, device], () => {
   .deviceTab{padding:8px 10px}
   .player{border-radius:var(--r-sm)}
   .player--portrait{width:min(100%,calc(58vh * 9 / 16))}
-  .player__play{width:52px;height:52px;margin:-26px 0 0 -26px;font-size:18px}
+  .player__play{width:52px;height:52px;margin:-26px 0 0 -26px;font-size:18px;line-height:var(--ty-section-lh)}
   .lessonMeta{padding-top:0}
   .tutorial__list{padding:9px}
   .lessonItem{padding:9px 10px}

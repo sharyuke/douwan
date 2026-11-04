@@ -8,7 +8,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ApiError, datetime } from '../../lib/api.js'
 import { settingApi } from '../../lib/adminApi.js'
-import PixelIcon from '../../components/ui/PixelIcon.vue'
+import Icon from '../../components/ui/Icon.vue'
 import { can, denyReason, isSuper } from '../../composables/useAdminAuth.js'
 import { confirmAction } from '../../composables/useAdminConfirm.js'
 import { run } from '../../composables/useAdminKit.js'
@@ -170,7 +170,7 @@ onMounted(() => reload())
 
     <div v-else-if="!groups.length" class="adm-card">
       <div class="adm-empty">
-        <div class="adm-empty__icon"><PixelIcon name="folder" :size="26" /></div>
+        <div class="adm-empty__icon"><Icon name="folder-open" :size="24" /></div>
         <strong>没有读到任何设置项</strong>
         <p>可能是服务端还没初始化默认设置，点右上角「重新加载」再试一次。</p>
       </div>

@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import BaseDialog from '../components/ui/BaseDialog.vue'
+import Icon from '../components/ui/Icon.vue'
 import {
   inventory, inventorySummary, inventoryByBrand, inventoryColors, inventoryColorIds,
   stockOf, setStock, toggleColor, addStock, clearInventory, importInventory, inventoryCSV,
@@ -212,7 +213,7 @@ function applyQuickSet(set) {
     <section v-if="short && short.needRestock" class="card" style="margin-top:18px">
       <div class="card__head">
         <h3>当前作品的缺色提醒</h3>
-        <RouterLink to="/project-materials">查看完整材料表 ›</RouterLink>
+        <RouterLink class="icoLink" to="/project-materials">查看完整材料表<Icon name="chevron-right" :size="16" /></RouterLink>
       </div>
       <div class="card__body">
         <div class="tableWrap">
@@ -224,7 +225,7 @@ function applyQuickSet(set) {
                 <td>{{ r.code }}</td>
                 <td class="num">{{ num(r.count) }}</td>
                 <td class="num">{{ r.owned ? num(r.owned) : '—' }}</td>
-                <td class="num" style="color:var(--danger);font-weight:800">{{ num(r.lack) }}</td>
+                <td class="num" style="color:var(--danger);font-weight:700">{{ num(r.lack) }}</td>
               </tr>
             </tbody>
           </table>
@@ -278,7 +279,7 @@ function applyQuickSet(set) {
         <!-- 已选颜色与数量 -->
         <div v-if="inventoryColorIds.length" class="selectedList">
           <div class="row row--between" style="margin-bottom:10px">
-            <b style="font-size:var(--fs-xs)">已选 {{ inventoryColorIds.length }} 色</b>
+            <b style="font-size:var(--fs-xs);line-height:var(--ty-label-lh)">已选 {{ inventoryColorIds.length }} 色</b>
             <span class="muted">可精确调整颗数</span>
           </div>
           <div class="qtyList">
@@ -329,7 +330,7 @@ function applyQuickSet(set) {
     </BaseDialog>
 
     <BaseDialog v-model="proOpen" title="库存约束配色是 Pro 功能" size="sm">
-      <p style="font-size:var(--fs-sm);line-height:1.85;color:var(--ink-2)">
+      <p style="font-size:var(--fs-sm);line-height:var(--ty-body-lh);color:var(--ink-2)">
         {{ gate.reason || '库存约束配色需要 Pro 套餐。' }}
         浏览和记录库存是免费的 —— 只有「用库存反过来决定配色」这一层需要 Pro。
       </p>
@@ -346,14 +347,14 @@ function applyQuickSet(set) {
   padding:15px;border-radius:var(--r-md);background:var(--surface);border:1px solid var(--line);
   display:flex;flex-direction:column;gap:4px;box-shadow:var(--sh-1);
 }
-.summaryCard b{font-size:20px;font-weight:850;letter-spacing:-.02em}
+.summaryCard b{font-size:18px;font-weight:700;letter-spacing:0;line-height:var(--ty-section-lh)}
 .summaryCard.warn{border-color:#F3C9A8;background:var(--yellow-soft)}
 .brandBars{display:flex;flex-direction:column;gap:12px}
-.brandBar b{font-size:var(--fs-xs)}
+.brandBar b{font-size:var(--fs-xs);line-height:var(--ty-label-lh)}
 .selectedList{margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}
 .qtyList{display:flex;flex-direction:column;gap:6px;max-height:340px;overflow:auto}
 .qtyRow{display:grid;grid-template-columns:22px 66px minmax(0,1fr) auto auto;gap:8px;align-items:center}
 .qtyRow input{min-height:34px}
-.qtyCode{font-size:var(--fs-xs);font-weight:800}
+.qtyCode{font-size:var(--fs-xs);font-weight:700;line-height:var(--ty-label-lh)}
 @media(max-width:900px){.summaryRow{grid-template-columns:repeat(2,minmax(0,1fr))}}
 </style>

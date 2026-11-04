@@ -29,6 +29,28 @@ function load() {
 /** colorId -> 颗数。0 或缺失都表示「没有」 */
 export const inventory = ref(load())
 
+/** 库存最后一次被改动的时刻（毫秒）。个人中心显示「最近更新」用。 */
+export const inventoryUpdatedAt = ref(loadUpdatedAt())
+
+function loadUpdatedAt() {
+  try {
+    const n = Number(localStorage.getItem(KEY + ':at') || 0)
+    return Number.isFinite(n) && n > 0 ? n : 0
+  } catch {
+    return 0
+  }
+}
+
+/** 记一次「刚刚改过库存」 */
+function touch() {
+  inventoryUpdatedAt.value = Date.now()
+  try {
+    localStorage.setItem(KEY + ':at', String(inventoryUpdatedAt.value))
+  } catch {
+    /* ignore */
+  }
+}
+
 /** 未填颗数、只勾选「有这色」时的默认存量 */
 export const DEFAULT_STOCK = 500
 
@@ -110,7 +132,10 @@ export function setStock(colorId, qty) {
   const next = { ...inventory.value }
   if (n > 0) next[colorId] = n
   else delete next[colorId]
+  const before = JSON.stringify(inventory.value)
+  const after = JSON.stringify(next)
   inventory.value = next
+  if (before !== after) touch()
 }
 
 export function toggleColor(colorId, defaultQty = DEFAULT_STOCK) {
@@ -123,7 +148,9 @@ export function addStock(colorId, delta) {
 }
 
 export function clearInventory() {
+  const had = Object.keys(inventory.value).length
   inventory.value = {}
+  if (had) touch()
 }
 
 /**
@@ -159,6 +186,7 @@ export function importInventory(text, brandId) {
   }
 
   inventory.value = next
+  if (result.ok) touch()
   return result
 }
 
@@ -224,7 +252,7 @@ export function consumeMaterials(rows = []) {
     if (left > 0) next[id] = left
     else delete next[id]
   }
-  if (Object.keys(deducted).length) inventory.value = next
+  if (Object.keys(deducted).length) { inventory.value = next; touch() }
   return deducted
 }
 
@@ -243,7 +271,7 @@ export function restoreMaterials(deducted) {
     next[id] = Number(next[id] || 0) + v
     restored += v
   }
-  if (restored) inventory.value = next
+  if (restored) { inventory.value = next; touch() }
   return restored
 }
 

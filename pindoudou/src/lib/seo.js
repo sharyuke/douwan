@@ -120,7 +120,7 @@ export function applyRouteMeta(route) {
 
   if (meta.admin || meta.noindex) {
     setMeta({
-      /* 后台页面带「豆玩后台」后缀；前台的应用内页面（工作台、操作台…）
+      /* 后台页面带「豆玩后台」后缀；前台的应用内页面（工作台、我的作品…）
          是普通站点页面，别挂「后台」两个字 —— 会被误当成后台页。 */
       title: meta.title ? `${meta.title} · ${meta.admin ? '豆玩后台' : '豆玩 DOUWAN'}` : '豆玩 DOUWAN',
       description: '',

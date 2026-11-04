@@ -5,7 +5,7 @@
    - 每个单元格用插槽渲染：#cell-<key>="{ row, value }"
    - 空数据、加载中、加载失败都有明确状态（后台需求 §14）
    ========================================================================= */
-import PixelIcon from '../ui/PixelIcon.vue'
+import Icon from '../ui/Icon.vue'
 
 defineProps({
   columns: { type: Array, required: true },
@@ -53,7 +53,7 @@ defineProps({
     </table>
 
     <div v-if="!loading && !rows.length" class="adm-empty">
-      <div class="adm-empty__icon"><PixelIcon name="folder" :size="26" /></div>
+      <div class="adm-empty__icon"><Icon name="folder-open" :size="24" /></div>
       <strong>{{ emptyTitle }}</strong>
       <p v-if="emptyHint">{{ emptyHint }}</p>
       <slot name="empty-action" />

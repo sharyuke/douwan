@@ -4,7 +4,7 @@ import { RouterLink } from 'vue-router'
 import { isLocked, isFavorite, toggleFavorite } from '../../composables/useAssets.js'
 import { ALL_FREE } from '../../composables/useMembership.js'
 import { difficultyTone } from '../../lib/forge.js'
-import PixelIcon from './PixelIcon.vue'
+import Icon from './Icon.vue'
 const props = defineProps({
   asset: { type: Object, required: true },
   showFavorite: { type: Boolean, default: true },
@@ -21,7 +21,7 @@ const tone = computed(() => difficultyTone(props.asset.difficulty))
   <div class="assetCard">
     <span v-if="asset.tier === 'free'" class="tag free assetCard__tier">免费</span>
     <span v-else class="tag assetCard__tier" :class="ALL_FREE ? 'free' : 'pro'">{{ ALL_FREE ? '已开放' : 'PRO' }}</span>
-    <span v-if="locked" class="assetCard__lock" title="会员专属素材"><PixelIcon name="lock" :size="12" /></span>
+    <span v-if="locked" class="assetCard__lock" title="会员专属素材"><Icon name="lock-keyhole" :size="16" /></span>
 
     <button
       v-if="showFavorite"
@@ -30,7 +30,7 @@ const tone = computed(() => difficultyTone(props.asset.difficulty))
       :title="fav ? '取消收藏' : '收藏'"
       :aria-label="fav ? '取消收藏' : '收藏'"
       @click.stop.prevent="toggleFavorite(asset.id)"
-    ><PixelIcon name="heart" :size="13" /></button>
+    ><Icon name="star" :size="16" /></button>
 
     <button class="thumbBtn" @click="emit('pick', asset)">
       <div v-if="asset.image" class="assetCard__thumb">
@@ -64,8 +64,8 @@ const tone = computed(() => difficultyTone(props.asset.difficulty))
         class="detailLink"
         :to="asset.remote ? `/materials/${asset.slug}/` : `/library/${asset.id}`"
         @click.stop
-      >详情 ›</RouterLink>
-      <button v-else class="detailLink asBtn" @click="emit('pick', asset)">使用 ›</button>
+      >详情<Icon name="chevron-right" :size="16" /></RouterLink>
+      <button v-else class="detailLink asBtn" @click="emit('pick', asset)">使用<Icon name="chevron-right" :size="16" /></button>
     </div>
   </div>
 </template>
@@ -77,13 +77,13 @@ const tone = computed(() => difficultyTone(props.asset.difficulty))
   position:absolute;right:9px;bottom:auto;top:9px;z-index:3;
   width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,.9);
   display:grid;place-items:center;font-size:13px;color:var(--muted);box-shadow:var(--sh-1);
-  transition:var(--t);
+  transition:var(--t);line-height:var(--ty-label-lh)
 }
 .assetCard__lock{right:39px}
 .favBtn:hover{color:var(--coral)}
 .favBtn.on{color:var(--coral);background:#fff}
 .assetCard__foot{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:8px}
 .assetCard__thumb img{object-fit:contain}
-.detailLink{font-size:var(--fs-2xs);font-weight:800;color:var(--coral-deep)}
+.detailLink{display:inline-flex;align-items:center;gap:2px;font-size:var(--fs-2xs);font-weight:700;color:var(--coral-deep);line-height:var(--ty-caption-lh)}
 .asBtn{padding:0;background:none}
 </style>

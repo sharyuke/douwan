@@ -2,7 +2,7 @@
 /* 权限不足时的说明页：明确告诉管理员「为什么进不来」以及找谁开权限 */
 import { computed } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
-import PixelIcon from '../../components/ui/PixelIcon.vue'
+import Icon from '../../components/ui/Icon.vue'
 import { admin, roleLabel, permissions } from '../../composables/useAdminAuth.js'
 
 const route = useRoute()
@@ -28,7 +28,7 @@ const from = computed(() => (typeof route.query.from === 'string' ? route.query.
   <div class="adm-page">
     <div class="adm-card">
       <div class="adm-empty">
-        <div class="adm-empty__icon"><PixelIcon name="lock" :size="28" /></div>
+        <div class="adm-empty__icon"><Icon name="lock-keyhole" :size="24" /></div>
         <strong>没有访问「{{ permLabel }}」的权限</strong>
         <p>
           当前登录账号是 <b>{{ admin ? (admin.nickname || admin.username) : '—' }}</b>

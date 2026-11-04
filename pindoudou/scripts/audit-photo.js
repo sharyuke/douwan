@@ -186,6 +186,13 @@
   /* ---------- ④ 色号上限：滑块与引擎都要能到色板长度（漫德 221），不再是 90 ----------
      上限原来由存档格式倒推（一格一字符、91 字符集 → 90 色），存档字符集扩到 256 之后
      这条天花板跟着拆掉。这里同时断言"界面滑块"和"引擎常量"两处，防的是一处改了另一处没跟。 */
+  /* 全屏工作台（参考版版面）把精细设置收进右侧抽屉：点开色板芯片再量滑块 */
+  let drawerOpened = false
+  if (!document.querySelector('.card--more') && document.querySelector('.csSide__palette')) {
+    document.querySelector('.csSide__palette').click()
+    drawerOpened = true
+    await sleep(700)
+  }
   const colorRange = document.querySelector('.card--more input[type=range]')
   out.colors = {
     sliderMax: colorRange ? Number(colorRange.max) : null,
@@ -199,6 +206,13 @@
   /* 卡通化的工作分辨率这一轮试过跟着画布放大、又撤回来了（理由见 README），
      所以把它钉在 768，防止以后无意中改动基线 */
   out.colors.cartoonPinned = out.colors.cartoonSide === 768
+  if (drawerOpened) {
+    const closeDrawerBtn = document.querySelector('.csDrawer__head .csIconBtn')
+    if (closeDrawerBtn) {
+      closeDrawerBtn.click()
+      await sleep(400)
+    }
+  }
 
   /* ---------- ⑤ 抠图掩膜的边长：跟源图走（384~1024），不再是固定 384 ----------
      这条盯的是"抠图边缘毛躁"那个改动：maskSide 没接上就还是 384。
@@ -244,13 +258,40 @@
     out.matteMask.ranOk === true
 
   /* ---------- ③ 极限档：长边按档位、另一边按原图比例并吸附到整板（不留白边） ---------- */
+  /* 全屏工作台里尺寸档位在右侧「成品尺寸」抽屉里 */
+  if (!document.querySelector('.card--size') && document.querySelector('.csSide__row')) {
+    const sizeRow = [...document.querySelectorAll('.csSide__row')].find(b => /成品尺寸/.test(b.textContent))
+    if (sizeRow) {
+      sizeRow.click()
+      await sleep(700)
+    }
+  }
   const fineTile = document.querySelector('.card--size .pick[data-tier="312"]')
   out.fine = { tile: fineTile ? fineTile.textContent.replace(/\s+/g, ' ').trim() : '' }
   if (fineTile) {
     fineTile.click()
-    await waitFor(() => pat() && (pat().width === 156 || pat().height === 312), 25000)
-    await sleep(150)
-    const f = pat()
+  } else {
+    /* 宽屏（≥781px）的尺寸卡没有档位列表：先把底板换成 312 规格，
+       再把清晰度滑杆拉到 312 —— 与点「312 档」是同一条 setCanvasSize 链路 */
+    out.fine.via = 'wide-card'
+    const spec = document.querySelector('.card--size [data-size-spec]')
+    const opt = spec ? [...spec.options].find(o => /312/.test(o.textContent)) : null
+    if (opt) {
+      spec.value = opt.value
+      spec.dispatchEvent(new Event('change', { bubbles: true }))
+      await sleep(900)
+    }
+    const range = document.querySelector('.card--size [data-size-range]')
+    if (range) {
+      range.value = String(Math.min(312, Number(range.max) || 312))
+      range.dispatchEvent(new Event('input', { bubbles: true }))
+      range.dispatchEvent(new Event('change', { bubbles: true }))
+    }
+  }
+  await waitFor(() => pat() && pat().width === 156 && pat().height === 312, 30000)
+  await sleep(150)
+  const f = pat()
+  if (f) {
     out.fine.canvas = `${S.options.canvasW}×${S.options.canvasH}`
     out.fine.pattern = `${f.width}×${f.height}`
     out.fine.targetColors = S.options.targetColors
@@ -261,6 +302,8 @@
     /* 156×312 = 4.9 万格 → 色号下限 64 色这一档 */
     out.fine.colorsOk = S.options.targetColors >= 64
     out.fine.ok = out.fine.sizeOk && out.fine.colorsOk
+  } else {
+    out.fine.ok = false
   }
 
   out.ok = !!(out.sticker.ok && out.photo.ok && out.big.ok && out.colors.ok &&

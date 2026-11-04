@@ -166,7 +166,7 @@ async function main() {
   const homeH1 = pick(home.text, /<h1[^>]*>([^<]*)<\/h1>/)
   check('head', '首页有独立标题', !!homeTitle, homeTitle)
   check('head', '首页有描述', !!homeDesc, homeDesc.slice(0, 60) + '…')
-  check('head', '首页 H1 是「免费拼豆图纸生成器」', homeH1.trim() === '免费拼豆图纸生成器', homeH1)
+  check('head', '首页 H1 是「豆玩拼豆图纸生成器」', homeH1.trim() === '豆玩拼豆图纸生成器', homeH1)
   /* 2026-10-26：三端都删掉了首屏以下的长文内容区，正文改由服务端 SEO 壳
      写进原始 HTML（爬虫读的就是这份）。这条断言守住「正文没跟着消失」。 */
   check('head', '首页原始 HTML 仍含长文正文（服务端 SEO 壳）',
@@ -282,7 +282,7 @@ async function main() {
         const features = qa('.hcFeature')
         const heroRect = hero ? hero.getBoundingClientRect() : null
         const footRect = foot ? foot.getBoundingClientRect() : null
-        /* 新手向导已经不在首页了（2026-10-26 首页恢复，操作台挪到 /create）。 */
+        /* 新手向导 2026-11-01 已下线，首页更不该出现它。 */
         const wizard = q('.bwiz')
         /* 左右两幅拼豆插画：桌面显示，窄屏（≤1040px）才隐藏。 */
         const collage = qa('.homeCollage')
@@ -298,7 +298,8 @@ async function main() {
         const h1El = q('h1')
         const h1Rect = h1El ? h1El.getBoundingClientRect() : null
         return {
-          title: t(document.title),
+          /* document.title 是字符串，不能走 t()（那是取元素 textContent 的） */
+          title: String(document.title || ''),
           h1: t(h1El),
           h1Count: qa('h1').length,
           h1Visible: !!(h1Rect && h1Rect.width > 2 && h1Rect.height > 2),
@@ -339,8 +340,10 @@ async function main() {
     }
     check('首页', `${vp.name}：首屏以下不渲染长文内容区`, !v.hasContent && v.blocks.length === 0, v.blocks.join(' / ') || '页面里没有内容区')
     check('首页', `${vp.name}：H1 唯一且是主关键词`, v.h1Count === 1 && v.h1.includes('拼豆图纸生成器'), v.h1)
+    /* 客户端把 document.title 也写成同一份文案（服务端渲染的 head 与客户端接管后必须一致） */
+    check('首页', `${vp.name}：浏览器标题带「豆玩图纸生成器」`, v.title.includes('豆玩图纸生成器'), v.title)
     check('首页', `${vp.name}：H1 只给读屏器看（页面上不显示）`, !v.h1Visible, v.h1Visible ? 'H1 在页面上可见' : '已隐藏')
-    check('首页', `${vp.name}：首页不再放新手向导（向导在 /create）`, !v.hasWizard)
+    check('首页', `${vp.name}：首页不再放新手向导`, !v.hasWizard)
     check('首页', `${vp.name}：站点页脚在主视觉之后`, v.hasFoot && v.footTop >= v.heroBottom - 2,
       '页脚 top=' + v.footTop + ' 主视觉 bottom=' + v.heroBottom)
     check('首页', `${vp.name}：没有横向溢出`, v.overflowX <= 2, 'overflowX=' + v.overflowX)

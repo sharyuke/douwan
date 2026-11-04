@@ -801,7 +801,7 @@ onMounted(() => {
               </div>
               <div class="adm-kpi">
                 <div class="adm-kpi__label">到期时间</div>
-                <div class="adm-kpi__value" style="font-size:16px">
+                <div class="adm-kpi__value" style="font-size:14px;line-height:var(--ty-body-lh)">
                   {{ detail.membership.expire_at ? datetime(detail.membership.expire_at) : (detail.membership.is_pro ? '不限时长' : '—') }}
                 </div>
                 <div class="adm-kpi__hint">按当前有效权益里最优的一条计算</div>

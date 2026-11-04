@@ -45,7 +45,7 @@
    生长方向只能是"从已确认的背景 / 阴影往外扩"，主体轮廓内部不会被从外面吃进来。
    ========================================================================= */
 
-import { rgbToLab, rgbToHex, deltaE2000, labDist2 } from './color.js'
+import { rgbToLab, rgbToHex, deltaE2000, deltaE2000Lab, labDist2 } from './color.js'
 
 /**
  * 分析用的**最小**边长（兼容旧默认：小图仍然按这个跑）。
@@ -110,22 +110,37 @@ const SRGB_TO_LIN = (() => {
  *                同时够穿过柔和投影（梯度约 0.04/像素）；
  *   shadowSpread 三个通道 k 值的最大/最小比。越大越能容忍偏色环境光，
  *                也越容易把"彩色主体被压暗后的边缘"算进来。
+ *
+ * strictRatio / islandRatio 是 2026-10-29 新加的「主体保护」口径：
+ *   strictRatio 严格口径的容差比例。严格口径只认「非常像背景」的像素，
+ *                洪水填充先跑严格口径、再跑宽松口径，两者之差就是
+ *                **模糊地带**（颜色与背景接近、但分不清是背景还是主体的那些像素）。
+ *   islandRatio 模糊地带里的封闭区域，面积超过这个比例就判成「衬底/卡片底色」
+ *                （背景），不超过就判成「主体」—— 用户要的就是
+ *                「主体和背景色相近时，尽可能多地保留主体」。
+ *                ⚠️ 这条现在只是**兜底**：真正的「主体 vs 承托面」由 holeRatio 判。
+ *   holeRatio  承托面判据：这块区域里「包住的东西」（洞）占多少。
+ *                洞多 = 这是块承托面（卡片 / 桌面），上面的图案才是主体；
+ *                洞少 = 这块本身就是主体。
  */
 export const MATTE_LEVELS = [
   {
     key: 'soft', label: '保守', hint: '白底 / 纯色底最稳',
     tolerance: 7, unknownRadius: 1, edgeScale: 2.2, minBlobRatio: 0.0016, emptyShare: 0.40, margin: 0.02,
-    shadowFloor: 0.45, shadowStep: 0.06, shadowSpread: 1.35
+    shadowFloor: 0.45, shadowStep: 0.06, shadowSpread: 1.35,
+    strictRatio: 0.5, islandRatio: 0.90, holeRatio: 0.06
   },
   {
     key: 'normal', label: '标准', hint: '通用',
     tolerance: 10, unknownRadius: 2, edgeScale: 2.6, minBlobRatio: 0.0009, emptyShare: 0.52, margin: 0.02,
-    shadowFloor: 0.30, shadowStep: 0.10, shadowSpread: 1.60
+    shadowFloor: 0.30, shadowStep: 0.10, shadowSpread: 1.60,
+    strictRatio: 0.5, islandRatio: 0.94, holeRatio: 0.08
   },
   {
     key: 'strong', label: '激进', hint: '杂乱背景（可能误伤）',
     tolerance: 14, unknownRadius: 3, edgeScale: 3.0, minBlobRatio: 0.0005, emptyShare: 0.62, margin: 0.02,
-    shadowFloor: 0.18, shadowStep: 0.22, shadowSpread: 1.85
+    shadowFloor: 0.18, shadowStep: 0.22, shadowSpread: 1.85,
+    strictRatio: 0.5, islandRatio: 0.96, holeRatio: 0.12
   }
 ]
 
@@ -137,6 +152,10 @@ export function matteLevel(key) {
 
 function clamp01(v) {
   return v < 0 ? 0 : v > 1 ? 1 : v
+}
+
+function round2(v) {
+  return Math.round(v * 100) / 100
 }
 
 /** labDist2 的标量版：阴影填充里逐邻居要算一次，避免每像素都建数组 */
@@ -215,25 +234,30 @@ function upsampleAlpha(mask, w, h, tw, th) {
 /* ---------------------------------------------------------------- 背景色模型 */
 
 /**
- * 外圈像素的 k-means（Lab 空间，ΔE00 分配）。
+ * 一组像素的 Lab k-means（ΔE00 分配）。
  * 用 ΔE00 而不是欧氏距离分配：亮饱和色（橙、青）在 Lab 欧氏距离下会被高估，
  * 背景里的"浅米 vs 白"这种差别必须按人眼判。
+ *
+ * @param {Float32Array} labs 全图 Lab
+ * @param {number[]} idx 参与聚类的像素下标
+ * @param {number} k 簇数上限
+ * @param {Uint8ClampedArray} data 全图 RGBA（用来算每簇的平均 RGB，阴影模型要用）
  */
-function clusterBorderColors(labs, ring, k, data, iterations = 6) {
-  const n = ring.length
+function clusterColors(labs, idx, k, data, iterations = 6) {
+  const n = idx.length
   if (!n) return []
   if (n < k) k = 1
 
-  // 初始化：第一个中心取"最靠近外圈平均色"的真实像素，其余按最远点采样
+  // 初始化：第一个中心取"最靠近平均色"的真实像素，其余按最远点采样
   let mL = 0, mA = 0, mB = 0
-  for (const i of ring) {
+  for (const i of idx) {
     mL += labs[i * 3]; mA += labs[i * 3 + 1]; mB += labs[i * 3 + 2]
   }
   const mean = [mL / n, mA / n, mB / n]
   const centers = []
-  let bestI = ring[0]
+  let bestI = idx[0]
   let bestD = Infinity
-  for (const i of ring) {
+  for (const i of idx) {
     const d = labDist2([labs[i * 3], labs[i * 3 + 1], labs[i * 3 + 2]], mean)
     if (d < bestD) { bestD = d; bestI = i }
   }
@@ -242,7 +266,7 @@ function clusterBorderColors(labs, ring, k, data, iterations = 6) {
   while (centers.length < k) {
     let far = null
     let farD = -1
-    for (const i of ring) {
+    for (const i of idx) {
       const lab = [labs[i * 3], labs[i * 3 + 1], labs[i * 3 + 2]]
       let d = Infinity
       for (const c of centers) {
@@ -258,7 +282,7 @@ function clusterBorderColors(labs, ring, k, data, iterations = 6) {
   let assign = new Int32Array(n)
   for (let it = 0; it < iterations; it++) {
     for (let j = 0; j < n; j++) {
-      const i = ring[j]
+      const i = idx[j]
       const lab = [labs[i * 3], labs[i * 3 + 1], labs[i * 3 + 2]]
       let bi = 0
       let bd = Infinity
@@ -273,7 +297,7 @@ function clusterBorderColors(labs, ring, k, data, iterations = 6) {
     const sumB = new Float64Array(centers.length)
     const cnt = new Uint32Array(centers.length)
     for (let j = 0; j < n; j++) {
-      const i = ring[j]
+      const i = idx[j]
       const c = assign[j]
       sumL[c] += labs[i * 3]; sumA[c] += labs[i * 3 + 1]; sumB[c] += labs[i * 3 + 2]
       cnt[c]++
@@ -293,7 +317,7 @@ function clusterBorderColors(labs, ring, k, data, iterations = 6) {
     let sb = 0
     for (let j = 0; j < n; j++) {
       if (assign[j] !== c) continue
-      const i = ring[j]
+      const i = idx[j]
       const e = deltaE2000([labs[i * 3], labs[i * 3 + 1], labs[i * 3 + 2]], center)
       cnt++
       sq += e * e
@@ -309,12 +333,459 @@ function clusterBorderColors(labs, ring, k, data, iterations = 6) {
   })
   const kept = stat.filter(s => s.share >= 0.06 && s.count >= 8)
   if (!kept.length) {
-    // 全被丢掉说明外圈颜色极散（例如满屏纹理）：保留最大的那个，交给置信度去降级
+    // 全被丢掉说明颜色极散（例如满屏纹理）：保留最大的那个，交给置信度去降级
     stat.sort((a, b) => b.count - a.count)
     return stat.slice(0, 1)
   }
   kept.sort((a, b) => b.count - a.count)
   return kept.slice(0, 3)
+}
+
+/* ---------------------------------------------------------------- 逐像素判据 */
+
+/**
+ * 按一套背景色簇给每个像素打标：像不像背景、属于哪个簇、光照保留比例 k。
+ * 抽成函数是因为背景色模型会被**重建一次**（见 estimateMatte 的 2.5 步：
+ * 主体贴着画面边缘时，外圈取样环里混进了主体的颜色，得把它剔掉）。
+ *
+ * @returns {{tol, limits, edgeLimit, maxSpread, shadowReady, bgLike, deToCluster, clusterOf, shade}}
+ */
+function classifyByModel(labs, data, clusters, level, resScale, n) {
+  const tol = clusters.map(c => level.tolerance + Math.min(6, c.spread * 0.6))
+  const maxSpread = clusters.reduce((m, c) => Math.max(m, c.spread), 0)
+  /* 「像背景」的放宽线：外圈色模型只见过背景的一部分，图内背景色稍微偏一点
+     就会超出容差，所以做连通域判定时给 1.5 倍 + 3 的余量。 */
+  const limits = tol.map(t => t * 1.5 + 3)
+  const edgeLimit = Math.max(28, level.tolerance * level.edgeScale + maxSpread * 1.5) * resScale
+
+  /* 背景簇的**线性光**表示：阴影的乘法模型必须与背景在同一个空间里比。
+     聚类本身仍然在 Lab 里做（那里才符合人眼），这里只是换算一份给阴影用。 */
+  let shadowReady = true
+  for (const c of clusters) {
+    if (!c.rgb) { shadowReady = false; break }
+    c.lin = [0, 1, 2].map(k => {
+      const v = Math.min(255, Math.max(0, Math.round(c.rgb[k])))
+      return Math.max(1e-4, SRGB_TO_LIN[v])
+    })
+  }
+
+  const bgLike = new Uint8Array(n)
+  const deToCluster = new Float32Array(n).fill(Infinity)
+  const clusterOf = new Int8Array(n).fill(-1)
+  /* 每个像素相对所属背景簇的「光照保留比例」k（逐通道平均，1 = 全亮）。
+     必须对**所有**像素都算，不能只给阴影候选算：
+     渐变判定比的是相邻两像素真实明暗之差，而背景那一侧的标称值是 1，
+     实际上它可能早就被压到 0.7 了 —— 拿 1 去比，第一步就会被判成"硬边"而卡死
+     （实测就是这个 bug：阴影一个像素都长不出来）。 */
+  const shade = new Float32Array(n).fill(1)
+  const shadeOf = i => {
+    const lin = clusters[clusterOf[i]].lin
+    const o = i * 4
+    return (SRGB_TO_LIN[data[o]] / lin[0] + SRGB_TO_LIN[data[o + 1]] / lin[1] + SRGB_TO_LIN[data[o + 2]] / lin[2]) / 3
+  }
+  for (let i = 0; i < n; i++) {
+    const lab = [labs[i * 3], labs[i * 3 + 1], labs[i * 3 + 2]]
+    let bestC = -1
+    let bestD2 = Infinity
+    for (let c = 0; c < clusters.length; c++) {
+      const d2 = labDist2(lab, clusters[c].center)
+      if (d2 < bestD2) { bestD2 = d2; bestC = c }
+    }
+    /* 两级判定，目的只有一个：别把 ΔE00 花在没争议的像素上。
+       ΔE00 的分量都除以 ≥1 的 SL/SC/SH，还带一个非正的交叉项，
+       所以 ΔE00 ≲ 欧氏距离（CIE76）。于是：
+         · 欧氏距离 ≤ 0.85 倍容差  → 不必算也一定算作背景（背景像素走这条快路）；
+         · 欧氏距离 > 6 倍容差     → 一定不是背景；
+         · 中间地带            → 老老实实算 ΔE00。
+       合成图（白底 + 主体）里绝大多数像素落在前两种情况，
+       实测这一改能把抠图耗时砍掉一半左右，且判定结果逐像素一致。 */
+    const rough = Math.sqrt(bestD2)
+    clusterOf[i] = bestC
+    if (shadowReady && bestC >= 0) shade[i] = shadeOf(i)
+    if (rough <= tol[bestC] * 0.85) {
+      /* 快路：ΔE00 ≤ CIE76 = rough ≤ 0.85×容差，一定算背景。
+         这里把 deToCluster 记成 **rough** 而不是 0 ——
+         0 是个假值，会让「严格口径」把所有走快路的像素都当成
+         「非常像背景」，于是「主体颜色与背景只差几个 ΔE00」的像素
+         被划进背景那一侧，主体就再也救不回来了（实测 fixtures/cut_low_contrast
+         在「激进」档就是这么整块消失的）。记成 rough 之后：
+         严格口径判的是「距离 ≤ 严格容差」，口径统一，而且 rough 是 ΔE00 的上界，
+         判出来的严格集只会比纯 ΔE00 略小一点 —— 偏保守，不会误删主体。 */
+      deToCluster[i] = rough
+      bgLike[i] = 1
+      continue
+    }
+    if (rough > tol[bestC] * 6 + 12) continue
+    const de = deltaE2000(lab, clusters[bestC].center)
+    deToCluster[i] = de
+    if (de <= tol[bestC]) bgLike[i] = 1
+  }
+  return { tol, limits, edgeLimit, maxSpread, shadowReady, bgLike, deToCluster, clusterOf, shade, labs }
+}
+
+/**
+ * 背景洪水填充：从给定种子出发，只走「像背景」的像素，且不跨强边缘。
+ *
+ * ⚠️ 快路径（两个像素都是「核心背景」就不必再算 ΔE00）只在**同一个簇**内部成立：
+ * 「两个核心像素」最多差 2×容差，那说的是同一个背景色内部的离散度；
+ * 跨簇时两个"核心"像素可以差得很远（白底 vs 橙色主体），
+ * 跨过去就等于把主体当背景吃掉 —— 这正是「主体被画面裁掉一截」时发生的事。
+ */
+function floodBackground(n, w, h, seeds, model, tolArr, bgLikeArr) {
+  const { deToCluster, clusterOf, edgeLimit } = model
+  const labs = model.labs
+  const bgLike = bgLikeArr || model.bgLike
+  const bg = new Uint8Array(n)
+  const stack = new Int32Array(n)
+  let sp = 0
+  for (const i of seeds) {
+    if (!bg[i] && bgLike[i]) { bg[i] = 1; stack[sp++] = i }
+  }
+  const isCore = i => bgLike[i] === 1 && deToCluster[i] <= tolArr[clusterOf[i]]
+  while (sp > 0) {
+    const cur = stack[--sp]
+    const cx = cur % w
+    const cy = (cur - cx) / w
+    const curCore = isCore(cur)
+    const curCluster = clusterOf[cur]
+    for (let dy = -1; dy <= 1; dy++) {
+      const yy = cy + dy
+      if (yy < 0 || yy >= h) continue
+      for (let dx = -1; dx <= 1; dx++) {
+        if (!dx && !dy) continue
+        const xx = cx + dx
+        if (xx < 0 || xx >= w) continue
+        const q = yy * w + xx
+        if (bg[q] || !bgLike[q]) continue
+        // 不跨强边缘：背景被主体轮廓"隔开"的另一侧不应被吃进来
+        if (!(curCore && curCluster === clusterOf[q] && isCore(q))) {
+          // 用标量版 ΔE00（结果与 deltaE2000([L,a,b],[L,a,b]) 完全一致），
+          // 免得每对相邻像素都现分配两个数组 —— 这是洪水填充里最热的一段。
+          if (deltaE2000Lab(labs[cur * 3], labs[cur * 3 + 1], labs[cur * 3 + 2],
+            labs[q * 3], labs[q * 3 + 1], labs[q * 3 + 2]) > edgeLimit) continue
+        }
+        bg[q] = 1
+        stack[sp++] = q
+      }
+    }
+  }
+  return bg
+}
+
+/**
+ * 「核心背景」：从四角出发、沿**局部相似**（相邻两像素色差 ≤ stepLimit）生长出来的区域。
+ *
+ * 为什么不用「像不像背景色模型」：模型本身正是在这一步要被检验的东西（外圈取样环
+ * 可能混进了主体的颜色），不能拿它去证明自己。
+ * 局部生长天生能穿过渐变背景（每一步色差都小），
+ * 又会在主体的硬轮廓前停下（轮廓那一步色差很大）。
+ *
+ * ⚠️ 但「每一步色差都小」本身不够：抗锯齿过的主体轮廓也是**一��一小步**走过去的
+ * （白底 → 橙主体中间铺了好几级过渡色，每级只差 1~3 个 ΔE00），
+ * 纯靠 stepLimit 的话，生长会顺着这条过渡带一路钻进主体内部
+ * （实测 fixtures/cut_touch_edge：核心背景把整个橙色主体都"背书"了，
+ *   主体颜色因此留在背景模型里，主体被整个吃掉）。
+ * 所以再加一道**梯度闸门**：主体轮廓那一步是「跳」过去的（Lab 梯度很大），
+ * 而渐变背景是「化」过去的（每像素梯度很小）。挡住陡边，生长就停在主体外侧。
+ */
+function growCoreBackground(labs, w, h, seeds, stepLimit, edgeLimit = Infinity, gradIn = null) {
+  const n = w * h
+  const bg = new Uint8Array(n)
+  const q = new Int32Array(n)
+  let head = 0
+  let tail = 0
+  for (const i of seeds) {
+    if (!bg[i]) { bg[i] = 1; q[tail++] = i }
+  }
+  /* ΔE00 ≤ 欧氏距离（CIE76），所以欧氏距离已经很大时不必再算 ΔE00。 */
+  const roughLimit2 = (stepLimit * 1.15) ** 2
+  // 梯度图由调用方传入：整张图只算一次（下面判岛形时还要用同一张）
+  const grad = Number.isFinite(edgeLimit) ? (gradIn || gradientMagnitude(labs, w, h)) : null
+  while (head < tail) {
+    const cur = q[head++]
+    if (grad && grad[cur] > edgeLimit) continue
+    const cx = cur % w
+    const cy = (cur - cx) / w
+    for (let dy = -1; dy <= 1; dy++) {
+      const yy = cy + dy
+      if (yy < 0 || yy >= h) continue
+      for (let dx = -1; dx <= 1; dx++) {
+        if (!dx && !dy) continue
+        const xx = cx + dx
+        if (xx < 0 || xx >= w) continue
+        const p = yy * w + xx
+        if (bg[p]) continue
+        if (grad && grad[p] > edgeLimit) continue
+        const dl = labs[cur * 3] - labs[p * 3]
+        const da = labs[cur * 3 + 1] - labs[p * 3 + 1]
+        const db = labs[cur * 3 + 2] - labs[p * 3 + 2]
+        if (dl * dl + da * da + db * db > roughLimit2) continue
+        const de = deltaE2000Lab(labs[cur * 3], labs[cur * 3 + 1], labs[cur * 3 + 2],
+          labs[p * 3], labs[p * 3 + 1], labs[p * 3 + 2])
+        if (de > stepLimit) continue
+        bg[p] = 1
+        q[tail++] = p
+      }
+    }
+  }
+  return bg
+}
+
+/**
+ * 一块封闭区域里「挖掉」被它包住的洞，返回洞的面积占比。
+ *
+ * 用途：分清「一块和背景颜色接近的**主体**」与「一块和背景颜色接近的**承托面**」。
+ * 两者在颜色上、边缘上几乎一样，唯一的区别是承托面上**画了东西**
+ * （卡片上的图案、桌面上的物件），而主体上没有。
+ * 洞 = 该区域内部、不与画面边缘连通的那部分（洞里要么是明确的主体像素，要么是明确的背景）。
+ *
+ * ⚠️ 只在主体的**包围盒**里找洞：盒子外面的一切都和画面边缘连通，不可能是洞。
+ * 盒子越小，这一趟越省（大块主体能省掉整张图的扫描）。
+ */
+function holeRatioOf(island, w, h, box) {
+  const x0 = box.x0, y0 = box.y0, x1 = box.x1, y1 = box.y1
+  const bw = x1 - x0 + 1
+  const bh = y1 - y0 + 1
+  const bn = bw * bh
+  const outside = new Uint8Array(bn)
+  const q = new Int32Array(bn)
+  let head = 0
+  let tail = 0
+  const push = p => {
+    if (outside[p]) return
+    const gx = p % bw
+    const gy = (p - gx) / bw
+    if (island[(y0 + gy) * w + x0 + gx]) return
+    outside[p] = 1
+    q[tail++] = p
+  }
+  for (let x = 0; x < bw; x++) { push(x); push((bh - 1) * bw + x) }
+  for (let y = 0; y < bh; y++) { push(y * bw); push(y * bw + bw - 1) }
+  while (head < tail) {
+    const cur = q[head++]
+    const cx = cur % bw
+    const cy = (cur - cx) / bw
+    for (let dy = -1; dy <= 1; dy++) {
+      const yy = cy + dy
+      if (yy < 0 || yy >= bh) continue
+      for (let dx = -1; dx <= 1; dx++) {
+        if (!dx && !dy) continue
+        const xx = cx + dx
+        if (xx < 0 || xx >= bw) continue
+        push(yy * bw + xx)
+      }
+    }
+  }
+  let holes = 0
+  for (let p = 0; p < bn; p++) {
+    if (outside[p]) continue
+    const gx = p % bw
+    const gy = (p - gx) / bw
+    if (island[(y0 + gy) * w + x0 + gx]) continue
+    holes++
+  }
+  const total = box.size + holes
+  return total ? holes / total : 0
+}
+
+/**
+ * 逐像素的 CIE76 梯度幅值（Lab 空间中心差分）。
+ *
+ * 用途只有一个：判断「这条边是硬边，还是化过去的过渡带」。
+ * 主体轮廓是**跳变**的（从背景到主体一步跨过去，抗锯齿也就一两个像素）；
+ * 背景自己的渐变、噪点、投影外围那圈过渡带是**渐变**的（每一步只差一点点）。
+ * 两者在颜色上可能长得几乎一样，只有边缘的「陡不陡」能分开。
+ */
+function gradientMagnitude(labs, w, h) {
+  const n = w * h
+  const g = new Float32Array(n)
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x
+      const xm = x > 0 ? i - 1 : i
+      const xp = x < w - 1 ? i + 1 : i
+      const ym = y > 0 ? i - w : i
+      const yp = y < h - 1 ? i + w : i
+      const dx = labs[xp * 3] - labs[xm * 3]
+      const da = labs[xp * 3 + 1] - labs[xm * 3 + 1]
+      const db = labs[xp * 3 + 2] - labs[xm * 3 + 2]
+      const dy = labs[yp * 3] - labs[ym * 3]
+      const ea = labs[yp * 3 + 1] - labs[ym * 3 + 1]
+      const eb = labs[yp * 3 + 2] - labs[ym * 3 + 2]
+      g[i] = Math.sqrt(dx * dx + da * da + db * db + dy * dy + ea * ea + eb * eb)
+    }
+  }
+  return g
+}
+
+/**
+ * 3×3 最大值滤波（膨胀）后的梯度，取**单个像素**的值。
+ *
+ * 边缘常常只有一两个像素对不齐，先膨胀再取中位数，量到的才是这条轮廓真正的落差。
+ * ⚠️ 这里只按需取单个像素、不对整张图做膨胀：膨胀后的梯度只在**连通块边界**
+ * 那几个像素上被用到，而整图膨胀一遍是抠图耗时里最大的一块（实测占两成）。
+ */
+function dilatedGradAt(src, w, h, x, y) {
+  let m = 0
+  const y0 = y > 0 ? y - 1 : 0
+  const y1 = y < h - 1 ? y + 1 : h - 1
+  const x0 = x > 0 ? x - 1 : 0
+  const x1 = x < w - 1 ? x + 1 : w - 1
+  for (let yy = y0; yy <= y1; yy++) {
+    const row = yy * w
+    for (let xx = x0; xx <= x1; xx++) {
+      const v = src[row + xx]
+      if (v > m) m = v
+    }
+  }
+  return m
+}
+
+/**
+ * 数组的中位数（原地 quickselect，O(n)）。
+ * 原来用 sort()，大块区域（几十万像素）就是 O(n log n)，
+ * 而每��连通块都要算两次中位数 —— 这是抠图耗时的大头之一。
+ */
+function medianOf(arr, count) {
+  if (count <= 0) return 0
+  const k = count >> 1
+  let lo = 0
+  let hi = count - 1
+  while (lo < hi) {
+    // 三数取中做枢轴，避免有序输入退化成 O(n²)
+    const mid = (lo + hi) >> 1
+    if (arr[lo] > arr[hi]) { const t = arr[lo]; arr[lo] = arr[hi]; arr[hi] = t }
+    if (arr[mid] > arr[hi]) { const t = arr[mid]; arr[mid] = arr[hi]; arr[hi] = t }
+    if (arr[lo] > arr[mid]) { const t = arr[lo]; arr[lo] = arr[mid]; arr[mid] = t }
+    const pivot = arr[mid]
+    let i = lo
+    let j = hi
+    while (i <= j) {
+      while (arr[i] < pivot) i++
+      while (arr[j] > pivot) j--
+      if (i <= j) { const t = arr[i]; arr[i] = arr[j]; arr[j] = t; i++; j-- }
+    }
+    if (k <= j) hi = j
+    else if (k >= i) lo = i
+    else break
+  }
+  return arr[k]
+}
+
+/**
+ * 8 邻接连通域标记。返回每个连通块的像素列表、是否顶到画面边缘，
+ * 以及「厚度」—— 从块边缘往里能走多深（到不了边界的最远距离）。
+ *
+ * 厚度用来区分「一个实心的主体」和「一圈薄薄的过渡带」：
+ * 投影外围那圈「比背景稍暗一点」的过渡带就是薄片（厚度几像素），
+ * 而主体是一坨实心的（厚度几十像素）。把薄片当主体留下来，
+ * 会在主体周围留一圈灰豆 —— 那正是要避免的。
+ *
+ * ⚠️ 厚度场用「整型数组 + 代号戳」而不是 Map/Set：
+ * 一个几十万像素的块用 Map 存深度，光是装箱与哈希就要几百毫秒，
+ * 而这里每个块都要算一遍厚度。
+ */
+function labelComponents(bin, w, h) {
+  const n = w * h
+  const label = new Int32Array(n).fill(-1)
+  const comps = []
+  const q = new Int32Array(n)
+  const depthArr = new Int32Array(n)
+  const depthStamp = new Int32Array(n)
+  let gen = 0
+  for (let s = 0; s < n; s++) {
+    if (label[s] >= 0 || !bin[s]) continue
+    const id = comps.length
+    gen++
+    let head = 0
+    let tail = 0
+    q[tail++] = s
+    label[s] = id
+    let touchBorder = false
+    while (head < tail) {
+      const cur = q[head++]
+      const x = cur % w
+      const y = (cur - x) / w
+      if (x === 0 || y === 0 || x === w - 1 || y === h - 1) touchBorder = true
+      for (let dy = -1; dy <= 1; dy++) {
+        const yy = y + dy
+        if (yy < 0 || yy >= h) continue
+        for (let dx = -1; dx <= 1; dx++) {
+          if (!dx && !dy) continue
+          const xx = x + dx
+          if (xx < 0 || xx >= w) continue
+          const p = yy * w + xx
+          if (label[p] >= 0 || !bin[p]) continue
+          label[p] = id
+          q[tail++] = p
+        }
+      }
+    }
+    const pixels = q.slice(0, tail)
+    // 包围盒：找洞时只在盒子里找（盒子外面不可能有洞）
+    let bx0 = w, by0 = h, bx1 = -1, by1 = -1
+    for (let k = 0; k < tail; k++) {
+      const p = pixels[k]
+      const x = p % w
+      const y = (p - x) / w
+      if (x < bx0) bx0 = x
+      if (x > bx1) bx1 = x
+      if (y < by0) by0 = y
+      if (y > by1) by1 = y
+    }
+    /* 厚度：从块的边界像素同时出发做多源 BFS，走得最远的那一层的层数就是厚度。
+       用 4 邻域（切比雪夫距离会高估斜向厚度），代价是 O(块大小)。
+       「是不是本块的像素」用 label[p] === id 判断 —— label 里只有本块的像素
+       带 id，其余块带各自的 id、未访问的是 -1，语义与原来的 Set 完全一致。 */
+    const boundary = []
+    const queue = new Int32Array(tail)
+    let qh = 0
+    let qt = 0
+    for (let k = 0; k < tail; k++) {
+      const p = pixels[k]
+      const x = p % w
+      const y = (p - x) / w
+      let edge = false
+      for (let dy = -1; dy <= 1 && !edge; dy++) {
+        const yy = y + dy
+        if (yy < 0 || yy >= h) continue
+        for (let dx = -1; dx <= 1; dx++) {
+          if (!dx && !dy) continue
+          const xx = x + dx
+          if (xx < 0 || xx >= w) continue
+          const q2 = yy * w + xx
+          if (label[q2] !== id) { edge = true; break }
+        }
+      }
+      if (edge) { depthArr[p] = 1; depthStamp[p] = gen; queue[qt++] = p; boundary.push(p) }
+    }
+    let maxDepth = 0
+    while (qh < qt) {
+      const cur = queue[qh++]
+      const d = depthArr[cur]
+      if (d > maxDepth) maxDepth = d
+      const x = cur % w
+      const y = (cur - x) / w
+      for (let k = 0; k < 4; k++) {
+        const xx = x + (k === 0 ? -1 : k === 1 ? 1 : 0)
+        const yy = y + (k === 2 ? -1 : k === 3 ? 1 : 0)
+        if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue
+        const p = yy * w + xx
+        if (label[p] !== id || depthStamp[p] === gen) continue
+        depthArr[p] = d + 1
+        depthStamp[p] = gen
+        queue[qt++] = p
+      }
+    }
+    comps.push({ id, size: tail, touchBorder, pixels, depth: maxDepth, boundary, gen, depthArr, depthStamp,
+      box: { x0: bx0, y0: by0, x1: bx1, y1: by1, size: tail } })
+  }
+  return comps
+}
+
+/** 连通块里某个像素的厚度（不在块内 / 未被 BFS 覆盖时算 0） */
+function depthOf(comp, i) {
+  return comp.depthStamp[i] === comp.gen ? comp.depthArr[i] : 0
 }
 
 /* ---------------------------------------------------------------- 主流程 */
@@ -379,6 +850,9 @@ export function estimateMatte(src, sw, sh, opts = {}) {
     labs[i * 3] = lab[0]; labs[i * 3 + 1] = lab[1]; labs[i * 3 + 2] = lab[2]
   }
 
+  /* ---- 1.5) Lab 梯度图（整张只算一次，后面两处都要用） ---- */
+  const gradRaw = gradientMagnitude(labs, w, h)
+
   /* ---- 2) 外圈背景色模型 ---- */
   const ringW = Math.max(2, Math.min(8, Math.round(Math.min(w, h) * 0.025)))
   const ringAll = []
@@ -391,11 +865,9 @@ export function estimateMatte(src, sw, sh, opts = {}) {
   // 聚类只需要外圈的颜色分布，等距抽样到 ~1500 个样本即可（ΔE00 不便宜）
   const stride = Math.max(1, Math.ceil(ringAll.length / 1500))
   const ring = stride > 1 ? ringAll.filter((_, i) => i % stride === 0) : ringAll
-  const clusters = clusterBorderColors(labs, ring, 3, data)
+  let clusters = clusterColors(labs, ring, 3, data)
   if (!clusters.length) return fail('无法估计背景颜色')
 
-  const tol = clusters.map(c => level.tolerance + Math.min(6, c.spread * 0.6))
-  const maxSpread = clusters.reduce((m, c) => Math.max(m, c.spread), 0)
   /* ---- 分辨率归一化（只作用于「相邻像素」的判据）----
      edgeLimit / shadowStep 衡量的都是**一步能跨多大**，而"一步"的物理距离随掩膜分辨率变：
      掩膜越细，相邻两像素的差异越小，同一个阈值就等于被放开了 —— 背景洪水填充会沿着
@@ -404,67 +876,78 @@ export function estimateMatte(src, sw, sh, opts = {}) {
      所以这两个阈值按掩膜边长相对标定分辨率（384）等比缩放；而 tol（像素 vs 背景色模型）
      是**颜色距离**，与分辨率无关，不缩放。掩膜 ≤ 384 时归一化系数为 1，行为不变。 */
   const resScale = Math.min(1, MATTE_MAX_SIDE / Math.max(w, h))
-  const edgeLimit = Math.max(28, level.tolerance * level.edgeScale + maxSpread * 1.5) * resScale
-  /* 「像背景」的放宽线：外圈色模型只见过背景的一部分，图内背景色稍微偏一点
-     就会超出容差，所以做连通域判定时给 1.5 倍 + 3 的余量。 */
-  const limits = tol.map(t => t * 1.5 + 3)
 
-  /* 背景簇的**线性光**表示：阴影的乘法模型必须与背景在同一个空间里比。
-     聚类本身仍然在 Lab 里做（那里才符合人眼），这里只是换算一份给阴影用。 */
-  let shadowReady = true
-  for (const c of clusters) {
-    if (!c.rgb) { shadowReady = false; break }
-    c.lin = [0, 1, 2].map(k => {
-      const v = Math.min(255, Math.max(0, Math.round(c.rgb[k])))
-      return Math.max(1e-4, SRGB_TO_LIN[v])
-    })
-  }
+  let model = classifyByModel(labs, data, clusters, level, resScale, n)
 
-  /* ---- 3) 背景相似度 + 从四边洪水填充（不跨强边缘） ---- */
-  const bgLike = new Uint8Array(n)
-  const deToCluster = new Float32Array(n).fill(Infinity)
-  const clusterOf = new Int8Array(n).fill(-1)
-  /* 每个像素相对所属背景簇的「光照保留比例」k（逐通道平均，1 = 全亮）。
-     必须对**所有**像素都算，不能只给阴影候选算：
-     渐变判定比的是相邻两像素真实明暗之差，而背景那一侧的标称值是 1，
-     实际上它可能早就被压到 0.7 了 —— 拿 1 去比，第一步就会被判成"硬边"而卡死
-     （实测就是这个 bug：阴影一个像素都长不出来）。 */
-  const shade = new Float32Array(n).fill(1)
-  const shadowLike = new Uint8Array(n)
-  const shadeOf = i => {
-    const lin = clusters[clusterOf[i]].lin
-    const o = i * 4
-    return (SRGB_TO_LIN[data[o]] / lin[0] + SRGB_TO_LIN[data[o + 1]] / lin[1] + SRGB_TO_LIN[data[o + 2]] / lin[2]) / 3
+  /* ---- 2.5) 核心背景给外圈颜色「背书」----
+     外圈取样环会同时看到「背景」和「贴着画面边缘的主体」——
+     主体被画面裁掉一截时（很常见：用户上传的照片主体顶到边），
+     它的颜色也落在取样环里。背景色模型一旦收了主体的颜色，
+     主体就会被当成背景整个吃掉（实测 fixtures/cut_touch_edge：主体整个消失）。
+     四角几乎总是背景，于是先从四角出发、沿着**局部相似**（相邻像素色差小）的路径
+     长出「核心背景」，再看外圈那些颜色里有没有被核心背景背书的：
+       · 渐变背景：每一步色差都小，生长穿得过去 → 每个背景色都有支撑 → 保留；
+       · 贴着边的主体：轮廓那一步色差很大，生长过不去 → 颜色没有支撑 → 剔除；
+       · 横跨画面的背景带（照片下缘的一条深色台面）：虽然也没支撑，
+         但它横跨画面（两侧都顶到边）→ 保留（它确实是背景）。
+     核心背景长歪了（长进主体里）也没关系：这只用来「背书」，
+     不直接参与抠图，长歪最多是让某个颜色被保留而已。 */
+  const cornerPx = Math.max(2, Math.round(Math.min(w, h) * 0.04))
+  const cornerSeeds = []
+  for (let y = 0; y < h; y++) {
+    const edgeRow = y < cornerPx || y >= h - cornerPx
+    for (let x = 0; x < w; x++) {
+      if (edgeRow && (x < cornerPx || x >= w - cornerPx)) cornerSeeds.push(y * w + x)
+    }
   }
-  for (let i = 0; i < n; i++) {
-    const lab = [labs[i * 3], labs[i * 3 + 1], labs[i * 3 + 2]]
-    let bestC = -1
-    let bestD2 = Infinity
+  const coreBg = growCoreBackground(labs, w, h, cornerSeeds, Math.max(12, level.tolerance * 1.5), model.edgeLimit, gradRaw)
+  let coreSize = 0
+  for (let i = 0; i < n; i++) if (coreBg[i]) coreSize++
+  const clusterInfo = []
+  if (coreSize > n * 0.02) {
+    const total = new Uint32Array(clusters.length)
+    const supported = new Uint32Array(clusters.length)
+    const sideHit = new Uint8Array(clusters.length * 4)
+    for (let i = 0; i < n; i++) {
+      const c = model.clusterOf[i]
+      if (c < 0) continue
+      total[c]++
+      if (coreBg[i]) supported[c]++
+      const x = i % w
+      const y = (i - x) / w
+      if (x === 0) sideHit[c * 4] = 1
+      if (x === w - 1) sideHit[c * 4 + 1] = 1
+      if (y === 0) sideHit[c * 4 + 2] = 1
+      if (y === h - 1) sideHit[c * 4 + 3] = 1
+    }
+    let biggest = 0
+    for (let c = 1; c < clusters.length; c++) if (total[c] > total[biggest]) biggest = c
+    const keptIdx = []
     for (let c = 0; c < clusters.length; c++) {
-      const d2 = labDist2(lab, clusters[c].center)
-      if (d2 < bestD2) { bestD2 = d2; bestC = c }
+      const support = total[c] ? supported[c] / total[c] : 0
+      const spans = (sideHit[c * 4] && sideHit[c * 4 + 1]) || (sideHit[c * 4 + 2] && sideHit[c * 4 + 3])
+      const keep = c === biggest || support >= 0.15 || spans
+      clusterInfo.push({ c, total: total[c], supported: supported[c], support: round2(support), spans: !!spans, keep })
+      if (!keep) continue
+      keptIdx.push(c)
     }
-    /* 两级判定，目的只有一个：别把 ΔE00 花在没争议的像素上。
-       ΔE00 的分量都除以 ≥1 的 SL/SC/SH，还带一个非正的交叉项，
-       所以 ΔE00 ≲ 欧氏距离（CIE76）。于是：
-         · 欧氏距离 ≤ 0.85 倍容差  → 不必算也一定算作背景（背景像素走这条快路）；
-         · 欧氏距离 > 6 倍容差     → 一定不是背景；
-         · 中间地带            → 老老实实算 ΔE00。
-       合成图（白底 + 主体）里绝大多数像素落在前两种情况，
-       实测这一改能把抠图耗时砍掉一半左右，且判定结果逐像素一致。 */
-    const rough = Math.sqrt(bestD2)
-    clusterOf[i] = bestC
-    if (shadowReady && bestC >= 0) shade[i] = shadeOf(i)
-    if (rough <= tol[bestC] * 0.85) {
-      deToCluster[i] = 0
-      bgLike[i] = 1
-      continue
+    if (keptIdx.length && keptIdx.length < clusters.length) {
+      clusters = keptIdx.map(c => clusters[c])
+      model = classifyByModel(labs, data, clusters, level, resScale, n)
     }
-    if (rough > tol[bestC] * 6 + 12) continue
-    const de = deltaE2000(lab, clusters[bestC].center)
-    deToCluster[i] = de
-    if (de <= tol[bestC]) bgLike[i] = 1
+  } else {
+    for (let c = 0; c < clusters.length; c++) clusterInfo.push({ c, keep: true })
   }
+
+  const tol = model.tol
+  const limits = model.limits
+  const edgeLimit = model.edgeLimit
+  const maxSpread = model.maxSpread
+  const shadowReady = model.shadowReady
+  const bgLike = model.bgLike
+  const deToCluster = model.deToCluster
+  const clusterOf = model.clusterOf
+  const shade = model.shade
 
   /* 逐像素的「离背景色模型够近」标记（用放宽线）。
      连通域判定要靠它，而不是靠整块的平均色 ——
@@ -479,6 +962,7 @@ export function estimateMatte(src, sw, sh, opts = {}) {
      物理模型见文件头：p_lin ≈ k · bg_lin。这里只做逐像素的颜色判定，
      能不能真的算阴影还要看下面的连通性与渐变约束 ——
      因为「中灰物体」在颜色上与「灰阴影」完全一致，颜色本身不足以定性。 */
+  const shadowLike = new Uint8Array(n)
   if (shadowReady) {
     for (let i = 0; i < n; i++) {
       if (bgLike[i]) continue
@@ -501,43 +985,113 @@ export function estimateMatte(src, sw, sh, opts = {}) {
     }
   }
 
-  const bg = new Uint8Array(n)
-  const stack = new Int32Array(n)
-  let sp = 0
-  const seed = i => {
-    if (!bg[i] && bgLike[i]) { bg[i] = 1; stack[sp++] = i }
+  /* ---- 3.5) 洪水填充（宽松 + 严格两遍）----
+     宽松口径 = 现在的口径（容差 = 档位 tolerance）；
+     严格口径 = 容差再打三折（strictRatio），只认「非常像背景」的像素。
+     两遍之差就是**模糊地带**：颜色与背景接近、但分不清是背景还是主体的那些像素。 */
+  const borderSeeds = []
+  for (let x = 0; x < w; x++) { borderSeeds.push(x); borderSeeds.push((h - 1) * w + x) }
+  for (let y = 0; y < h; y++) { borderSeeds.push(y * w); borderSeeds.push(y * w + w - 1) }
+
+  const bg = floodBackground(n, w, h, borderSeeds, model, tol, bgLike)
+
+  const strictTol = tol.map(t => t * (level.strictRatio || 0.5))
+  const bgLikeStrict = new Uint8Array(n)
+  for (let i = 0; i < n; i++) {
+    const c = clusterOf[i]
+    if (c >= 0 && bgLike[i] && deToCluster[i] <= strictTol[c]) bgLikeStrict[i] = 1
   }
-  for (let x = 0; x < w; x++) { seed(x); seed((h - 1) * w + x) }
-  for (let y = 0; y < h; y++) { seed(y * w); seed(y * w + w - 1) }
+  const bgStrict = floodBackground(n, w, h, borderSeeds, model, strictTol, bgLikeStrict)
 
-  // 「核心背景」= 与所属簇的色差在容差内。两个核心像素之间最大也就 2*容差 ≈ edgeLimit，
-  // 所以这一对不必再算 ΔE00 —— 洪水填充里绝大多数是这种情况，省下大量计算。
-  const isCore = i => bgLike[i] === 1 && deToCluster[i] <= tol[clusterOf[i]]
-
-  while (sp > 0) {
-    const cur = stack[--sp]
-    const cx = cur % w
-    const cy = (cur - cx) / w
-    const curCore = isCore(cur)
-    for (let dy = -1; dy <= 1; dy++) {
-      const yy = cy + dy
-      if (yy < 0 || yy >= h) continue
-      for (let dx = -1; dx <= 1; dx++) {
-        if (!dx && !dy) continue
-        const xx = cx + dx
-        if (xx < 0 || xx >= w) continue
-        const q = yy * w + xx
-        if (bg[q] || !bgLike[q]) continue
-        // 不跨强边缘：背景被主体轮廓"隔开"的另一侧不应被吃进来
-        if (!(curCore && isCore(q))) {
-          const cl = [labs[cur * 3], labs[cur * 3 + 1], labs[cur * 3 + 2]]
-          const ql = [labs[q * 3], labs[q * 3 + 1], labs[q * 3 + 2]]
-          if (deltaE2000(cl, ql) > edgeLimit) continue
-        }
-        bg[q] = 1
-        stack[sp++] = q
-      }
+  /* ---- 3.6) 模糊地带的归属：背景的渐变 vs 与背景色相近的主体 ----
+     用户要的是「主体和背景色相近时，尽可能多地保留主体」，所以：
+       · 贴着画面边缘的 → 背景（那是背景外圈的渐变带 / 偏色区）；
+       · 封闭成岛、面积不大、**有厚度**、**边缘是硬的** → **主体**（放回前景）；
+       · 封闭成岛、面积很大 → 衬底 / 卡片底色，仍算背景。
+     「边缘是硬的」是这一段最关键的判据：
+       · 主体即使颜色接近背景，它的轮廓仍然是一圈清晰的边 ——
+         从背景到主体是「跳」过去的（抗锯齿也就一两个像素）；
+       · 而背景自己的渐变、噪点、投影外围那圈过渡带是「化」过去的，
+         每一步只差一点点。把这两种混为一谈，后果是主体周围多出一圈灰豆
+         （投影外围那圈过渡带被当成了主体）。
+     所以比较两件事：这块区域离背景色有多远（deIsland），
+     以及它的边界有多陡（gradEdge）。边缘够陡才算主体。 */
+  const protect = new Uint8Array(n)
+  const ambiguous = new Uint8Array(n)
+  for (let i = 0; i < n; i++) if (bg[i] && !bgStrict[i]) ambiguous[i] = 1
+  const islandLimit = n * (level.islandRatio != null ? level.islandRatio : 0.45)
+  const minDepth = Math.max(2, Math.round(Math.min(w, h) * 0.012))
+  const holeLimit = level.holeRatio != null ? level.holeRatio : 0.08
+  const islandInfo = []
+  const islandBuf = new Uint8Array(n)
+  let islandCount = 0
+  for (const comp of labelComponents(ambiguous, w, h)) {
+    const rec = {
+      size: comp.size, depth: comp.depth, border: comp.touchBorder,
+      gradEdge: 0, gradInner: 0, de: 0, hole: 0, keep: false, why: ''
     }
+    if (comp.touchBorder) { rec.why = 'touch-border'; islandInfo.push(rec); continue }
+    if (comp.size >= islandLimit) { rec.why = 'too-large'; islandInfo.push(rec); continue }
+    if (comp.depth < minDepth) { rec.why = 'too-thin'; islandInfo.push(rec); continue }
+    // 边界陡不陡：边界像素上（膨胀过的）梯度幅度的中位数
+    const bCount = comp.boundary.length
+    const bVals = new Float64Array(bCount)
+    for (let k = 0; k < bCount; k++) {
+      const p = comp.boundary[k]
+      const px = p % w
+      bVals[k] = dilatedGradAt(gradRaw, w, h, px, (p - px) / w)
+    }
+    const gradEdge = bCount ? medianOf(bVals, bCount) : 0
+    // 内部平不平：内部像素（离边界 ≥2 格）的原始梯度中位数
+    const iVals = new Float64Array(comp.size)
+    let iCount = 0
+    for (let k = 0; k < comp.size; k++) {
+      const i = comp.pixels[k]
+      if (depthOf(comp, i) < 2) continue
+      iVals[iCount++] = gradRaw[i]
+    }
+    const gradInner = iCount ? medianOf(iVals, iCount) : 0
+    // 这块区域离背景色有多远
+    let deSum = 0
+    let deCnt = 0
+    for (let k = 0; k < comp.size; k++) {
+      const i = comp.pixels[k]
+      const c = clusterOf[i]
+      if (c < 0 || !Number.isFinite(deToCluster[i])) continue
+      deSum += deToCluster[i]
+      deCnt++
+    }
+    const deIsland = deCnt ? deSum / deCnt : 0
+    rec.gradEdge = round2(gradEdge)
+    rec.gradInner = round2(gradInner)
+    rec.de = round2(deIsland)
+    /* 判据一：边缘是「跳」过去的（边界落差远大于内部起伏），
+       而不是「化」过去的（投影外围那圈过渡带、背景自己的噪点都是后者）。 */
+    const isStep = gradEdge >= Math.max(2.5, gradInner * 2.5 + 1.0)
+    /* 判据二：这个落差要和颜色距离对得上 —— 边界上真的看得见一道痕，
+       而不是「色差其实很小、只是被噪声放大了」。 */
+    const visible = gradEdge >= deIsland * 0.5
+    if (!isStep) { rec.why = 'soft-edge'; islandInfo.push(rec); continue }
+    if (!visible) { rec.why = 'low-contrast-edge'; islandInfo.push(rec); continue }
+    /* 判据三：这块区域是「主体」还是「承托面」？
+       两者颜色接近、边缘同样是硬的，唯一区别是承托面上**画了东西**
+       （白底上的浅黄卡片、卡片上的图案、桌面上的物件）。
+       承托面把它包住的那些东西留在自己肚子里（洞），
+       主体肚子里是干净的。用「洞的面积占比」分开这两种情况。 */
+    for (let k = 0; k < comp.size; k++) islandBuf[comp.pixels[k]] = 1
+    const hole = holeRatioOf(islandBuf, w, h, comp.box)
+    for (let k = 0; k < comp.size; k++) islandBuf[comp.pixels[k]] = 0
+    rec.hole = round2(hole)
+    if (hole > holeLimit) { rec.why = 'surface'; islandInfo.push(rec); continue }
+    for (let k = 0; k < comp.size; k++) {
+      const i = comp.pixels[k]
+      bg[i] = 0
+      protect[i] = 1
+    }
+    rec.keep = true
+    rec.why = 'subject'
+    islandCount++
+    islandInfo.push(rec)
   }
 
   let bgCount = 0
@@ -587,9 +1141,8 @@ export function estimateMatte(src, sw, sh, opts = {}) {
           if (!shadowLike[q]) continue
           if (Math.abs(curShade - shade[q]) > shadowStep) continue
           if (labDist2At(labs, cur, q) > roughLimit2) {
-            const cl = [labs[cur * 3], labs[cur * 3 + 1], labs[cur * 3 + 2]]
-            const ql = [labs[q * 3], labs[q * 3 + 1], labs[q * 3 + 2]]
-            if (deltaE2000(cl, ql) > edgeLimit) continue
+            if (deltaE2000Lab(labs[cur * 3], labs[cur * 3 + 1], labs[cur * 3 + 2],
+              labs[q * 3], labs[q * 3 + 1], labs[q * 3 + 2]) > edgeLimit) continue
           }
           shadow[q] = 1
           seen[q] = 1
@@ -625,8 +1178,8 @@ export function estimateMatte(src, sw, sh, opts = {}) {
   }
   bgCount = baseBgCount + shadowCount
   const bgShare = bgCount / n
-  if (bgShare < 0.012) return fail('几乎没有检测到背景，已保留整图')
-  if (bgShare > 0.94) return fail('背景占比过高（可能是一张纯色图），已保留整图')
+  if (bgShare < 0.012) return fail('几乎没有检测到背景，已保留整图', { clusters: clusterInfo })
+  if (bgShare > 0.94) return fail('背景占比过高（可能是一张纯色图），已保留整图', { clusters: clusterInfo })
 
   /* ---- 4) 三区软抠图 ---- */
   /**
@@ -722,15 +1275,42 @@ export function estimateMatte(src, sw, sh, opts = {}) {
     }
   }
 
-  // 未知带内：最近的确切前景 / 确切背景（两次多源 BFS）
-  const nearFg = new Int32Array(n).fill(-1)
-  const nearBg = new Int32Array(n).fill(-1)
-  const dFg = new Int32Array(n).fill(-1)
-  const dBg = new Int32Array(n).fill(-1)
-  const spreadFrom = (seedPred, distArr, srcArr) => {
+  /* ---- 4.1) 扩展带：软边上「确定」的那一侧其实也不确定 ----
+     未知带 r 只覆盖轮廓两侧各 r 个像素。轮廓如果是**软边**（渐变很宽，
+     比如 6px 的羽化、或者拍糊了的边缘），带外那几像素的颜色是 F 和 B 的混合，
+     硬判成 0 或 1 就等于把真实的中间覆盖率抹平了 —— 边缘就变成一格一格的阶梯。
+     所以在未知带外面再留一圈「扩展带」。
+     ⚠️ 扩展带真正值钱的地方不是「多算几个像素」，而是**F/B 取得更纯**：
+     未知带的 F/B 取自「离轮廓 r+1 的确定像素」，而软边上那些像素本身还是混合色
+     （比如羽化 6px、容差把 α=0.27 当成边界时，r+1 处的像素其实还有 40% 背景），
+     用它当 F 会让颜色线投影把 α 系统性地高估（实测软边那张 αMAE 0.0048）。
+     改用「离轮廓 extR+1 的确定像素」当 F/B，那里的颜色才是纯的 F / B，
+     投影出来的 α 才准。扩展带自己算出来的值只采信 (0.08, 0.92)：
+     硬边（纯主体 / 纯背景像素）算出来就是 0 或 1，自然被挡在门外。 */
+  const ext = new Uint8Array(n)
+  let extR = r < 0 ? -1 : Math.min(maxD - 1, r * 2 + 1)
+  if (extR > r) {
+    // 扩展带越宽，确定区越少；主体太细时没有足够的「纯前景」可用，宽度要收回来
+    while (extR > r && (above(bgByDepth, extR) < minPx || above(fgByDepth, extR) < minPx)) extR--
+    for (let i = 0; i < n; i++) {
+      if (unknown[i]) continue
+      const d = bg[i] ? depthBg[i] : depthFg[i]
+      if (d > r && d <= extR) ext[i] = 1
+    }
+  }
+
+  /* F/B 有两套来源，用途不同：
+       · **近处那圈**（深度 > r）：F/B 一定是「紧贴轮廓的不同颜色」，
+         几何上最准。白色主体上的黑描边就属于这一类（描边是实的，只是颜色不同）。
+       · **远处那圈**（深度 > extR）：F/B 是「主体内部 / 背景深处的纯色」，
+         颜色上最准。软边（6px 羽化）上，近处那圈本身还是混合色，
+         用它当 F 会让颜色线投影把 α 系统性高估。
+     所以：**先用远处的算，算不动（前景背景几乎同色）再退回近处的**。 */
+  const spreadQueue = new Int32Array(n)
+  const spreadFrom = (seedPred, distArr, srcArr, pass) => {
     let h2 = 0
     let t2 = 0
-    const q2 = new Int32Array(n)
+    const q2 = spreadQueue
     for (let i = 0; i < n; i++) {
       if (seedPred(i)) { distArr[i] = 0; srcArr[i] = i; q2[t2++] = i }
     }
@@ -748,8 +1328,8 @@ export function estimateMatte(src, sw, sh, opts = {}) {
           if (xx < 0 || xx >= w) continue
           const q = yy * w + xx
           if (distArr[q] >= 0) continue
-          // 只允许在未知带里传播，保证 F/B 取的是"确定"的像素
-          if (!unknown[q]) continue
+          // 只允许在带内传播，保证 F/B 取的是"确定"的像素
+          if (!pass(q)) continue
           distArr[q] = nd
           srcArr[q] = srcArr[cur]
           q2[t2++] = q
@@ -757,17 +1337,39 @@ export function estimateMatte(src, sw, sh, opts = {}) {
       }
     }
   }
+
+  /* 近处那圈：种子 = 深度 > r 的确定像素，带 = 深度 ≤ r */
+  const nearFg = new Int32Array(n).fill(-1)
+  const nearBg = new Int32Array(n).fill(-1)
+  const dFg = new Int32Array(n).fill(-1)
+  const dBg = new Int32Array(n).fill(-1)
+  /* 远处那圈：种子 = 深度 > extR 的确定像素，带 = 深度 ≤ extR */
+  const nearFgE = new Int32Array(n).fill(-1)
+  const nearBgE = new Int32Array(n).fill(-1)
+  const dFgE = new Int32Array(n).fill(-1)
+  const dBgE = new Int32Array(n).fill(-1)
   if (r >= 0) {
-    spreadFrom(i => !unknown[i] && mask[i] === 1, dFg, nearFg)
-    spreadFrom(i => !unknown[i] && mask[i] === 0, dBg, nearBg)
+    spreadFrom(i => !unknown[i] && mask[i] === 1, dFg, nearFg, i => unknown[i] === 1)
+    spreadFrom(i => !unknown[i] && mask[i] === 0, dBg, nearBg, i => unknown[i] === 1)
+    if (extR > r) {
+      const defE = i => {
+        const d = bg[i] ? depthBg[i] : depthFg[i]
+        return d > extR
+      }
+      const bandE = i => {
+        const d = bg[i] ? depthBg[i] : depthFg[i]
+        return d <= extR
+      }
+      spreadFrom(i => defE(i) && mask[i] === 1, dFgE, nearFgE, bandE)
+      spreadFrom(i => defE(i) && mask[i] === 0, dBgE, nearBgE, bandE)
+    }
   }
 
-  for (let i = 0; i < n; i++) {
-    if (!unknown[i]) continue
-    const fi = nearFg[i]
-    const bi = nearBg[i]
-    if (fi < 0) { mask[i] = 0; continue }
-    if (bi < 0) { mask[i] = 1; continue }
+  /* 颜色线投影：α = clamp(dot(I-B, F-B)/|F-B|²)
+     返回 [α, 是否退化]。退化 = F 与 B 颜色几乎一样（白色主体压在白背景上），
+     这时颜色线没有意义，只能退回「按距离插值」 —— 而那个值**不是覆盖率**，
+     拿它去改写带外的像素会把边缘抹成一圈灰（实测 white_on_white 的 IoU 从 1.000 掉到 0.958）。 */
+  const projectAlpha = (i, fi, bi, df, db) => {
     const ir = data[i * 4], ig = data[i * 4 + 1], ib = data[i * 4 + 2]
     const br = data[bi * 4], bgc = data[bi * 4 + 1], bb = data[bi * 4 + 2]
     const fr = data[fi * 4], fg = data[fi * 4 + 1], fb = data[fi * 4 + 2]
@@ -778,12 +1380,61 @@ export function estimateMatte(src, sw, sh, opts = {}) {
     if (len2 < 400) {
       // 前景与背景颜色几乎一样（例如白色主体压在白背景上）：
       // 颜色线退化，改用「谁更近」的空间插值，边缘依然能落在真实位置
-      const df = dFg[i] < 0 ? r : dFg[i]
-      const db = dBg[i] < 0 ? r : dBg[i]
-      mask[i] = clamp01(df / Math.max(1e-6, df + db))
-    } else {
-      const a = ((ir - br) * vr + (ig - bgc) * vg + (ib - bb) * vb) / len2
-      mask[i] = clamp01(a)
+      return [clamp01(df / Math.max(1e-6, df + db)), true]
+    }
+    return [clamp01(((ir - br) * vr + (ig - bgc) * vg + (ib - bb) * vb) / len2), false]
+  }
+
+  for (let i = 0; i < n; i++) {
+    if (!unknown[i]) continue
+    const fi = nearFg[i]
+    const bi = nearBg[i]
+    if (fi < 0) { mask[i] = 0; continue }
+    if (bi < 0) { mask[i] = 1; continue }
+    /* 先用「远处那圈」的 F/B 算（颜色最纯）；算不动（前景背景几乎同色）
+       再退回「近处那圈」（几何最准，典型是白色主体上的黑描边）。 */
+    let a = null
+    let degenerate = true
+    if (extR > r) {
+      const fe = nearFgE[i]
+      const be = nearBgE[i]
+      if (fe >= 0 && be >= 0) {
+        const res = projectAlpha(i, fe, be, dFgE[i] < 0 ? extR : dFgE[i], dBgE[i] < 0 ? extR : dBgE[i])
+        if (!res[1]) { a = res[0]; degenerate = false }
+      }
+    }
+    if (a === null) {
+      const res = projectAlpha(i, fi, bi, dFg[i] < 0 ? r : dFg[i], dBg[i] < 0 ? r : dBg[i])
+      a = res[0]
+      degenerate = res[1]
+    }
+    if (degenerate && !bg[i] && !bgLike[i]) {
+      /* 前景这一侧、颜色又明确不是背景色 —— 典型就是「白色主体上的黑描边、五官」。
+         前景背景几乎同色时颜色线给不出答案，但「它不是背景」这件事是确定的，
+         那它就是主体，整块留下。（不这么判的话，描边会被算成 0.5 的中间值，
+         一半像素掉到 0.5 以下 → 主体轮廓上出现一圈锯齿状的缺口。） */
+      mask[i] = 1
+      continue
+    }
+    mask[i] = a
+  }
+
+  /* 扩展带：只采信 (0.08, 0.92) 的中间值 —— 硬边算出来就是 0 或 1，一个像素都不会动；
+     颜色线退化的场景（前景背景几乎同色）一律不碰；
+     **而且只处理「软边」**（轮廓处的梯度本来就小）——
+     硬边（描边、五官这类高对比线条）本来就该是 0 或 1，
+     去改写它只会把轮廓啃出锯齿。 */
+  if (extR > r) {
+    const softEdgeLimit = edgeLimit / 3
+    for (let i = 0; i < n; i++) {
+      if (!ext[i]) continue
+      if (gradRaw[i] > softEdgeLimit) continue
+      const fi = nearFgE[i]
+      const bi = nearBgE[i]
+      if (fi < 0 || bi < 0) continue
+      const [a, degenerate] = projectAlpha(i, fi, bi, dFgE[i] < 0 ? extR : dFgE[i], dBgE[i] < 0 ? extR : dBgE[i])
+      if (degenerate) continue
+      if (a > 0.08 && a < 0.92) mask[i] = a
     }
   }
 
@@ -791,7 +1442,10 @@ export function estimateMatte(src, sw, sh, opts = {}) {
   const minBlob = Math.max(10, Math.round(n * level.minBlobRatio))
   const bin = new Uint8Array(n)
   for (let i = 0; i < n; i++) bin[i] = mask[i] >= 0.5 ? 1 : 0
-  const bboxMask = cleanComponents(bin, w, h, minBlob, { nearBg: nearBgColor })
+  /* protect = 「模糊地带里被判成主体」的那些像素。
+     它们颜色上离背景很近（正是第 ③ 条要剔的那种"游离前景块"），
+     但它们是被特意从背景里捞回来的主体，不能再被剔掉。 */
+  const bboxMask = cleanComponents(bin, w, h, minBlob, { nearBg: nearBgColor, protect })
   for (let i = 0; i < n; i++) {
     if (bin[i] === 0) mask[i] = 0
     else if (mask[i] < 0.5) mask[i] = 1
@@ -819,6 +1473,9 @@ export function estimateMatte(src, sw, sh, opts = {}) {
     shadowShare: shadowCount / n,
     shadowRolledBack: shadowCount === 0 && !shadowSafe,
     bgColors: clusters.map(c => (c.rgb ? rgbToHex(c.rgb[0], c.rgb[1], c.rgb[2]) : '')),
+    clusters: clusterInfo,
+    islands: islandInfo,
+    islandCount,
     transparent: false,
     reason: ok ? '' : '背景模型置信度较低，抠图结果可能不干净（可用橡皮擦手动修正）'
   }, bboxMask)
@@ -854,10 +1511,12 @@ function cleanComponents(bin, w, h, minBlob, prune = null) {
     let size = 0
     let touchBorder = false
     let bgVotes = 0
+    let protectedHits = 0
     while (head < tail) {
       const cur = q[head++]
       size++
       if (prune && prune.nearBg[cur]) bgVotes++
+      if (prune && prune.protect && prune.protect[cur]) protectedHits++
       const cx = cur % w
       const cy = (cur - cx) / w
       if (cx === 0 || cy === 0 || cx === w - 1 || cy === h - 1) touchBorder = true
@@ -871,7 +1530,7 @@ function cleanComponents(bin, w, h, minBlob, prune = null) {
         q[tail++] = p
       }
     }
-    comps.push({ size, target, touchBorder, bgVotes, drop: false })
+    comps.push({ size, target, touchBorder, bgVotes, protectedHits, drop: false })
   }
 
   if (prune) {
@@ -883,6 +1542,8 @@ function cleanComponents(bin, w, h, minBlob, prune = null) {
     for (let c = 0; c < comps.length; c++) {
       const comp = comps[c]
       if (comp.target !== 1 || c === main || comp.size < minBlob) continue
+      // 被特意救回来的主体（模糊地带里判成主体的那块）不许再被剔掉
+      if (comp.protectedHits > 0) continue
       if (comp.bgVotes / comp.size >= 0.6) comp.drop = true
     }
   }
@@ -961,10 +1622,14 @@ function finishMask(mask, w, h, sw, sh, level, meta, bboxMask = null) {
     reason: meta.reason || '',
     stats: {
       level: level.key,
-      clusters: meta.clusters,
       /** 识别到的背景色（给界面显示，让用户一眼看出算法把什么当成了背景） */
       bgColors: meta.bgColors || [],
       bgShare: meta.bgShare != null ? meta.bgShare : 1 - subject / (w * h),
+      /** 背景色簇的「核心背景背书」判定（诊断用：哪个颜色被剔掉了、为什么） */
+      clusters: meta.clusters || [],
+      /** 「模糊地带」里被判成主体的那些块（诊断用：为什么要保留它） */
+      islands: meta.islands || [],
+      islandCount: meta.islandCount || 0,
       /** 其中有多少是投影（阴影）。界面用它说明"去掉了背景和阴影" */
       shadowShare: meta.shadowShare || 0,
       /** 阴影那一步是否因为"可能吃到主体"而被整体回滚（见 estimateMatte 的安全网） */

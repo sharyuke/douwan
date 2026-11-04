@@ -42,13 +42,13 @@ const LESSONS = {
   desktop: [
     {
       id: 'upload', no: 1, title: '上传图片 · 自动抠图', sub: '从一张照片开始',
-      steps: ['认识工作台', '上传照片', '智能抠图', '看生成结果', '免费素材库'],
+      steps: ['认识工作台', '上传照片', '智能抠图', '看生成结果', '素材库'],
       scenes: [
         { shot: 'd00-empty', dur: 4.8, title: '先认识工作台', sub: '左栏做设置，中间是画布，右边看分析', cursor: false },
         { shot: 'd01-create', dur: 5.0, title: '上传一张照片', sub: '在「① 先选你要拼什么」里上传', cursorX: 0.5, cursorY: 0.32 },
         { shot: 'd02-matte', dur: 5.0, title: '智能抠图', sub: '背景和投影一起去掉，只留主体', cursorX: 0.5, cursorY: 0.52 },
         { shot: 'd03-canvas', dur: 4.8, title: '看看生成结果', sub: '52 × 52 颗豆，主体自动占满画布', cursor: false },
-        { shot: 'd04-library', dur: 4.8, title: '没有照片也能开始', sub: '「免费素材库」有现成图案，点一下就用', cursorX: 0.62, cursorY: 0.5 }
+        { shot: 'd04-library', dur: 4.8, title: '没有照片也能开始', sub: '「素材库」有现成图案，点一下就用', cursorX: 0.62, cursorY: 0.5 }
       ]
     },
     {
@@ -97,7 +97,7 @@ const LESSONS = {
         { shot: 'm00-empty', dur: 4.8, title: '先看空画布', sub: '上传入口就在画布中间', cursor: false },
         { shot: 'm01-canvas', dur: 5.0, title: '画布与快捷区', sub: '上方切图纸 / 原图 / 对照，下面一行常用功能', cursorX: 0.5, cursorY: 0.2 },
         { shot: 'm02-functions', dur: 5.0, title: '「更多」放其余功能', sub: '用量、方案、分析、库存、保存作品', cursorX: 0.5, cursorY: 0.72 },
-        { shot: 'm03-library', dur: 5.0, title: '换图也能用素材库', sub: '快捷区 → 换图 → 免费素材库', cursorX: 0.5, cursorY: 0.5 }
+        { shot: 'm03-library', dur: 5.0, title: '换图也能用素材库', sub: '快捷区 → 换图 → 素材库', cursorX: 0.5, cursorY: 0.5 }
       ]
     },
     {

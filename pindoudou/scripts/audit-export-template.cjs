@@ -1,15 +1,14 @@
 /* =========================================================================
-   统一导出标版自检（需求《豆玩导出图纸完整交付包》V1.0）
+   统一导出标版自检（豆玩图纸标版 V4）
    -------------------------------------------------------------------------
    真浏览器跑完整导出链路，抓真实下载文件来验收：
-     ① 新手版第 ③ 步「下载拼豆图纸」→ 抓下载的 PNG；
-     ② 切专业模式 → 图纸交付 → 「图纸 PNG（高清）」→ 抓下载的 PNG；
-   对每个文件验收：
-     · 是合法 PNG、尺寸完整；
-     · 标版四件套都在（用页面里同一条 buildPatternImageCanvas 断言更好，
-       但 dist 是打包产物，这里退而求其次：把下载的 PNG 像素逐点验收——
-       读回页面画布后检查页眉 Logo 区域非空、域名渐变色存在、
-       底部两卡区域非空、页脚 Slogan 区域有品牌红字）。
+     预置一件作品（真实生成链路）→ /editor 顶部「导出」→ 图纸 PNG（高清）→ 抓下载的 PNG；
+   对每个文件按《v3.0图纸导出》批准设计图（最新图纸模板.png）逐区验收：
+     · 页眉：真 Logo + 浅绿网址胶囊（深色放大镜 + 网址文字）+ 深灰蓝 Slogan + 粉/黄/绿/蓝四圆点；
+     · 图纸区：淡紫面板 + 灰色细分格线 + 每 10 格主格线；
+     · 底部左卡：黄绿「图案信息」胶囊（右上角黄色星形）+ 六个像素图标；
+     · 底部右卡：黄绿「颜色清单」胶囊 + 色块色号用量；
+     · 页面底部没有页脚。
    用法：
      node scripts/audit-export-template.cjs
      node scripts/audit-export-template.cjs --url https://dw.sharyuke.com
@@ -221,7 +220,9 @@ function step(name, ok, detail = '') {
   console.log(`${ok ? '✓' : '✗'} ${name}${detail ? '　' + detail : ''}`)
 }
 
-/** 把下载的 PNG 读回页面画布，验收标版四件套 */
+/** 把下载的 PNG 读回页面画布，按 V4 设计图验收标版
+ *  （页眉 Logo + 浅绿网址胶囊 + Slogan / 四圆点；淡紫图纸面板；
+ *    底部左信息卡 + 右颜色清单卡，两张黄绿标题胶囊） */
 async function verifyBranded(send, buf, label) {
   const size = pngSize(buf)
   step(`${label}：是合法 PNG 且尺寸完整`, !!size && size.width >= 1000, size ? `${size.width}×${size.height}` : '不是 PNG')
@@ -232,39 +233,111 @@ async function verifyBranded(send, buf, label) {
     const img = new Image()
     await new Promise((r, j) => { img.onload = r; img.onerror = j; img.src = '${dataUrl}' })
     const W = img.naturalWidth, H = img.naturalHeight
+    /* 标版按页面宽度等比放大（设计稿 1121 px 宽），所以缩放系数可从宽度反推 */
+    const s = W / 1121
     const c = document.createElement('canvas')
     c.width = W; c.height = H
     const ctx = c.getContext('2d')
     ctx.drawImage(img, 0, 0)
+    const data = ctx.getImageData(0, 0, W, H).data
     const px = (x, y) => {
-      const d = ctx.getImageData(Math.round(x), Math.round(y), 1, 1).data
-      return [d[0], d[1], d[2]]
+      const i = (Math.round(y) * W + Math.round(x)) * 4
+      return [data[i], data[i + 1], data[i + 2]]
     }
-    const regionHasInk = (x0, y0, x1, y1, test, samples = 400) => {
-      let hits = 0
-      for (let i = 0; i < samples; i++) {
-        const x = x0 + Math.random() * (x1 - x0)
-        const y = y0 + Math.random() * (y1 - y0)
-        if (test(px(x, y))) hits++
+    const near = (p, t, tol) => Math.abs(p[0] - t[0]) <= tol && Math.abs(p[1] - t[1]) <= tol && Math.abs(p[2] - t[2]) <= tol
+    const count = (x0, y0, x1, y1, test, step = 1) => {
+      let n = 0
+      for (let y = Math.max(0, y0); y < Math.min(H, y1); y += step) {
+        for (let x = Math.max(0, x0); x < Math.min(W, x1); x += step) if (test(px(x, y))) n++
       }
-      return hits / samples
+      return n
     }
-    const dark = p => p[0] < 150 || p[1] < 150 || p[2] < 150
-    const orangePink = p => (p[0] > 190 && p[2] < 140)
-    const red = p => (p[0] > 170 && p[1] < 120 && p[2] < 120)
-    /* 顶带 12%：页眉 Logo + 渐变域名；中间应有深色像素与橙粉像素 */
-    const headInk = regionHasInk(0, 0, W, H * 0.12, dark)
-    const headGrad = regionHasInk(W * 0.45, 0, W, H * 0.12, orangePink)
-    /* 底部 18%（去掉 Slogan 行）：材料两卡应有大量文字深色像素 */
-    const bottomInk = regionHasInk(0, H * 0.80, W, H * 0.95, dark)
-    /* 最后 5%：Slogan 品牌红字 */
-    const footRed = regionHasInk(W * 0.3, H * 0.95, W * 0.7, H, red)
-    return { W, H, headInk, headGrad, bottomInk, footRed }
+    /* 找一个「实心胶囊」：该颜色出现最多的那一行就是胶囊的主体行 */
+    const capsuleAt = (x0, x1, y0, y1, target, tol) => {
+      let best = null
+      for (let y = Math.max(0, y0); y < Math.min(H, y1); y++) {
+        let n = 0, minx = 1e9, maxx = -1
+        for (let x = Math.max(0, x0); x < Math.min(W, x1); x++) {
+          if (near(px(x, y), target, tol)) { n++; if (x < minx) minx = x; if (x > maxx) maxx = x }
+        }
+        if (!best || n > best.n) best = { n, y, x0: minx, x1: maxx }
+      }
+      return best && best.n ? best : null
+    }
+
+    /* ── 页眉 ── */
+    const headH = Math.round(H * 0.09)
+    const logo = count(0, 0, Math.round(W * 0.13), headH, p => Math.max(p[0], p[1], p[2]) - Math.min(p[0], p[1], p[2]) > 40)
+    const urlText = count(Math.round(W * 0.27), 0, Math.round(W * 0.62), headH, p => p[0] < 90 && p[1] < 90 && p[2] < 90)
+    const capsule = count(Math.round(W * 0.24), 0, Math.round(W * 0.62), headH, p => near(p, [0xEB, 0xF6, 0xC5], 8))
+    const slogan = count(Math.round(W * 0.58), 0, Math.round(W * 0.84), headH, p => near(p, [0x33, 0x38, 0x45], 30))
+    const blkX = Math.round(W * 0.86)
+    const blk = [
+      count(blkX, 0, W, headH, p => near(p, [0xFC, 0xB9, 0xCA], 12)),
+      count(blkX, 0, W, headH, p => near(p, [0xFD, 0xD4, 0x6B], 12)),
+      count(blkX, 0, W, headH, p => near(p, [0xA7, 0xDB, 0x6B], 12)),
+      count(blkX, 0, W, headH, p => near(p, [0x81, 0xB0, 0xFC], 12))
+    ]
+
+    /* ── 底部双卡 ── */
+    const bottomY = Math.round(H * 0.55)
+    const pinkPill = capsuleAt(0, Math.round(W * 0.45), bottomY, H, [0xC4, 0xE3, 0x3C], 26)
+    const bluePill = capsuleAt(Math.round(W * 0.45), W, bottomY, H, [0xC4, 0xE3, 0x3C], 26)
+    /* 左卡胶囊右上角的黄色星形装饰 */
+    const sparkle = pinkPill
+      ? count(0, Math.max(0, pinkPill.y - Math.round(30 * s)), Math.round(W * 0.45), pinkPill.y + Math.round(10 * s), p => near(p, [0xF9, 0xCD, 0x3F], 34) || near(p, [0xFE, 0xE7, 0x80], 24), 1)
+      : 0
+    /* 六个像素图标：信息卡左列上「彩色且成团」的像素，按 y 分组 */
+    const iconX1 = Math.round(50 * s)
+    const iconX2 = Math.round(86 * s)
+    const iconY0 = pinkPill ? pinkPill.y + Math.round(10 * s) : bottomY
+    const clusters = []
+    let cur = null
+    for (let y = iconY0; y < H; y++) {
+      let hit = 0
+      for (let x = iconX1; x < iconX2; x++) {
+        const p = px(x, y)
+        if (Math.max(p[0], p[1], p[2]) - Math.min(p[0], p[1], p[2]) > 40) hit++
+      }
+      if (hit >= 2) { if (!cur) cur = [y, y]; else cur[1] = y }
+      else if (cur && y - cur[1] > Math.round(6 * s)) { clusters.push(cur); cur = null }
+    }
+    if (cur) clusters.push(cur)
+    /* 颜色清单里的色块：右卡里的彩色小方块 */
+    const swX0 = bluePill ? bluePill.x0 : Math.round(W * 0.55)
+    const swatches = count(swX0, bluePill ? bluePill.y + Math.round(40 * s) : bottomY, W, H, p => Math.max(p[0], p[1], p[2]) - Math.min(p[0], p[1], p[2]) > 40, 2)
+
+    /* ── 页面底部留白（V4 沿用 V3：没有页脚 Slogan）：底部 34×s 的留白里应当没有深色像素 ── */
+    const footTop = H - Math.round(34 * s)
+    const footInk = count(0, footTop, W, H, p => p[0] < 150 || p[1] < 150 || p[2] < 150, 2)
+    /* ── 图纸区：灰色细分格线 + 每 10 格主格线 ── */
+    const midY0 = Math.round(H * 0.10)
+    const midY1 = Math.round(H * 0.62)
+    const fine = count(0, midY0, W, midY1, p => near(p, [0xED, 0xED, 0xF0], 6), 2)
+    const bold = count(0, midY0, W, midY1, p => near(p, [0xD9, 0xD9, 0xDC], 10), 2)
+
+    return {
+      W, H,
+      logo, urlText, capsule, slogan, blocks: blk,
+      pinkPill, bluePill, sparkle, icons: clusters.length, swatches, footInk, fine, bold
+    }
   })()`, { awaitPromise: true })
-  step(`${label}：页眉（Logo + 域名）有内容`, res.headInk > 0.01, `深色像素 ${(res.headInk * 100).toFixed(1)}%`)
-  step(`${label}：域名是橙→粉渐变粗体`, res.headGrad > 0.002, `橙粉像素 ${(res.headGrad * 100).toFixed(2)}%`)
-  step(`${label}：底部材料区（图案信息 / 颜色清单）有内容`, res.bottomInk > 0.01, `深色像素 ${(res.bottomInk * 100).toFixed(1)}%`)
-  step(`${label}：页脚有品牌红 Slogan`, res.footRed > 0.002, `红字像素 ${(res.footRed * 100).toFixed(2)}%`)
+
+  step(`${label}：页眉有真 Logo（彩色像素）`, res.logo > 500, `彩色像素 ${res.logo}`)
+  step(`${label}：页眉是浅绿网址胶囊 + 深色网址文字`, res.urlText > 100 && res.capsule > 200, `网址字 ${res.urlText} / 胶囊底 ${res.capsule}`)
+  step(`${label}：页眉右侧有 Slogan（深灰蓝）`, res.slogan > 30, `像素 ${res.slogan}`)
+  step(`${label}：页眉最右有四个圆点（粉黄绿蓝）`, res.blocks.every(n => n > 20), res.blocks.join('/'))
+  step(`${label}：图纸区有细分格线与每 10 格主格线`, res.fine > 500 && res.bold > 50, `细 ${res.fine} / 主 ${res.bold}`)
+  step(`${label}：左卡是黄绿「图案信息」胶囊`, !!res.pinkPill && res.pinkPill.n > 100,
+    res.pinkPill ? `${res.pinkPill.n} px @ x${res.pinkPill.x0}-${res.pinkPill.x1} y${res.pinkPill.y}` : '没找到')
+  step(`${label}：右卡是黄绿「颜色清单」胶囊`, !!res.bluePill && res.bluePill.n > 100,
+    res.bluePill ? `${res.bluePill.n} px @ x${res.bluePill.x0}-${res.bluePill.x1} y${res.bluePill.y}` : '没找到')
+  step(`${label}：左卡胶囊右上角有黄色星形装饰`, res.sparkle >= 6, `黄色像素 ${res.sparkle}`)
+  step(`${label}：两个胶囊左右分开（左信息卡 / 右颜色卡）`,
+    !!res.pinkPill && !!res.bluePill && res.bluePill.x0 > res.pinkPill.x1)
+  step(`${label}：信息卡有六个像素图标`, res.icons >= 5, `${res.icons} 团`)
+  step(`${label}：颜色清单有色块与色号`, res.swatches > 300, `彩色像素 ${res.swatches}`)
+  step(`${label}：页面底部留白，没有页脚 Slogan`, res.footInk < 40, `深色像素 ${res.footInk}`)
   return res
 }
 
@@ -346,8 +419,14 @@ async function main() {
       .forEach(() => {})
 
     await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false })
-    await send('Page.navigate', { url: origin + '/create' })
-    await waitFor(send, `!!document.querySelector('.bsel__file')`, { timeout: 30000 })
+    /* 升级公告（2026-11-01）只在首次会话弹一次：自检只关心导出本身，
+       先把会话标记成「看过了」，否则公告遮罩会挡住「下载拼豆图纸」的点击。
+       公告本身由 scripts/verify-upgrade-notice.cjs 单独验。 */
+    await send('Page.addScriptToEvaluateOnNewDocument', {
+      source: "try { sessionStorage.setItem('douwan-upgrade-notice','1') } catch (e) {}"
+    }).catch(() => {})
+    await send('Page.navigate', { url: origin + '/' })
+    await waitFor(send, `!!window.__douzao`, { timeout: 30000 })
 
     /* 监听 console 报错（挂在页面上下文里） */
     await evaluate(send, `(() => {
@@ -360,41 +439,39 @@ async function main() {
       URL.revokeObjectURL = () => {}
     })()`)
 
-    /* ------------------------------------------ ① 新手版第 ③ 步下载 */
-    await attachFile(send, FIXTURE, '.bsel__file')
-    step('上传图片进入确认页', await waitFor(send, `!!document.querySelector('.bsel__confirm')`, { timeout: 25000 }))
-    await clickByText(send, '.bsel__confirmBtns .btn', '下一步')
-    step('第 ② 步画出图纸', await waitFor(send, `!!document.querySelector('.badj__canvasBox canvas')`, { timeout: 30000 }))
-    await clickVisibleLike(send, '.badj__actNext, .bwiz__mobileCta', '获取图纸')
-    step('第 ③ 步打开', await waitFor(send, `!!document.querySelector('.bexp__cta')`, { timeout: 25000 }))
-    await sleep(400)
+    /* ------------------------------------------ 预置一件作品 */
+    /* 走真实生成链路造作品（不手写 localStorage 结构），再打开它 */
+    const fixtureSrc = fs.readFileSync(path.join(ROOT, 'scripts', 'audit-fixture.js'), 'utf8')
+    const fixture = await evaluate(send, fixtureSrc, { awaitPromise: true })
+    step('预置作品（真实生成链路）', !!(fixture && fixture.projectId), fixture && fixture.err)
 
-    /* 真实鼠标点击（带用户激活）+ 提前布防抓 Blob */
-    await armBlobCapture(send)
-    await realClick(send, `.bexp__cta`)
-    await sleep(2500)
-    const diag = await evaluate(send, `(() => ({
-      err: document.querySelector('.bexp__err')?.textContent.trim() || '',
-      ctaDisabled: document.querySelector('.bexp__cta')?.disabled,
-      ctaText: document.querySelector('.bexp__cta')?.textContent.trim()
-    }))()`)
-    console.log('  [diag]', JSON.stringify(diag))
-    console.log('  [probe]', JSON.stringify(await evaluate(send, `({ blobs: window.__blobs.length, calls: window.__blobCalls, errs: window.__consoleErrors })`)))
-    const begBuf = await grabExportBlob(send, '新手版下载')
-    await verifyBranded(send, begBuf, 'beginner-step3')
-
-    /* ------------------------------------------ ② 专业版图纸交付下载 */
-    await clickByText(send, '.topbar__actions .modeSwitch button', '专业')
-    await waitFor(send, `location.pathname === '/editor'`, { timeout: 20000 })
-    await waitFor(send, `!!document.querySelector('[data-audit="open-delivery-build"]')`, { timeout: 20000 })
-    await evaluate(send, `document.querySelector('[data-audit="open-delivery-build"]').click()`)
-    await sleep(500)
-    /* 入口打开的是「拼装与完成」页签，切到「整张图纸」 */
-    await clickByText(send, '[role="tab"]', '整张图纸')
-    await sleep(500)
+    /* ------------------------------------------ 图纸交付下载 */
+    await send('Page.navigate', { url: origin + '/editor/' + fixture.projectId })
+    /* 全屏创作工作台（2026-11 改版）把「图纸交付」收进了顶部「导出」按钮；
+       老的三栏版面还有左栏那张「图纸交付」卡片，两种都认 */
+    await waitFor(send, `!!document.querySelector('.csTop, [data-audit="open-delivery-build"]')`, { timeout: 30000 })
+    const openedBy = await evaluate(send, `(() => {
+      const top = [...document.querySelectorAll('.csActions .csAction')].find(b => /导出/.test(b.textContent))
+      if (top) { top.click(); return 'console-top' }
+      const card = document.querySelector('[data-audit="open-delivery-build"]')
+      if (card) { card.click(); return 'sidebar-card' }
+      return 'none'
+    })()`)
+    await sleep(700)
+    /* v3：顶部「导出」直接打开导出弹窗（默认 PDF），模板验收要 PNG，先切到「PNG 图片」；
+       老的三栏版面打开的是「拼装与完成」页签，再切到「整张图纸」 */
+    const isDialog = await evaluate(send, `!!document.querySelector('.cmdDlg')`)
+    if (isDialog) {
+      await clickByText(send, '.expFmt', 'PNG')
+      await sleep(400)
+    } else {
+      await clickByText(send, '[role="tab"]', '整张图纸')
+      await sleep(500)
+    }
     const panelDiag = await evaluate(send, `(() => ({
       path: location.pathname,
-      hasRun: !!document.querySelector('.deliveryRun'),
+      openedBy: ${JSON.stringify(openedBy)},
+      hasRun: !!document.querySelector('.deliveryRun') || !!document.querySelector('.cmdDlg'),
       modal: [...document.querySelectorAll('.modal,.dialog,.baseDialog')].length,
       bodyHint: document.body.innerText.slice(0, 200)
     }))()`)
@@ -403,7 +480,7 @@ async function main() {
     await sleep(300)
 
     await armBlobCapture(send)
-    await realClick(send, '.deliveryRun')
+    await realClick(send, isDialog ? '.cmdDlg .dialog__foot .btn.primary' : '.deliveryRun')
     const proBuf = await grabExportBlob(send, '专业版下载')
     await verifyBranded(send, proBuf, 'pro-delivery')
 

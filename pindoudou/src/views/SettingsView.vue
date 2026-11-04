@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import BaseDialog from '../components/ui/BaseDialog.vue'
+import Icon from '../components/ui/Icon.vue'
 import {
   options, projects, deleteProject, cartoonStyles, maxCells,
   bead, BEADS, BEAD_KEYS, SIZE_TIERS, BOARD_MIN, boardSpecFor
@@ -156,7 +157,7 @@ function removeCustom(c) {
         <h1>设置</h1>
         <p>默认参数、本机数据与隐私说明。设置保存在本机；登录后作品会同步到你的豆玩账号。</p>
       </div>
-      <RouterLink to="/account" class="btn btn-secondary">我的账户 ›</RouterLink>
+      <RouterLink to="/account" class="btn btn-secondary">我的账户<Icon name="chevron-right" :size="16" /></RouterLink>
     </div>
 
     <!-- 默认生成参数 -->
@@ -317,7 +318,7 @@ function removeCustom(c) {
         <div class="divider"></div>
         <div class="row row--between row--wrap">
           <div>
-            <b style="font-size:var(--fs-xs)">导出备份</b>
+            <b style="font-size:var(--fs-xs);line-height:var(--ty-label-lh)">导出备份</b>
             <p class="hint">把所有作品、库存、收藏与设置打包成一个 JSON 文件</p>
           </div>
           <button class="btn green" @click="onExportAll">导出备份包</button>
@@ -363,7 +364,7 @@ function removeCustom(c) {
     </section>
 
     <BaseDialog :model-value="!!confirmClear" title="确认清除" size="sm" @update:model-value="confirmClear = ''">
-      <p style="font-size:var(--fs-sm);line-height:1.8">这个操作不可撤销。清除后对应数据会从本机浏览器删除；已同步到账号的作品，下次登录同步时会从服务端恢复。</p>
+      <p style="font-size:var(--fs-sm);line-height:var(--ty-body-lh)">这个操作不可撤销。清除后对应数据会从本机浏览器删除；已同步到账号的作品，下次登录同步时会从服务端恢复。</p>
       <template #footer="{ close }">
         <button class="btn btn-secondary" @click="close">取消</button>
         <button class="btn danger" @click="onClear(confirmClear)">确认清除</button>
@@ -403,14 +404,14 @@ function removeCustom(c) {
   padding:10px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--surface);
 }
 .customItem i{width:30px;height:30px;border-radius:var(--r-xs);border:1px solid rgba(35,49,34,.12);display:block}
-.customItem b{font-size:var(--fs-xs);display:block}
+.customItem b{font-size:var(--fs-xs);display:block;line-height:var(--ty-label-lh)}
 .dataRow{
   display:flex;align-items:center;justify-content:space-between;gap:12px;
   padding:12px 0;border-bottom:1px solid var(--line);
 }
 .dataRow:last-of-type{border-bottom:0}
-.dataRow b{font-size:var(--fs-xs);display:block;margin-bottom:3px}
+.dataRow b{font-size:var(--fs-xs);display:block;margin-bottom:3px;line-height:var(--ty-label-lh)}
 .privacyItem{padding:13px;border-radius:var(--r-sm);background:var(--surface-2);border:1px solid var(--line)}
-.privacyItem b{font-size:var(--fs-xs)}
-.privacyItem p{font-size:var(--fs-2xs);color:var(--muted);line-height:1.8;margin-top:6px}
+.privacyItem b{font-size:var(--fs-xs);line-height:var(--ty-label-lh)}
+.privacyItem p{font-size:var(--fs-2xs);color:var(--muted);line-height:var(--ty-caption-lh);margin-top:6px}
 </style>

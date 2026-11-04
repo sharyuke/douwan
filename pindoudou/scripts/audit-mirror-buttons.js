@@ -62,6 +62,38 @@
       return { ok: steps.every(s => s.pass), steps, width: innerWidth }
     }
 
+    /* 全屏工作台（参考版版面）：工具收进左侧竖轨，9 个工具 + 去杂色 + 撤销 / 重做 / 镜像，
+       竖着排一列。版面变了，但「只有左右镜像、点了真的水平翻转、不换画笔」这几条口径不变。 */
+    const rail = q('.csRail')
+    if (rail) {
+      const railBtns = qa('.csRail .toolgroup .tool')
+      const railLabels = railBtns.map(b => txt(b))
+      step('左侧工具轨 10 颗按钮', railBtns.length === 10, `count=${railBtns.length}：${railLabels.join('/')}`)
+      step('没有「上下镜像」', !railLabels.includes('上下镜像'), railLabels.join('/'))
+      step('保留「镜像」', railLabels.includes('镜像'), railLabels.join('/'))
+      const railTops = railBtns.map(b => Math.round(b.getBoundingClientRect().top))
+      const railLefts = [...new Set(railBtns.map(b => Math.round(b.getBoundingClientRect().left)))]
+      step('工具竖着排一列', railLefts.length === 1 && new Set(railTops).size === railBtns.length,
+        `rows=${new Set(railTops).size} lefts=${railLefts.join(',')}`)
+      const railBox = rail.getBoundingClientRect()
+      const railSpill = railBtns.some(b => {
+        const r = b.getBoundingClientRect()
+        return r.right > railBox.right + 1 || r.bottom > railBox.bottom + 1
+      })
+      step('按钮没有被挤出工具轨', !railSpill)
+
+      const railMirror = railBtns.find(b => txt(b) === '镜像')
+      const beforeRail = cells()
+      const railToolBefore = S.tool.value
+      railMirror.click()
+      await sleep(260)
+      const afterRail = cells()
+      step('镜像真的水平翻转了图纸', same(afterRail, flipH(beforeRail)))
+      step('没有把图纸上下翻转', !same(afterRail, flipV(beforeRail)) || same(beforeRail, flipV(beforeRail)))
+      step('镜像不切换画笔', S.tool.value === railToolBefore, S.tool.value)
+      return { ok: steps.every(s => s.pass), steps, width: innerWidth, chrome: 'console' }
+    }
+
     const buttons = qa('.toolgroup .tool')
     /* 宽屏标签是「左右镜像」，窄屏换成短标签「左右」；两段都在 DOM 里，
        只取当前可见的那一段，别把拼接后的「左右镜像左右」当标签 */

@@ -7,7 +7,7 @@
    - 老用户仍可手动登录已有账号
    ========================================================================= */
 import { computed, onMounted, ref } from 'vue'
-import PixelIcon from './PixelIcon.vue'
+import Icon from './Icon.vue'
 import {
   isLoggedIn, isAnonymousDevice, displayName,
   login, logout, bootstrapDevice
@@ -235,7 +235,7 @@ function fmt(value) {
           <li v-if="lastResult.usage_limit">可用额度：{{ lastResult.usage_limit }} 次</li>
         </ul>
         <ul v-if="lastResult.feature_text && lastResult.feature_text.length" class="redeemFeatures">
-          <li v-for="t in lastResult.feature_text" :key="t"><PixelIcon name="check" :size="14" /> {{ t }}</li>
+          <li v-for="t in lastResult.feature_text" :key="t"><Icon name="check" :size="16" /> {{ t }}</li>
         </ul>
       </div>
 
@@ -261,33 +261,33 @@ function fmt(value) {
 
 <style scoped>
 .redeemPanel{display:flex;flex-direction:column;gap:11px}
-.redeemHint{font-size:var(--fs-2xs);color:var(--muted);line-height:1.8}
+.redeemHint{font-size:var(--fs-2xs);color:var(--muted);line-height:var(--ty-caption-lh)}
 .redeemHint.warn{color:var(--orange-deep)}
-.redeemLabel{font-size:var(--fs-xs);font-weight:750;color:var(--ink-2)}
+.redeemLabel{font-size:var(--fs-xs);font-weight:700;color:var(--ink-2);line-height:var(--ty-label-lh)}
 .deviceBox{
   padding:12px 14px;border-radius:var(--r-md);background:var(--surface-2);
   border:1px solid var(--line);display:flex;flex-direction:column;gap:5px;
 }
-.deviceBox b{font-size:var(--fs-xs)}
+.deviceBox b{font-size:var(--fs-xs);line-height:var(--ty-label-lh)}
 .redeemCode{
   width:100%;padding:13px 15px;border:1px solid var(--line-strong);border-radius:var(--r-md);
-  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:17px;letter-spacing:.08em;
-  text-align:center;text-transform:uppercase;background:var(--surface);color:var(--ink);
+  font-family:var(--font-numeric);font-size:15px;letter-spacing:0;
+  text-align:center;text-transform:uppercase;background:var(--surface);color:var(--ink);line-height:var(--ty-card-lh)
 }
 .redeemCode:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-soft)}
-.redeemUser{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:var(--fs-xs);color:var(--muted);flex-wrap:wrap}
+.redeemUser{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:var(--fs-xs);color:var(--muted);flex-wrap:wrap;line-height:var(--ty-label-lh)}
 .identityTag{
   display:inline-block;padding:2px 8px;border-radius:var(--r-pill);margin-right:6px;
-  background:var(--yellow-soft);color:var(--ink-2);font-size:var(--fs-2xs);font-weight:750;
+  background:var(--yellow-soft);color:var(--ink-2);font-size:var(--fs-2xs);font-weight:700;line-height:var(--ty-caption-lh)
 }
-.linkBtn{background:none;border:0;color:var(--primary-deep);font-weight:750;cursor:pointer;font-size:var(--fs-xs)}
+.linkBtn{background:none;border:0;color:var(--primary-deep);font-weight:700;cursor:pointer;font-size:var(--fs-xs);line-height:var(--ty-label-lh)}
 .redeemResult{
   padding:13px 15px;border-radius:var(--r-md);background:var(--green-soft);border:1px solid #bfe6ec;
-  font-size:var(--fs-xs);color:var(--green-deep);line-height:1.9;
+  font-size:var(--fs-xs);color:var(--green-deep);line-height:var(--ty-label-lh);
 }
 .redeemResult ul{list-style:none;margin-top:6px}
 .redeemFeatures{margin-top:6px;color:var(--ink-2)}
-.redeemMine{padding:12px 14px;border-radius:var(--r-md);background:var(--surface-2);border:1px solid var(--line);font-size:var(--fs-xs)}
+.redeemMine{padding:12px 14px;border-radius:var(--r-md);background:var(--surface-2);border:1px solid var(--line);font-size:var(--fs-xs);line-height:var(--ty-label-lh)}
 .redeemMine__row{display:flex;gap:10px;flex-wrap:wrap;padding:5px 0;border-top:1px solid var(--line);margin-top:5px}
-.redeemMine__row span:first-child{font-weight:750}
+.redeemMine__row span:first-child{font-weight:700}
 </style>

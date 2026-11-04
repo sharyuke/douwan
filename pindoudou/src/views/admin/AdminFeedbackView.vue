@@ -433,7 +433,7 @@ onMounted(() => {
   padding: 12px;
   white-space: pre-wrap;
   word-break: break-word;
-  line-height: 1.8;
+  line-height: var(--ty-body-lh);
   font-size: var(--fs-sm);
 }
 </style>

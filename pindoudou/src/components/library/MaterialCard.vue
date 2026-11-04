@@ -3,11 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { isFavorite, toggleFavorite } from '../../composables/useAssets.js'
 import { difficultyTone } from '../../lib/forge.js'
 import { dominantColors } from '../../lib/imageColors.js'
-import PixelIcon from '../ui/PixelIcon.vue'
-/* 卡片上的两枚彩色像素图标（2026-10-23 交付包）：点赞数旁的爱心、收藏按钮的星星。
-   交付原图 433×353 / 411×419 透明 PNG，按高度等比显示，别拉伸。 */
-import likeHeart from '../../assets/icons/library/like-heart.png'
-import favStar from '../../assets/icons/library/fav-star.png'
+import Icon from '../ui/Icon.vue'
 
 const props = defineProps({
   asset: { type: Object, required: true }
@@ -56,12 +52,12 @@ watch(() => props.asset && props.asset.image, async url => {
       >
       <div v-else-if="asset.svg && !imgError" class="mCard__svg" v-html="asset.svg"></div>
       <div v-else class="mCard__fallback">
-        <PixelIcon name="photo" :size="26" />
+        <Icon name="image" :size="24" />
         <span>{{ asset.image ? '图片加载失败' : '暂无预览' }}</span>
       </div>
       <span v-if="badge" class="mCard__badge" :class="tone">{{ badge }}</span>
       <span v-if="likeText" class="mCard__likes" :aria-label="`${asset.likeCount} 人点赞`">
-        <img class="mCard__likeIcon" :src="likeHeart" alt="" aria-hidden="true" width="16" height="13">
+        <Icon class="mCard__likeIcon" name="heart" :size="16" />
         <b>{{ likeText }}</b>
       </span>
       <span class="mCard__hover">预览</span>
@@ -72,12 +68,12 @@ watch(() => props.asset && props.asset.image, async url => {
         <h3 class="mCard__name" :title="asset.name">{{ asset.name }}</h3>
       </div>
       <button
-        type="button" class="mCard__fav" :class="{ on: fav }"
+        type="button" class="mCard__fav hit32" :class="{ on: fav }"
         :title="fav ? '取消收藏' : '收藏'"
         :aria-label="fav ? `取消收藏 ${asset.name}` : `收藏 ${asset.name}`"
         :aria-pressed="fav"
         @click.stop="toggleFavorite(asset.id)"
-      ><img class="mCard__favIcon" :src="favStar" alt="" aria-hidden="true" width="18" height="18"></button>
+      ><Icon class="mCard__favIcon" name="star" :size="16" /></button>
       <span v-if="dots.length" class="mCard__dots" aria-hidden="true">
         <i v-for="(c, i) in dots" :key="i" :style="{ background: c }" />
       </span>
@@ -87,7 +83,7 @@ watch(() => props.asset && props.asset.image, async url => {
 
 <style scoped>
 .mCard{
-  position:relative;min-width:0;background:#FFFDF8;
+  position:relative;min-width:0;background:#fff;
   border:1px solid #F3EBDD;border-radius:16px;padding:6px;
   box-shadow:0 2px 8px rgba(82,62,24,.05);
   transition:transform .18s var(--ease),box-shadow .18s var(--ease),border-color .18s var(--ease);
@@ -109,13 +105,13 @@ watch(() => props.asset && props.asset.image, async url => {
 .mCard__svg :deep(svg){width:92%;height:92%;display:block}
 .mCard__fallback{
   width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
-  color:var(--muted-2);font-size:var(--fs-2xs);background:var(--surface-3);
+  color:var(--muted-2);font-size:var(--fs-2xs);background:var(--surface-3);line-height:var(--ty-caption-lh)
 }
 
 /* 难度胶囊：浅色底 + 同色系深字，和参考稿一样是圆角药丸 */
 .mCard__badge{
   position:absolute;left:7px;top:7px;z-index:2;padding:3px 9px;border-radius:999px;
-  background:#E4F7EA;color:#2E8B57;font-size:11px;font-weight:800;line-height:1.2;
+  background:#E4F7EA;color:#2E8B57;font-size:12px;font-weight:700;line-height:var(--ty-caption-lh);
   box-shadow:0 1px 3px rgba(46,139,87,.10);
 }
 .mCard__badge.new{background:#FFF3D9;color:#B27413;box-shadow:0 1px 3px rgba(178,116,19,.10)}
@@ -126,16 +122,16 @@ watch(() => props.asset && props.asset.image, async url => {
 .mCard__likes{
   position:absolute;right:8px;top:8px;z-index:2;
   display:flex;align-items:center;gap:3px;color:#FE435F;
-  font-size:11px;font-weight:800;line-height:1;letter-spacing:.2px;
+  font-size:12px;font-weight:700;line-height:var(--ty-caption-lh);letter-spacing:0;
 }
-.mCard__likes b{font-weight:800}
-/* 交付包图标：固定盒子 + contain，等比缩放不拉伸（原图 433×353 / 411×419） */
-.mCard__likeIcon{width:16px;height:13px;flex:0 0 auto;display:block;object-fit:contain}
+.mCard__likes b{font-weight:700}
+/* 图标规范 16px 档：线色跟着数字一起用点赞红 */
+.mCard__likeIcon{flex:0 0 auto;color:inherit}
 
 .mCard__hover{
   position:absolute;left:50%;bottom:8px;transform:translate(-50%,6px);
   padding:3px 9px;border-radius:var(--r-pill);background:rgba(31,41,55,.78);color:#fff;
-  font-size:10px;font-weight:700;opacity:0;pointer-events:none;transition:var(--t);
+  font-size:12px;font-weight:700;opacity:0;pointer-events:none;transition:var(--t);line-height:var(--ty-caption-lh)
 }
 .mCard__media:hover .mCard__hover,.mCard__media:focus-visible .mCard__hover{opacity:1;transform:translate(-50%,0)}
 
@@ -148,7 +144,7 @@ watch(() => props.asset && props.asset.image, async url => {
 }
 .mCard__info{grid-area:info;min-width:0}
 .mCard__name{
-  font-size:13px;font-weight:800;line-height:1.35;color:var(--ink);
+  font-size:13px;font-weight:700;line-height:var(--ty-label-lh);color:var(--ink);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
 .mCard__fav{
@@ -158,9 +154,9 @@ watch(() => props.asset && props.asset.image, async url => {
   border:1px solid #F6D98C;background:#FFF8DE;color:#F0B01C;
   display:grid;place-items:center;transition:var(--t);
 }
-.mCard__favIcon{width:18px;height:18px;display:block;object-fit:contain}
+.mCard__favIcon{display:block;color:inherit}
 .mCard__fav:hover{background:#FFF0B8;border-color:#EFC35A;color:#E9A400}
-.mCard__fav.on{background:#FFE9A8;border-color:#EFC24F;color:#E19A00}
+.mCard__fav.on{background:var(--primary);border-color:var(--primary-deep);color:var(--ink)}
 .mCard__dots{grid-area:dots;display:flex;align-items:center;gap:4px;min-width:0;overflow:hidden}
 .mCard__dots i{
   width:8px;height:8px;border-radius:50%;display:block;flex:0 0 auto;
@@ -172,10 +168,10 @@ watch(() => props.asset && props.asset.image, async url => {
   .mCard{padding:7px;border-radius:16px}
   .mCard__media{border-radius:12px}
   .mCard__body{padding:8px 2px 1px;column-gap:8px;row-gap:7px}
-  .mCard__name{font-size:13px}
+  .mCard__name{font-size:13px;line-height:var(--ty-label-lh)}
   .mCard__fav{width:30px;height:30px;border-radius:9px}
   .mCard__dots i{width:8px;height:8px}
-  .mCard__badge{padding:3px 8px;font-size:10px}
-  .mCard__likes{font-size:11px}
+  .mCard__badge{padding:3px 8px;font-size:12px;line-height:var(--ty-caption-lh)}
+  .mCard__likes{font-size:12px;line-height:var(--ty-caption-lh)}
 }
 </style>

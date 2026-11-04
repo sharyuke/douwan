@@ -1,64 +1,39 @@
 <script setup>
-import { RouterLink } from 'vue-router'
-import logoDouwan from '../../assets/logo-douwan.webp'
+/* 站点页脚（2026-11-01，按「豆玩 · 像素花园首页」重做）
+   设计稿只有一行：左侧色卡说明 + 备案号，右侧版权。 */
 const year = new Date().getFullYear()
-
-const groups = [
-  {
-    title: '开始创作',
-    links: [
-      { to: '/create', label: '上传照片生成' },
-      { to: '/materials/', label: '免费素材库' },
-      { to: '/projects', label: '我的作品' },
-      { to: '/inventory', label: '我的库存' }
-    ]
-  },
-  {
-    title: '拼豆工具',
-    links: [
-      { to: '/tools/perler-bead-pattern-maker', label: 'Perler 图纸生成器' },
-      { to: '/tools/hama-bead-pattern-maker', label: 'Hama 图纸生成器' },
-      { to: '/tools/artkal-bead-pattern-maker', label: 'Artkal 图纸生成器' },
-      { to: '/tools/photo-to-bead-pattern', label: '照片转拼豆图纸' }
-    ]
-  },
-  {
-    title: '帮助与说明',
-    links: [
-      { to: '/help', label: '教程与常见问题' },
-      { to: '/settings', label: '设置与隐私' },
-      { to: '/account', label: '我的账户' }
-    ]
-  }
-]
 </script>
 
 <template>
-  <footer class="footer no-print">
-    <div class="wrap">
-      <div class="footer__grid">
-        <div>
-          <div class="brand" style="margin-bottom:12px">
-            <img class="brand__logo" :src="logoDouwan" alt="豆玩 DOUWAN" width="157" height="52">
-          </div>
-          <p class="muted" style="max-width:300px;line-height:1.8">
-            把喜欢的东西，拼成自己的作品。<br>
-            帮你把照片和创意，变成好看、好拼、省豆的拼豆图。
-          </p>
-          <p class="hint" style="margin-top:10px">
-            图片转换在浏览器本地完成，照片不会上传到服务器。
-          </p>
-        </div>
-        <div v-for="g in groups" :key="g.title">
-          <h4>{{ g.title }}</h4>
-          <RouterLink v-for="l in g.links" :key="l.to" :to="l.to">{{ l.label }}</RouterLink>
-        </div>
-      </div>
-      <div class="footer__bottom">
-        <span>© {{ year }} 豆玩 DOUWAN · 本站色卡数据来自公开整理的第三方色卡，采购前请以实体色卡为准</span>
-        <span>拼豆成品与品牌商标归各品牌方所有</span>
-        <a class="footer__icp" href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">渝ICP备14009814号</a>
-      </div>
+  <footer class="footV3 no-print">
+    <div class="footV3__in">
+      <p class="footV3__legal">
+        <span>本站色卡数据来自公开整理的第三方色卡，采购前请以实体色卡为准</span>
+        <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">渝ICP备14009814号</a>
+      </p>
+      <p class="footV3__copy">© 豆玩 DOUWAN</p>
     </div>
   </footer>
 </template>
+
+<style scoped>
+.footV3{
+  flex:0 0 auto;height:82px;background:var(--cream);
+  border-top:1px solid var(--line);
+}
+.footV3__in{
+  width:min(var(--page-max),100%);height:100%;margin:0 auto;padding:0 56px;
+  display:flex;align-items:center;justify-content:space-between;gap:24px;
+}
+.footV3__legal{display:flex;align-items:center;gap:24px;margin:0;font-size:12px;color:var(--muted);line-height:var(--ty-caption-lh)}
+.footV3__legal a{color:var(--muted);white-space:nowrap}
+.footV3__legal a:hover{color:var(--ink)}
+.footV3__copy{margin:0;font-size:12px;color:var(--muted);white-space:nowrap;line-height:var(--ty-caption-lh)}
+
+@media(max-width:780px){
+  .footV3{height:auto;padding:22px 0}
+  .footV3__in{flex-direction:column;align-items:center;gap:8px;padding:0 18px;text-align:center}
+  .footV3__legal{flex-direction:column;gap:4px;font-size:12px;line-height:var(--ty-caption-lh)}
+  .footV3__copy{font-size:12px;line-height:var(--ty-caption-lh)}
+}
+</style>

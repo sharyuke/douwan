@@ -9,7 +9,7 @@ import { computed, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import AdminTable from '../../components/admin/AdminTable.vue'
 import AdminTag from '../../components/admin/AdminTag.vue'
-import PixelIcon from '../../components/ui/PixelIcon.vue'
+import Icon from '../../components/ui/Icon.vue'
 import { overviewApi } from '../../lib/adminApi.js'
 import { ApiError, money, moneyPlain, datetime, fromNow } from '../../lib/api.js'
 import { toastErr } from '../../composables/useToast.js'
@@ -164,7 +164,7 @@ const isEmpty = computed(() => {
     <!-- 完全空库时的引导：给出下一步，而不是一堆 0 -->
     <div v-if="isEmpty" class="adm-card">
       <div class="adm-empty">
-        <div class="adm-empty__icon"><PixelIcon name="sparkles" :size="26" /></div>
+        <div class="adm-empty__icon"><Icon name="sparkles" :size="24" /></div>
         <strong>系统里还没有任何数据</strong>
         <p>
           建议按这个顺序开始：先在「套餐管理」把套餐的价格与权益配置好并上架，

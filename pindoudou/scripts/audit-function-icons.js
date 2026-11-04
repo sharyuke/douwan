@@ -3,7 +3,7 @@
 
    断言的是「真实 DOM 里那个位置渲染的是哪张图」，不调内部数据：
 
-     · 左栏三个来源入口：上传图片 / AI生成素材 / 免费素材库
+     · 左栏三个来源入口：上传图片 / AI生成素材 / 素材库
      · 画布页签：拼豆图纸 / 原图 / 对照 / 分板 / 材料
      · 图片处理三选一：原图直接使用 / 智能抠图 / 卡通风格
      · 右栏卡片头：作品分析 / 我的库存
@@ -108,12 +108,60 @@
       return { ok: steps.every(s => s.pass), steps, width: innerWidth }
     }
 
+    /* ---------- 全屏创作工作台（≥1100px，2026-11 按 Figma 改版） ----------
+       来源入口在命令栏；图片处理只剩「智能抠图」力度段与「卡通风格」；
+       作品分析 / 我的库存 / 图纸交付 收进右侧抽屉与顶部「导出」。 */
+    if (q('.csTop')) {
+      const cmds = qa('.csCmd__btn')
+      step('命令栏有 3 个来源入口', cmds.length >= 3, cmds.map(txt).join('/'))
+      check('来源·上传图片', cmds.find(b => txt(b).includes('上传图片')), 'upload')
+      check('来源·AI生成素材', cmds.find(b => txt(b).includes('AI 生成')), 'ai-create')
+      check('来源·素材库', cmds.find(b => txt(b).includes('素材库')), 'free-library')
+      check('处理·卡通风格', cmds.find(b => txt(b).includes('卡通风格')), 'cartoon')
+
+      const views = qa('.viewtabs button')
+      step('画布有 5 个页签', views.length === 5, views.map(txt).join('/'))
+      check('页签·拼豆图纸', views[0], 'pattern')
+      check('页签·原图', views[1], 'original')
+      check('页签·对照', views[2], 'compare')
+      check('页签·分板', views[3], 'split')
+      check('页签·材料', views[4], 'materials')
+
+      /* 右侧抽屉里的两张卡片：卡片头那颗图标要还是位图 */
+      const openRow = async (label) => {
+        const row = qa('.csSide__row').find(b => txt(b).includes(label))
+        if (row) { row.click(); await sleep(600) }
+        return row
+      }
+      const closeDrawer = async () => {
+        const x = q('.csDrawer__head .csIconBtn')
+        if (x) { x.click(); await sleep(400) }
+      }
+      await openRow('作品分析')
+      check('右栏·作品分析', q('.card--analysis .cardIcon'), 'analytics')
+      await closeDrawer()
+      await openRow('我的库存')
+      check('右栏·我的库存', q('.card--stock .cardIcon'), 'inventory')
+      await closeDrawer()
+
+      /* 顶部「导出」→ 交付面板 → 导出前检查 */
+      const exportBtn = qa('.csActions .csAction').find(b => txt(b).includes('导出'))
+      step('找得到顶部「导出」', !!exportBtn, exportBtn ? `disabled=${exportBtn.disabled}` : '')
+      if (exportBtn && !exportBtn.disabled) {
+        exportBtn.click()
+        const ok = await waitFor('.acc--checks .checkIcon')
+        step('交付面板打开了', ok, `panel=${qa('[data-audit="delivery-panel"]').length} tabs=${qa('.deliveryTabs button').map(txt).join('/')}`)
+        if (ok) check('导出前检查', q('.acc--checks .checkIcon'), 'export-check')
+      }
+      return { ok: steps.every(s => s.pass), steps, width: innerWidth }
+    }
+
     /* ---------- 桌面 / 平板 ---------- */
     const sources = qa('.sourceTabs button')
     step('左栏有 3 个来源入口', sources.length === 3, sources.map(txt).join('/'))
     check('来源·上传图片', sources.find(b => txt(b).includes('上传图片')), 'upload')
     check('来源·AI生成素材', sources.find(b => txt(b).includes('AI生成素材')), 'ai-create')
-    check('来源·免费素材库', sources.find(b => txt(b).includes('免费素材库')), 'free-library')
+    check('来源·素材库', sources.find(b => txt(b).includes('素材库')), 'free-library')
 
     const views = qa('.viewtabs button')
     step('画布有 5 个页签', views.length === 5, views.map(txt).join('/'))

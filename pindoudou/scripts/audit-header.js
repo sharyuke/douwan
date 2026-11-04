@@ -23,6 +23,8 @@
     const style = inner ? getComputedStyle(inner) : null
     return {
       hash: location.hash,
+      /* 全屏创作工作台（≥1100px）故意收起站点顶栏，换成自己的命令栏 */
+      console: !!document.querySelector('.csTop'),
       inner: rect(inner),
       padRight: style ? Math.round(parseFloat(style.paddingRight) || 0) : 0,
       login: rect(login),
@@ -38,15 +40,16 @@
     rows.push(measure())
   }
 
-  const missing = rows.filter(r => !r.login || !r.acct)
+  const site = rows.filter(r => !r.console)
+  const missing = site.filter(r => !r.login || !r.acct)
   if (missing.length) {
     return { ok: false, err: '顶栏登录 / 个人中心没有渲染', rows }
   }
 
-  /* 同一元素在所有页面的 left 必须相同（1px 容差给亚像素取整） */
-  const sameLeft = key => rows.every(r => Math.abs(r[key].x - rows[0][key].x) <= 1)
+  /* 同一元素在所有页面（不含全屏工作台）的 left 必须相同（1px 容差给亚像素取整） */
+  const sameLeft = key => site.every(r => Math.abs(r[key].x - site[0][key].x) <= 1)
   /* 操作区贴右：个人中心右边缘 = 顶栏内右边缘 - paddingRight */
-  const pinned = rows.every(r => Math.abs(r.inner.right - r.padRight - r.acct.right) <= 1)
+  const pinned = site.every(r => Math.abs(r.inner.right - r.padRight - r.acct.right) <= 1)
 
   return {
     ok: sameLeft('login') && sameLeft('acct') && pinned,
@@ -54,6 +57,7 @@
       sameLoginX: sameLeft('login'),
       sameAccountX: sameLeft('acct'),
       pinnedRight: pinned,
+      consoleHidden: rows.filter(r => r.console).every(r => !r.inner),
       rows
     }
   }

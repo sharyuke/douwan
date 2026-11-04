@@ -13,7 +13,7 @@
    ========================================================================= */
 import { onMounted, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import PixelIcon from '../components/ui/PixelIcon.vue'
+import Icon from '../components/ui/Icon.vue'
 import { userTokens } from '../lib/api.js'
 import { bootstrapUser } from '../composables/useUserAccount.js'
 import { syncServerEntitlements } from '../composables/useBackend.js'
@@ -133,8 +133,8 @@ onMounted(async () => {
     <div class="callbackCard" data-audit="auth-callback" :data-status="status">
       <div class="callbackIcon" :class="status">
         <span v-if="status === 'working'">…</span>
-        <PixelIcon v-else-if="status === 'success'" name="check" :size="26" />
-        <PixelIcon v-else name="alert" :size="26" />
+        <Icon v-else-if="status === 'success'" name="check" :size="24" />
+        <Icon v-else name="info" :size="24" />
       </div>
       <h1>{{ status === 'working' ? '正在完成登录' : (status === 'success' ? '登录完成' : '登录没有完成') }}</h1>
       <p class="callbackMsg">{{ message }}</p>
@@ -157,12 +157,12 @@ onMounted(async () => {
 }
 .callbackIcon{
   width:54px;height:54px;border-radius:50%;display:grid;place-items:center;
-  font-size:25px;font-weight:900;background:var(--surface-2);border:1px solid var(--line);
+  font-size:24px;font-weight:700;background:var(--surface-2);border:1px solid var(--line);line-height:var(--ty-dialog-lh)
 }
 .callbackIcon.success{background:var(--green-soft);border-color:#bfe6ec;color:var(--green-deep)}
 .callbackIcon.error{background:#FFF1EE;border-color:#FBD5CF;color:var(--primary-deep)}
-.callbackCard h1{font-size:var(--fs-h2)}
-.callbackMsg{font-size:var(--fs-sm);color:var(--ink-2);line-height:1.8}
+.callbackCard h1{font-size:var(--fs-h2);line-height:var(--ty-section-lh)}
+.callbackMsg{font-size:var(--fs-sm);color:var(--ink-2);line-height:var(--ty-body-lh)}
 .callbackActions{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:10px}
 @media(max-width:640px){.callbackCard{margin:28px auto;padding:26px 18px}}
 </style>

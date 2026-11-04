@@ -16,7 +16,7 @@ import AdminTable from '../../components/admin/AdminTable.vue'
 import AdminPager from '../../components/admin/AdminPager.vue'
 import AdminModal from '../../components/admin/AdminModal.vue'
 import AdminTag from '../../components/admin/AdminTag.vue'
-import PixelIcon from '../../components/ui/PixelIcon.vue'
+import Icon from '../../components/ui/Icon.vue'
 
 import { orderApi, planApi } from '../../lib/adminApi.js'
 import { ApiError, money, moneyPlain, datetime, syncQuery } from '../../lib/api.js'
@@ -825,7 +825,7 @@ async function markRefund(row) {
       </div>
 
       <div v-else class="adm-empty">
-        <div class="adm-empty__icon"><PixelIcon name="folder" :size="26" /></div>
+        <div class="adm-empty__icon"><Icon name="folder-open" :size="24" /></div>
         <strong>没有取到订单详情</strong>
         <p>可能是订单已被删除，或者刚才的请求失败了。关掉弹窗刷新列表后再试一次。</p>
       </div>

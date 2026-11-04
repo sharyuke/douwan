@@ -11,7 +11,7 @@ import { buildStars, buildabilityLabel, similarityLabel, signedPct, formatDurati
 import { check } from '../../composables/useMembership.js'
 import { toastOk, toastWarn } from '../../composables/useToast.js'
 import { copyShoppingList } from '../../lib/exporters.js'
-import PixelIcon from '../ui/PixelIcon.vue'
+import Icon from '../ui/Icon.vue'
 
 const props = defineProps({
   /* 手机端弹层：只显示 focus 指定的那张卡（'' = 桌面完整右栏）。
@@ -19,7 +19,7 @@ const props = defineProps({
   focus: { type: String, default: '' }
 })
 
-const emit = defineEmits(['need-pro'])
+const emit = defineEmits(['need-pro', 'replace-color'])
 const showAllMaterials = ref(false)
 
 /* 除 ① 创建外，卡片都默认收起；卡头右侧的箭头共用全局 .cardArrow */
@@ -132,13 +132,13 @@ async function onCopy() {
     <!-- 作品分析：四个统计格 + 可拼性评分 + 方案说明。手机上紧跟在图纸与设置之后 -->
     <section class="card card--analysis" :class="{ 'is-folded': !openAnalysis, 'is-focus': focus === 'analysis' }">
       <div class="card__head">
-        <h3><span class="cardIcon"><PixelIcon name="fn-analytics" :size="18" /></span>作品分析</h3>
+        <h3><span class="cardIcon"><Icon name="chart-no-axes-combined" :size="20" /></span>作品分析</h3>
         <span class="muted card__headValue">{{ stats ? stats.modeLabel : '未生成' }}</span>
         <button
           class="cardArrowBtn" type="button"
           :aria-expanded="openAnalysis" aria-label="展开或收起作品分析"
           @click="openAnalysis = !openAnalysis"
-        ><i class="cardArrow" :class="{ 'cardArrow--open': openAnalysis }" aria-hidden="true"><PixelIcon name="chevronDown" :size="12" /></i></button>
+        ><i class="cardArrow" :class="{ 'cardArrow--open': openAnalysis }" aria-hidden="true"><Icon name="chevron-down" :size="16" /></i></button>
       </div>
       <div class="card__body stack stack--sm">
         <div v-if="!stats" class="processHint" style="margin-top:0">
@@ -163,8 +163,8 @@ async function onCopy() {
               <b>可拼性评分</b>
               <div class="row" style="gap:8px">
                 <span class="stars" :title="`${stats.buildability} 分`">
-                  <PixelIcon
-                    v-for="i in 5" :key="i" name="star" :size="12"
+                  <Icon
+                    v-for="i in 5" :key="i" name="star" :size="16"
                     :class="{ 'is-empty': i > starCount }"
                   />
                 </span>
@@ -197,7 +197,7 @@ async function onCopy() {
     <!-- 🎨 颜色用量（参考版信息层级：标题 + 右「生成后显示」）。手机上默认收起 -->
     <section v-if="hasPattern" class="card card--colors" :class="{ 'is-folded': !openColors, 'is-focus': focus === 'colors' }">
       <div class="card__head">
-        <h3><span class="cardIcon"><PixelIcon name="palette" :size="14" /></span>颜色用量</h3>
+        <h3><span class="cardIcon"><Icon name="palette" :size="16" /></span>颜色用量</h3>
         <span v-if="short" class="muted only-lg card__headValue">{{ short.colorCount }} 色</span>
         <span v-if="short" class="muted only-sm card__headValue">
           <template v-if="short.needRestock">{{ short.colorCount }} 色 · 缺 {{ short.missingCount + short.shortCount }} 色</template>
@@ -207,18 +207,18 @@ async function onCopy() {
           class="cardArrowBtn" type="button"
           :aria-expanded="openColors" aria-label="展开或收起颜色用量"
           @click="openColors = !openColors"
-        ><i class="cardArrow" :class="{ 'cardArrow--open': openColors }" aria-hidden="true"><PixelIcon name="chevronDown" :size="12" /></i></button>
+        ><i class="cardArrow" :class="{ 'cardArrow--open': openColors }" aria-hidden="true"><Icon name="chevron-down" :size="16" /></i></button>
       </div>
       <div class="card__body stack stack--sm">
         <div v-if="short && short.needRestock" class="alertBox">
-          <PixelIcon name="alert" :size="13" />
+          <Icon name="info" :size="16" />
           <span>
             缺 {{ short.missingCount }} 色完全没货，{{ short.shortCount }} 色数量不足 ·
             共需补 {{ short.totalLack.toLocaleString() }} 颗
           </span>
         </div>
         <div v-else-if="short" class="okBox">
-          <PixelIcon name="check" :size="13" /><span>当前库存足够完成这件作品</span>
+          <Icon name="check" :size="16" /><span>当前库存足够完成这件作品</span>
         </div>
 
         <div class="materialList">
@@ -228,6 +228,10 @@ async function onCopy() {
             <b>{{ m.count }} 颗</b>
             <span v-if="m.lack > 0" class="lack">缺 {{ m.lack }} 颗</span>
             <span v-else class="okqty">够</span>
+            <button
+              class="matSwap" type="button" title="整色替换：把这种颜色换成同系列的其它色号"
+              aria-label="替换这个颜色" @click="emit('replace-color', m.id)"
+            ><PixelIcon name="swap" :size="12" /></button>
           </div>
           <div v-if="!visibleMaterials.length" class="muted" style="padding:14px">生成后显示颜色与数量。</div>
         </div>
@@ -254,19 +258,19 @@ async function onCopy() {
          手机上默认收起，卡头已经把当前库存摘要摆出来了。 -->
     <section class="card card--stock" :class="{ 'is-folded': !openStock, 'is-focus': focus === 'stock' }">
       <div class="card__head">
-        <h3><span class="cardIcon"><PixelIcon name="fn-inventory" :size="18" /></span>我的库存</h3>
+        <h3><span class="cardIcon"><Icon name="package" :size="20" /></span>我的库存</h3>
         <span class="muted only-lg card__headValue" :class="{ 'tag pro': !inventoryGate.ok }">{{ inventoryGate.ok ? '参与生成' : 'PRO' }}</span>
         <span class="muted only-sm card__headValue">{{ inventorySummary.label }}</span>
         <button
           class="cardArrowBtn" type="button"
           :aria-expanded="openStock" aria-label="展开或收起我的库存"
           @click="openStock = !openStock"
-        ><i class="cardArrow" :class="{ 'cardArrow--open': openStock }" aria-hidden="true"><PixelIcon name="chevronDown" :size="12" /></i></button>
+        ><i class="cardArrow" :class="{ 'cardArrow--open': openStock }" aria-hidden="true"><Icon name="chevron-down" :size="16" /></i></button>
       </div>
       <div class="card__body stack stack--sm">
         <div class="row row--between">
           <div>
-            <b style="font-size:var(--fs-xs)">{{ inventorySummary.label }}</b>
+            <b style="font-size:var(--fs-xs);line-height:var(--ty-label-lh)">{{ inventorySummary.label }}</b>
           </div>
           <RouterLink to="/inventory" class="btn btn-secondary sm">设置</RouterLink>
         </div>
@@ -301,22 +305,30 @@ async function onCopy() {
 .is-focus-mode > .card.is-focus{display:block}
 .is-focus-mode > .card.is-focus > .card__head{display:none}
 
-.boardInfo{padding:10px;border-radius:var(--r-sm);background:var(--surface-2);border:1px solid var(--line);font-size:var(--fs-2xs);color:var(--muted);line-height:1.7}
-.scoreBox{padding:13px;border-radius:var(--r-md);background:linear-gradient(150deg,#FFF9F1,#FFFCF7);border:1px solid var(--line)}
-.scoreBox b{font-size:var(--fs-xs)}
+.boardInfo{padding:10px;border-radius:var(--r-sm);background:var(--surface-2);border:1px solid var(--line);font-size:var(--fs-2xs);color:var(--muted);line-height:var(--ty-caption-lh)}
+.scoreBox{padding:13px;border-radius:var(--r-md);background:linear-gradient(150deg,var(--cream),var(--cream));border:1px solid var(--line)}
+.scoreBox b{font-size:var(--fs-xs);line-height:var(--ty-label-lh)}
 .stars{display:inline-flex;align-items:center;gap:2px;color:var(--primary-deep)}
 .stars .pixelIcon.is-empty{opacity:.22}
-.buildScore{font-size:17px !important;letter-spacing:-.02em}
-.whyBox{padding:11px;border-radius:var(--r-sm);background:var(--surface-warm);border:1px solid var(--line);font-size:var(--fs-2xs);line-height:1.7;color:var(--ink-2)}
+.buildScore{font-size:15px !important;letter-spacing:0;line-height:var(--ty-card-lh)}
+.whyBox{padding:11px;border-radius:var(--r-sm);background:var(--surface-warm);border:1px solid var(--line);font-size:var(--fs-2xs);line-height:var(--ty-caption-lh);color:var(--ink-2)}
 .alertBox{
   display:flex;align-items:flex-start;gap:6px;padding:10px;border-radius:var(--r-sm);
-  background:var(--danger-soft);color:var(--danger);font-size:var(--fs-2xs);line-height:1.6;font-weight:650;
+  background:var(--danger-soft);color:var(--danger);font-size:var(--fs-2xs);line-height:var(--ty-caption-lh);font-weight:700;
 }
 .okBox{
   display:flex;align-items:center;gap:6px;padding:10px;border-radius:var(--r-sm);
-  background:var(--green-soft);color:var(--green-deep);font-size:var(--fs-2xs);font-weight:700;
+  background:var(--green-soft);color:var(--green-deep);font-size:var(--fs-2xs);font-weight:700;line-height:var(--ty-caption-lh)
 }
 .costBox{padding:10px;border-radius:var(--r-sm);background:var(--surface-2);border:1px solid var(--line)}
-.costLine{display:flex;justify-content:space-between;font-size:var(--fs-2xs);color:var(--muted);padding:3px 0}
+.costLine{display:flex;justify-content:space-between;font-size:var(--fs-2xs);color:var(--muted);padding:3px 0;line-height:var(--ty-caption-lh)}
 .costLine b{color:var(--ink);font-variant-numeric:tabular-nums}
+/* 行尾的换色按钮：全球样式把 .mat 定成 4 列，这里扩成 5 列并放按钮 */
+.card--colors .materialList .mat{grid-template-columns:26px minmax(0,1fr) auto auto auto}
+.matSwap{
+  width:24px;height:24px;padding:0;border:1px solid var(--line);border-radius:7px;
+  display:inline-flex;align-items:center;justify-content:center;
+  background:var(--surface);color:var(--muted);cursor:pointer;transition:var(--t);
+}
+.matSwap:hover{border-color:var(--primary);color:var(--primary-ink);background:var(--primary-soft)}
 </style>

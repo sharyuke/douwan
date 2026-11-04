@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import AssetCard from '../components/ui/AssetCard.vue'
-import PixelIcon from '../components/ui/PixelIcon.vue'
+import Icon from '../components/ui/Icon.vue'
 import {
   assetBySlug, allAssets, loadRemoteAssets, pickAsset, isFavorite, toggleFavorite
 } from '../composables/useAssets.js'
@@ -63,7 +63,7 @@ async function onUse() {
   busy.value = true
   const res = await pickAsset(asset.value.id)
   busy.value = false
-  if (res.ok) router.push('/create')
+  if (res.ok) router.push('/editor')
 }
 
 function goCategory() {
@@ -77,14 +77,14 @@ async function onPickSimilar(a) {
   busy.value = true
   const res = await pickAsset(a.id)
   busy.value = false
-  if (res.ok) router.push('/create')
+  if (res.ok) router.push('/editor')
 }
 </script>
 
 <template>
   <div class="wrap main--pad">
     <div v-if="!asset" class="empty">
-      <div class="empty__icon"><PixelIcon name="search" :size="24" /></div>
+      <div class="empty__icon"><Icon name="search" :size="24" /></div>
       <strong>找不到这个素材</strong>
       <p>链接可能已失效，或者这个素材已经下架。</p>
       <RouterLink to="/materials/" class="btn primary">回到素材中心</RouterLink>
@@ -122,7 +122,7 @@ async function onPickSimilar(a) {
                 <span v-if="asset.isNew" class="tag new">新上架</span>
                 <span class="tag" :class="tone">{{ asset.difficulty }}</span>
               </div>
-              <button class="btn btn-secondary sm" @click="toggleFavorite(asset.id)"><PixelIcon name="heart" :size="14" />{{ fav ? '已收藏' : '收藏' }}</button>
+              <button class="btn btn-secondary sm" @click="toggleFavorite(asset.id)"><Icon name="star" :size="16" />{{ fav ? '已收藏' : '收藏' }}</button>
             </div>
           </div>
         </div>
@@ -154,8 +154,8 @@ async function onPickSimilar(a) {
                   <b>预估可拼性</b>
                   <span class="row" style="gap:6px">
                     <span class="stars">
-                      <PixelIcon v-for="i in estimate.stars.filled" :key="`f${i}`" name="star" :size="14" />
-                      <PixelIcon v-for="i in estimate.stars.empty" :key="`e${i}`" name="star" :size="14" class="is-empty" />
+                      <Icon v-for="i in estimate.stars.filled" :key="`f${i}`" name="star" :size="16" />
+                      <Icon v-for="i in estimate.stars.empty" :key="`e${i}`" name="star" :size="16" class="is-empty" />
                     </span>
                     {{ estimate.score }}
                   </span>
@@ -215,10 +215,10 @@ async function onPickSimilar(a) {
 /* 素材名是这一页的 H1（详情页的页面标题）。
    视觉上仍然沿用原来卡头里的 h3 样式，不改变页面版式。 */
 .assetTitle{
-  font-size:14px;letter-spacing:-.01em;display:flex;align-items:center;gap:8px;
-  flex:0 0 auto;white-space:nowrap;margin:0;font-weight:inherit;color:inherit;
+  font-size:14px;letter-spacing:0;display:flex;align-items:center;gap:8px;
+  flex:0 0 auto;white-space:nowrap;margin:0;font-weight:inherit;color:inherit;line-height:var(--ty-body-lh)
 }
-.crumb{display:flex;align-items:center;gap:8px;font-size:var(--fs-xs);color:var(--muted);margin-bottom:14px}
+.crumb{display:flex;align-items:center;gap:8px;font-size:var(--fs-xs);color:var(--muted);margin-bottom:14px;line-height:var(--ty-label-lh)}
 .crumb a:hover{color:var(--coral-deep)}
 .crumb b{color:var(--ink)}
 .detailGrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
@@ -231,9 +231,9 @@ async function onPickSimilar(a) {
 .detailPreview__inner img{width:100%;height:auto;display:block;border-radius:10px}
 .stars{display:inline-flex;align-items:center;gap:2px;color:var(--orange-deep)}
 .stars .is-empty{opacity:.22}
-.boardInfo{padding:11px;border-radius:var(--r-sm);background:var(--surface-2);border:1px solid var(--line);font-size:var(--fs-2xs);color:var(--muted);line-height:1.7}
-.boardInfo b{color:var(--ink);font-size:var(--fs-xs)}
-.alertBox{padding:11px;border-radius:var(--r-sm);background:var(--yellow-soft);border:1px solid #F0E3A8;font-size:var(--fs-2xs);color:var(--yellow-deep);font-weight:650}
-.steps{margin:0;padding-left:19px;display:flex;flex-direction:column;gap:9px;font-size:var(--fs-xs);line-height:1.7;color:var(--ink-2)}
+.boardInfo{padding:11px;border-radius:var(--r-sm);background:var(--surface-2);border:1px solid var(--line);font-size:var(--fs-2xs);color:var(--muted);line-height:var(--ty-caption-lh)}
+.boardInfo b{color:var(--ink);font-size:var(--fs-xs);line-height:var(--ty-label-lh)}
+.alertBox{padding:11px;border-radius:var(--r-sm);background:var(--yellow-soft);border:1px solid #F0E3A8;font-size:var(--fs-2xs);color:var(--yellow-deep);font-weight:700;line-height:var(--ty-caption-lh)}
+.steps{margin:0;padding-left:19px;display:flex;flex-direction:column;gap:9px;font-size:var(--fs-xs);line-height:var(--ty-label-lh);color:var(--ink-2)}
 @media(max-width:1000px){.detailGrid{grid-template-columns:1fr}}
 </style>

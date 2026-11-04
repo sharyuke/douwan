@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import PixelIcon from '../components/ui/PixelIcon.vue'
+import Icon from '../components/ui/Icon.vue'
 import LibraryBanner from '../components/library/LibraryBanner.vue'
 import LibraryCategoryTabs from '../components/library/LibraryCategoryTabs.vue'
 import AllCategoriesPanel from '../components/library/AllCategoriesPanel.vue'
@@ -490,18 +490,18 @@ function onDocKey(e) {
   padding:2px 2px 0;scroll-margin-top:84px;
 }
 .libResultBar__title{display:flex;align-items:center;gap:8px;min-width:0}
-.libResultBar h1{font-size:18px;letter-spacing:-.02em;margin:0;font-weight:800}
-.libResultBar p{font-size:12px;color:var(--muted-2)}
+.libResultBar h1{font-size:18px;letter-spacing:0;margin:0;font-weight:700;line-height:var(--ty-section-lh)}
+.libResultBar p{font-size:12px;color:var(--muted-2);line-height:var(--ty-caption-lh)}
 .libResultBar__right{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .libReset{
-  height:26px;padding:0 9px;border-radius:999px;border:1px solid #EDE4D7;
-  background:#fff;color:#8A6500;font-size:12px;font-weight:700;
+  height:26px;padding:0 9px;border-radius:999px;border:1px solid var(--line-strong);
+  background:#fff;color:var(--primary-ink);font-size:12px;font-weight:700;line-height:var(--ty-caption-lh)
 }
-.libReset:hover{background:#FFF3C4;border-color:#FFE29A}
+.libReset:hover{background:var(--primary-soft);border-color:var(--primary)}
 .libSubChip{
   display:inline-flex;align-items:center;height:24px;padding:0 9px;border-radius:999px;
-  background:#FFF3C4;border:1px solid #FFE29A;color:#8A6500;
-  font-size:12px;font-weight:700;white-space:nowrap;
+  background:var(--primary-soft);border:1px solid var(--primary);color:var(--primary-ink);
+  font-size:12px;font-weight:700;white-space:nowrap;line-height:var(--ty-caption-lh)
 }
 /* 统一规格卡片网格：卡片都是方图 + 标题 + 色卡 + 收藏，等高，不用瀑布流。
    电脑端一排 6 个（2026-10-24 改）：左栏展开 208px 后内容区约 1396px，
@@ -513,9 +513,9 @@ function onDocKey(e) {
 .libNotice{
   display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;
   padding:10px 12px;border:1px solid #F6D3E3;border-radius:12px;
-  background:var(--coral-soft);color:var(--coral-deep);font-size:var(--fs-2xs);
+  background:var(--coral-soft);color:var(--coral-deep);font-size:var(--fs-2xs);line-height:var(--ty-caption-lh)
 }
-.libLoading{display:flex;align-items:center;gap:8px;font-size:var(--fs-2xs);color:var(--muted)}
+.libLoading{display:flex;align-items:center;gap:8px;font-size:var(--fs-2xs);color:var(--muted);line-height:var(--ty-caption-lh)}
 .libLoading i{
   width:12px;height:12px;border-radius:50%;border:2px solid var(--line-strong);
   border-top-color:var(--primary-deep);animation:libSpin .8s linear infinite;
@@ -525,13 +525,13 @@ function onDocKey(e) {
 .libMore .btn{min-width:220px}
 .libCopyright{
   margin-top:4px;padding-top:14px;border-top:1px solid var(--line);
-  font-size:11px;line-height:1.75;color:var(--muted-2);
+  font-size:12px;line-height:var(--ty-caption-lh);color:var(--muted-2);
 }
 @media(max-width:780px){
   .libPage{padding-top:12px;padding-bottom:104px}
   .libMain{gap:12px}
   .materialGrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-  .libResultBar h1{font-size:16px}
+  .libResultBar h1{font-size:14px;line-height:var(--ty-body-lh)}
   .libMore .btn{width:100%;min-width:0}
 }
 </style>

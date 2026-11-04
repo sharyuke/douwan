@@ -3,9 +3,9 @@ import { computed, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import BaseDialog from '../components/ui/BaseDialog.vue'
 import PatternPreview from '../components/ui/PatternPreview.vue'
-import PixelIcon from '../components/ui/PixelIcon.vue'
+import Icon from '../components/ui/Icon.vue'
 import {
-  projects, deleteProject, duplicateProject, openProject, projectLimit,
+  projects, deleteProject, duplicateProject, projectLimit,
   buildProgress, buildStats, pattern, currentProjectId, projectName, saveProject,
   unfinishProject, loadImageFromUrl, patternSignature
 } from '../composables/useStudio.js'
@@ -108,7 +108,9 @@ const statsSummary = computed(() => {
 })
 
 function onOpen(id) {
-  if (openProject(id)) router.push(`/editor/${id}`)
+  /* 装载交给工作台：它要先按作品的创作模式把当前那份文档收好，
+     直接在这里 openProject 会把另一种模式正在编辑的图纸覆盖掉 */
+  router.push(`/editor/${id}`)
 }
 
 function onDelete(id) {
@@ -256,7 +258,7 @@ const detailStale = computed(() => {
               </div>
               <div class="divider"></div>
               <div class="row row--between">
-                <b style="font-size:var(--fs-xs)">拼制进度</b>
+                <b style="font-size:var(--fs-xs);line-height:var(--ty-label-lh)">拼制进度</b>
                 <span class="muted">{{ progressOf(detail).done }} / {{ progressOf(detail).total }} 颗（{{ progressOf(detail).percent }}%）</span>
               </div>
               <div class="meter" style="margin-top:8px"><i :style="{ width: progressOf(detail).percent + '%' }"></i></div>
@@ -285,14 +287,14 @@ const detailStale = computed(() => {
             <div class="card__body stack stack--sm">
               <template v-if="detail.finishedAt">
                 <div class="okBox" style="display:flex;align-items:center;gap:6px">
-                  <PixelIcon name="check" :size="16" />
+                  <Icon name="check" :size="16" />
                   <span>
                     完成于 {{ timeAgo(detail.finishedAt) }} ·
                     用豆 {{ num(detail.completedBeads || progressOf(detail).total) }} 颗
                   </span>
                 </div>
                 <p v-if="detailStale" class="hint staleHint">
-                  <PixelIcon name="alert" :size="16" />
+                  <Icon name="info" :size="16" />
                   <span>完成之后图纸又改过，这份完成记录对应的不是当前图纸。想让它们对上：取消完成之后再重新完成一次。</span>
                 </p>
                 <div v-if="detail.finishPhoto" class="finishPhotoBox">
@@ -313,7 +315,7 @@ const detailStale = computed(() => {
                   按材料表扣减库存、写进成长记录，作品会出现在「已完成」里。
                 </p>
                 <RouterLink class="btn primary block" :to="`/build/${detail.id}?finish=1`">
-                  <PixelIcon name="check" :size="16" /> 标记为已完成
+                  <Icon name="check" :size="16" /> 标记为已完成
                 </RouterLink>
               </template>
             </div>
@@ -351,7 +353,7 @@ const detailStale = computed(() => {
             >{{ projectSyncState === 'syncing' ? '同步中…' : '立即同步' }}</button>
           </p>
         </div>
-        <RouterLink to="/create" class="btn primary">＋ 新建作品</RouterLink>
+        <RouterLink to="/editor" class="btn primary"><Icon name="plus" :size="16" />新建作品</RouterLink>
       </div>
 
       <div class="tabs" style="margin-bottom:16px">
@@ -362,17 +364,17 @@ const detailStale = computed(() => {
       </div>
 
       <div v-if="!projects.length" class="empty">
-        <div class="empty__icon"><PixelIcon name="folder" :size="24" /></div>
+        <div class="empty__icon"><Icon name="folder-open" :size="24" /></div>
         <strong>还没有作品</strong>
         <p>生成图纸后在右上角点「保存」，或在工作台右侧点「保存作品」。</p>
         <div class="row" style="gap:9px">
-          <RouterLink to="/create" class="btn primary">上传照片开始</RouterLink>
+          <RouterLink to="/editor" class="btn primary">上传照片开始</RouterLink>
           <RouterLink to="/materials/" class="btn btn-secondary">逛素材库</RouterLink>
         </div>
       </div>
 
       <div v-else-if="!list.length" class="empty">
-        <div class="empty__icon"><PixelIcon name="folder" :size="24" /></div>
+        <div class="empty__icon"><Icon name="folder-open" :size="24" /></div>
         <strong>这个筛选下没有作品</strong>
         <button class="btn btn-secondary" @click="filter = 'all'">看全部</button>
       </div>
@@ -394,7 +396,7 @@ const detailStale = computed(() => {
               <i :style="{ width: p.prog.percent + '%' }"></i>
             </div>
             <div v-if="p.prog.finished" class="cardDone">
-              <PixelIcon name="check" :size="14" /> 已完成 · {{ timeAgo(p.prog.finishedAt) }}
+              <Icon name="check" :size="16" /> 已完成 · {{ timeAgo(p.prog.finishedAt) }}
             </div>
             <div v-else-if="p.prog.total" class="hint">
               {{ p.prog.done >= p.prog.total ? '进度 100%，还没标记完成' : `进度 ${p.prog.percent}%` }}
@@ -417,7 +419,7 @@ const detailStale = computed(() => {
     </template>
 
     <BaseDialog :model-value="!!confirmDelete" title="确认删除" size="sm" @update:model-value="confirmDelete = ''">
-      <p style="font-size:var(--fs-sm);line-height:1.8">删除后无法恢复，作品数据和拼制进度都会一起删掉。</p>
+      <p style="font-size:var(--fs-sm);line-height:var(--ty-body-lh)">删除后无法恢复，作品数据和拼制进度都会一起删掉。</p>
       <template #footer="{ close }">
         <button class="btn btn-secondary" @click="close">取消</button>
         <button class="btn danger" @click="onDelete(confirmDelete)">确认删除</button>
@@ -427,10 +429,10 @@ const detailStale = computed(() => {
 </template>
 
 <style scoped>
-.crumb{display:flex;align-items:center;gap:8px;font-size:var(--fs-xs);color:var(--muted);margin-bottom:14px}
+.crumb{display:flex;align-items:center;gap:8px;font-size:var(--fs-xs);color:var(--muted);margin-bottom:14px;line-height:var(--ty-label-lh)}
 .syncLine{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:6px}
 .syncLine [data-state="error"]{color:var(--orange-deep);font-weight:700}
-.linkBtn{padding:0;border:0;background:none;color:var(--primary-deep);font:inherit;font-weight:800;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+.linkBtn{padding:0;border:0;background:none;color:var(--primary-deep);font:inherit;font-weight:700;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
 .linkBtn:disabled{opacity:.55;cursor:default;text-decoration:none}
 .crumb b{color:var(--ink)}
 .detailGrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
@@ -438,11 +440,11 @@ const detailStale = computed(() => {
 .projectCard__thumb{display:grid;place-items:center}
 .projectCard__thumb img{max-width:100%;max-height:100%;image-rendering:pixelated}
 /* 已完成的作品在列表里要有明确的记号：它是成长记录与徽章的唯一依据 */
-.cardDone{display:flex;align-items:center;gap:4px;font-size:var(--fs-2xs);font-weight:800;color:var(--green-deep)}
+.cardDone{display:flex;align-items:center;gap:4px;font-size:var(--fs-2xs);font-weight:700;color:var(--green-deep);line-height:var(--ty-caption-lh)}
 .staleHint{display:flex;align-items:flex-start;gap:6px;color:var(--orange-deep);font-weight:700}
 /* 作品详情页里的成品照片 */
 .finishPhotoBox{border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden;background:var(--surface-2)}
 .finishPhotoBox img{display:block;width:100%;max-height:320px;object-fit:cover}
-.boardInfo{padding:11px;border-radius:var(--r-sm);background:var(--surface-2);border:1px solid var(--line);font-size:var(--fs-2xs);color:var(--muted);line-height:1.7}
+.boardInfo{padding:11px;border-radius:var(--r-sm);background:var(--surface-2);border:1px solid var(--line);font-size:var(--fs-2xs);color:var(--muted);line-height:var(--ty-caption-lh)}
 @media(max-width:1000px){.detailGrid{grid-template-columns:1fr}}
 </style>

@@ -136,8 +136,9 @@
     /* ---------- 进入后点「适应」：退出实际大小并放得下 ---------- */
     btn.click()
     await waitFor(() => !!document.querySelector('[data-actual-badge]'))
-    /* 4.0 手机把「适应」挪到画布顶栏（.fitTop），桌面端仍在浮控里 */
-    const fitBtn = [...document.querySelectorAll('.zoomBar .btn, .stageTools__btn, .fitTop')]
+    /* 4.0 手机把「适应」挪到画布顶栏（.fitTop），桌面端仍在浮控里；
+       全屏工作台（参考版版面）挪到底部状态栏（.csStatus__btn） */
+    const fitBtn = [...document.querySelectorAll('.zoomBar .btn, .stageTools__btn, .fitTop, .csStatus__btn')]
       .find(el => visible(el) && /适应/.test(el.getAttribute('title') || el.getAttribute('aria-label') || ''))
     if (!fitBtn) fail('找不到「适应」按钮')
     fitBtn.click()

@@ -14,7 +14,7 @@ import AdminTable from '../../components/admin/AdminTable.vue'
 import AdminPager from '../../components/admin/AdminPager.vue'
 import AdminModal from '../../components/admin/AdminModal.vue'
 import AdminTag from '../../components/admin/AdminTag.vue'
-import PixelIcon from '../../components/ui/PixelIcon.vue'
+import Icon from '../../components/ui/Icon.vue'
 import { admin, can, denyReason } from '../../composables/useAdminAuth.js'
 import { confirmAction } from '../../composables/useAdminConfirm.js'
 import { run, roleKind, toInt } from '../../composables/useAdminKit.js'
@@ -806,7 +806,7 @@ onMounted(() => {
           </div>
         </div>
         <div v-else class="adm-empty">
-          <div class="adm-empty__icon"><PixelIcon name="lock" :size="28" /></div>
+          <div class="adm-empty__icon"><Icon name="lock-keyhole" :size="24" /></div>
           <strong>这个账号没有任何权限点</strong>
           <p>账号可能已被停用，或者角色配置不完整，请联系超级管理员确认。</p>
         </div>

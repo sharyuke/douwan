@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import PixelIcon from '../ui/PixelIcon.vue'
+import Icon from '../ui/Icon.vue'
 import {
   CATEGORY_BY_KEY, COLLECTION_BY_KEY, PANEL_COLUMNS
 } from '../../data/libraryCategories.js'
@@ -101,7 +101,7 @@ function clearSearch() {
     >
       <header class="catPanel__head">
         <div class="catPanel__title">
-          <span class="catPanel__mark" aria-hidden="true"><PixelIcon name="layout" :size="20" /></span>
+          <span class="catPanel__mark" aria-hidden="true"><Icon name="layout-grid" :size="20" /></span>
           <div>
             <h2>全部分类</h2>
             <p>海量可爱素材，点亮你的拼豆灵感！</p>
@@ -109,18 +109,18 @@ function clearSearch() {
         </div>
         <div class="catPanel__tools">
           <label class="catPanel__search">
-            <PixelIcon name="search" :size="15" />
+            <Icon name="search" :size="16" />
             <input
               :value="keyword" type="search" placeholder="搜索素材…"
               aria-label="搜索全部分类"
               @input="onSearch"
             >
             <button v-if="keyword" type="button" class="catPanel__clear" aria-label="清空搜索" @click="clearSearch">
-              <PixelIcon name="close" :size="11" />
+              <Icon name="x" :size="16" />
             </button>
           </label>
           <button type="button" class="catPanel__close" aria-label="关闭全部分类" @click="emit('close')">
-            <PixelIcon name="close" :size="13" />
+            <Icon name="x" :size="16" />
           </button>
         </div>
       </header>
@@ -144,7 +144,7 @@ function clearSearch() {
             >
               <span class="catBlock__icon" aria-hidden="true">
                 <img v-if="item.icon" :src="item.icon" alt="" width="46" height="46" draggable="false">
-                <PixelIcon v-else :name="item.pixelIcon" :size="32" />
+                <Icon v-else :name="item.pixelIcon" :size="24" />
               </span>
               <span class="catBlock__text">
                 <span class="catBlock__name">
@@ -158,7 +158,7 @@ function clearSearch() {
             <button
               type="button" class="catBlock__arrow" tabindex="-1" aria-hidden="true"
               @click="onMain(item)"
-            ><PixelIcon name="arrowRight" :size="14" /></button>
+            ><Icon name="arrow-right" :size="16" /></button>
 
             <div v-if="!mobile" class="catBlock__children">
               <button
@@ -192,13 +192,13 @@ function clearSearch() {
 <style scoped>
 .catPanel{
   position:relative;margin-top:4px;padding:18px;
-  background:#FFFDFC;border:1px solid #EDE4D7;border-radius:20px;
+  background:#fff;border:1px solid var(--line-strong);border-radius:20px;
   box-shadow:0 10px 30px rgba(92,64,30,.07);
 }
 /* 锚点小三角：指向「全部」卡 */
 .catPanel::before{
   content:'';position:absolute;left:38px;top:-8px;width:14px;height:14px;
-  background:#FFFDFC;border-left:1px solid #EDE4D7;border-top:1px solid #EDE4D7;
+  background:#fff;border-left:1px solid var(--line-strong);border-top:1px solid var(--line-strong);
   transform:rotate(45deg);border-top-left-radius:3px;
 }
 .catPanel__head{
@@ -208,26 +208,26 @@ function clearSearch() {
 .catPanel__title{display:flex;align-items:center;gap:10px;min-width:0}
 .catPanel__mark{
   width:38px;height:38px;border-radius:12px;display:grid;place-items:center;
-  background:#FFF3C4;border:1px solid #FFE29A;flex:0 0 auto;
+  background:var(--primary-soft);border:1px solid var(--primary);flex:0 0 auto;
 }
-.catPanel__title h2{font-size:20px;font-weight:800;letter-spacing:-.02em}
-.catPanel__title p{margin-top:2px;font-size:12px;color:#8B8378}
+.catPanel__title h2{font-size:18px;font-weight:700;letter-spacing:0;line-height:var(--ty-section-lh)}
+.catPanel__title p{margin-top:2px;font-size:12px;color:var(--muted);line-height:var(--ty-caption-lh)}
 .catPanel__tools{display:flex;align-items:center;gap:8px;min-width:0}
 .catPanel__search{
   display:flex;align-items:center;gap:7px;width:260px;max-width:100%;height:40px;
-  padding:0 12px;background:#fff;border:1px solid #EDE4D7;border-radius:999px;
+  padding:0 12px;background:#fff;border:1px solid var(--line-strong);border-radius:999px;
   color:#9C9488;
 }
-.catPanel__search:focus-within{border-color:#FFC84B;box-shadow:0 0 0 3px rgba(255,200,75,.16)}
-.catPanel__search input{flex:1;min-width:0;border:0;background:transparent;outline:none;font-size:13px;color:#27201B}
+.catPanel__search:focus-within{border-color:var(--primary);box-shadow:0 0 0 3px rgba(200,230,60,.24)}
+.catPanel__search input{flex:1;min-width:0;border:0;background:transparent;outline:none;font-size:13px;color:var(--ink);line-height:var(--ty-label-lh)}
 .catPanel__search input::placeholder{color:#A8A093}
-.catPanel__clear{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;color:#8B8378}
-.catPanel__clear:hover{background:#F6F3EE;color:#27201B}
+.catPanel__clear{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;color:var(--muted)}
+.catPanel__clear:hover{background:var(--surface-3);color:var(--ink)}
 .catPanel__close{
   width:36px;height:36px;border-radius:50%;display:grid;place-items:center;flex:0 0 auto;
-  background:#F8F5F0;color:#8B8378;border:1px solid #EDE4D7;
+  background:var(--surface-3);color:var(--muted);border:1px solid var(--line-strong);
 }
-.catPanel__close:hover{background:#FFF3C4;color:#27201B;border-color:#FFE29A}
+.catPanel__close:hover{background:var(--primary-soft);color:var(--ink);border-color:var(--primary)}
 
 .catPanel__body{
   display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;
@@ -244,10 +244,10 @@ function clearSearch() {
   transition:border-color .16s var(--ease),box-shadow .16s var(--ease),transform .16s var(--ease);
 }
 .catBlock:hover{border-color:rgba(255,200,75,.5);box-shadow:0 6px 16px rgba(92,64,30,.06)}
-.catBlock.is-selected{border-color:#FFC84B;box-shadow:0 0 0 2px rgba(255,200,75,.16)}
+.catBlock.is-selected{border-color:var(--primary);box-shadow:0 0 0 2px rgba(200,230,60,.24)}
 .catBlock__main{
   grid-column:1 / 3;grid-row:1;display:flex;align-items:center;gap:12px;
-  min-width:0;text-align:left;color:#27201B;
+  min-width:0;text-align:left;color:var(--ink);
 }
 .catBlock__icon{
   width:46px;height:46px;display:grid;place-items:center;flex:0 0 auto;
@@ -256,14 +256,14 @@ function clearSearch() {
 .catBlock__text{min-width:0;display:flex;flex-direction:column;gap:1px}
 .catBlock__name{
   display:flex;align-items:center;gap:7px;min-width:0;
-  font-size:16px;font-weight:800;line-height:1.25;letter-spacing:-.01em;
+  font-size:15px;font-weight:700;line-height:var(--ty-card-lh);letter-spacing:0;
 }
 .catBlock__badge{
   flex:0 0 auto;padding:1px 7px;border-radius:999px;
   background:rgba(255,255,255,.78);border:1px solid rgba(140,122,230,.28);
-  color:#6B5AC4;font-size:10px;font-style:normal;font-weight:750;
+  color:#6B5AC4;font-size:12px;font-style:normal;font-weight:700;line-height:var(--ty-caption-lh)
 }
-.catBlock__hint{display:none;font-size:11px;color:#8B8378}
+.catBlock__hint{display:none;font-size:12px;color:var(--muted);line-height:var(--ty-caption-lh)}
 .catBlock__arrow{
   grid-column:3;grid-row:1;align-self:center;justify-self:end;
   width:18px;height:18px;display:grid;place-items:center;color:#B4AA9C;
@@ -273,21 +273,21 @@ function clearSearch() {
   min-width:0;
 }
 .catBlock__child{
-  position:relative;padding:1px 0;font-size:12px;line-height:1.5;color:#7B746B;
+  position:relative;padding:1px 0;font-size:12px;line-height:var(--ty-caption-lh);color:#7B746B;
   white-space:nowrap;transition:color .14s var(--ease);
 }
 .catBlock__child + .catBlock__child::before{
   content:'|';margin:0 7px;color:#D8CFC2;
 }
-.catBlock__child:hover{color:#27201B}
-.catBlock__child.on{color:#B47800;font-weight:750}
+.catBlock__child:hover{color:var(--ink)}
+.catBlock__child.on{color:var(--primary-deep);font-weight:700}
 .catBlock__child:disabled{opacity:.5;cursor:default}
 .catBlock.is-disabled{opacity:.78}
 .catBlock.is-disabled:hover{border-color:transparent;box-shadow:none}
 
 /* 每类的极淡色块（reference_1） */
 .tone-anime{background:linear-gradient(135deg,#F5F1FF,#EFEAFF)}
-.tone-pets{background:linear-gradient(135deg,#FFF9EE,#FFF4E3)}
+.tone-pets{background:linear-gradient(135deg,var(--primary-soft),var(--primary-soft))}
 .tone-couples{background:linear-gradient(135deg,#FFF3F5,#FFEBEF)}
 .tone-food{background:linear-gradient(135deg,#FFF3EF,#FFEDE7)}
 .tone-plants{background:linear-gradient(135deg,#F2FBF4,#EAF7EE)}
@@ -310,8 +310,8 @@ function clearSearch() {
   }
   .catPanel::before{left:30px}
   .catPanel__head{padding-bottom:10px;flex:0 0 auto}
-  .catPanel__title h2{font-size:17px}
-  .catPanel__title p{font-size:11px}
+  .catPanel__title h2{font-size:15px;line-height:var(--ty-card-lh)}
+  .catPanel__title p{font-size:12px;line-height:var(--ty-caption-lh)}
   .catPanel__tools{width:100%}
   .catPanel__search{width:auto;flex:1 1 auto;min-width:0;height:38px}
   .catPanel__close{width:34px;height:34px}
@@ -327,7 +327,7 @@ function clearSearch() {
   }
   .catBlock__main{gap:10px}
   .catBlock__icon,.catBlock__icon img{width:40px;height:40px}
-  .catBlock__name{font-size:14px}
+  .catBlock__name{font-size:14px;line-height:var(--ty-body-lh)}
   .catBlock__hint{display:block}
   .catBlock__children{
     grid-column:1 / -1;grid-row:2;gap:6px;padding:8px 0 2px 54px;
@@ -335,10 +335,10 @@ function clearSearch() {
   .catBlock__child{
     display:inline-flex;align-items:center;min-height:34px;padding:5px 10px;
     border-radius:999px;background:rgba(255,255,255,.72);
-    border:1px solid rgba(237,228,215,.9);font-size:11px;
+    border:1px solid rgba(237,228,215,.9);font-size:12px;line-height:var(--ty-caption-lh)
   }
   .catBlock__child + .catBlock__child::before{content:none;margin:0}
-  .catBlock__child--all{background:#FFF3C4;border-color:#FFE29A;color:#8A6500;font-weight:750}
+  .catBlock__child--all{background:var(--primary-soft);border-color:var(--primary);color:var(--primary-ink);font-weight:700}
   .catBlock.is-open .catBlock__arrow{transform:rotate(90deg)}
   .catBlock__arrow{transition:transform .18s var(--ease)}
 }

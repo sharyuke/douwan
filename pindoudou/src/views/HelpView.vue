@@ -212,7 +212,7 @@ function sendReport() {
           <li><b>完成</b><span>拼完点「我拼完了 · 完成作品」：记下完成时间、按材料表扣减库存（可撤销）、进入成长记录，作品出现在「已完成」里；顺手传一张成品照片，分享卡第三格就用它</span></li>
         </ol>
         <div class="row row--wrap" style="margin-top:16px">
-          <RouterLink to="/create" class="btn primary">现在就试一次</RouterLink>
+          <RouterLink to="/editor" class="btn primary">现在就试一次</RouterLink>
           <RouterLink to="/materials/" class="btn btn-secondary">先逛素材</RouterLink>
         </div>
       </div>
@@ -226,7 +226,7 @@ function sendReport() {
       <article v-for="g in guides" :key="g.id" class="guideCard" :class="{ open: open === g.id }">
         <button class="guideHead" :aria-expanded="open === g.id" @click="toggle(g.id)">
           <b>{{ g.title }}</b>
-          <span aria-hidden="true">{{ open === g.id ? '−' : '＋' }}</span>
+          <span aria-hidden="true"><Icon :name="open === g.id ? 'minus' : 'plus'" :size="16" /></span>
         </button>
         <div v-if="open === g.id" class="guideBody">
           <p v-for="(p, i) in g.body" :key="i">{{ p }}</p>
@@ -387,34 +387,34 @@ function sendReport() {
 }
 .quickSteps li::before{
   content:counter(step);position:absolute;left:14px;top:15px;width:24px;height:24px;border-radius:50%;
-  background:var(--primary-soft);color:var(--primary-deep);display:grid;place-items:center;font-size:var(--fs-2xs);font-weight:850;
+  background:var(--primary-soft);color:var(--primary-deep);display:grid;place-items:center;font-size:var(--fs-2xs);font-weight:700;line-height:var(--ty-caption-lh)
 }
-.quickSteps b{display:block;font-size:var(--fs-sm);margin-bottom:3px}
-.quickSteps span{font-size:var(--fs-2xs);color:var(--muted);line-height:1.65}
+.quickSteps b{display:block;font-size:var(--fs-sm);margin-bottom:3px;line-height:var(--ty-body-lh)}
+.quickSteps span{font-size:var(--fs-2xs);color:var(--muted);line-height:var(--ty-caption-lh)}
 .guideGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px;align-items:start}
 .guideCard{border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface);overflow:hidden;transition:var(--t)}
 .guideCard.open{border-color:var(--primary);box-shadow:var(--sh-1)}
 .guideHead{
   width:100%;display:flex;align-items:center;justify-content:space-between;gap:10px;
-  padding:15px 17px;text-align:left;font-size:var(--fs-sm);font-weight:800;
+  padding:15px 17px;text-align:left;font-size:var(--fs-sm);font-weight:700;line-height:var(--ty-body-lh)
 }
 .guideHead span{color:var(--muted);font-weight:700}
 .guideBody{padding:0 17px 16px;display:flex;flex-direction:column;gap:9px}
-.guideBody p{font-size:var(--fs-xs);color:var(--ink-2);line-height:1.85}
+.guideBody p{font-size:var(--fs-xs);color:var(--ink-2);line-height:var(--ty-label-lh)}
 .shortcutGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:11px}
 .shortcutItem{
   display:flex;align-items:center;gap:11px;padding:12px 14px;border-radius:var(--r-md);
   background:var(--surface);border:1px solid var(--line);
 }
 kbd{
-  font-family:inherit;font-size:var(--fs-2xs);font-weight:800;padding:4px 9px;border-radius:var(--r-xs);
-  background:var(--surface-3);border:1px solid var(--line-strong);white-space:nowrap;
+  font-family:inherit;font-size:var(--fs-2xs);font-weight:700;padding:4px 9px;border-radius:var(--r-xs);
+  background:var(--surface-3);border:1px solid var(--line-strong);white-space:nowrap;line-height:var(--ty-caption-lh)
 }
-.shortcutItem span{font-size:var(--fs-xs);color:var(--muted)}
+.shortcutItem span{font-size:var(--fs-xs);color:var(--muted);line-height:var(--ty-label-lh)}
 .feedbackGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px}
 .reportList{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:7px}
-.reportList li{font-size:var(--fs-xs);color:var(--ink-2);line-height:1.7}
-.okBox{padding:14px;border-radius:var(--r-sm);background:var(--green-soft);color:var(--green-deep);font-size:var(--fs-xs);font-weight:700}
+.reportList li{font-size:var(--fs-xs);color:var(--ink-2);line-height:var(--ty-label-lh)}
+.okBox{padding:14px;border-radius:var(--r-sm);background:var(--green-soft);color:var(--green-deep);font-size:var(--fs-xs);font-weight:700;line-height:var(--ty-label-lh)}
 @media(max-width:900px){
   .quickSteps,.guideGrid,.feedbackGrid{grid-template-columns:1fr}
 }

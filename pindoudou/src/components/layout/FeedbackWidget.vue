@@ -6,10 +6,10 @@
    - 弹窗关闭或一段时间没有操作后自动收回，不挡页面内容。
    只在网站页面出现：后台路由由 App.vue 的 showSiteChrome 拦掉。
    ========================================================================= */
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import BaseDialog from '../ui/BaseDialog.vue'
-import PixelIcon from '../ui/PixelIcon.vue'
+import Icon from '../ui/Icon.vue'
 import { feedbackApi } from '../../lib/api.js'
 import { currentUser, displayName, isAnonymousDevice } from '../../composables/useUserAccount.js'
 import { toastErr, toastOk } from '../../composables/useToast.js'
@@ -25,6 +25,12 @@ const CONTENT_MAX = 500
 const CONTACT_MAX = 100
 
 const route = useRoute()
+
+/* 全屏工作台（/editor）把「反馈」做成顶部命令栏里的一颗按钮：
+   那边隐藏右侧浮标，改由这个事件打开同一个弹窗，不复制一份表单。 */
+const props = defineProps({
+  tabHidden: { type: Boolean, default: false }
+})
 
 /** 是否滑出（false = 收在屏幕边缘） */
 const slid = ref(false)
@@ -169,13 +175,19 @@ watch(() => route.fullPath, () => {
   dialogOpen.value = false
 })
 
-onBeforeUnmount(clearHide)
+/* 全屏工作台的「反馈」按钮走这里打开弹窗（浮标被隐藏时唯一的入口） */
+function onExternalOpen() { openDialog() }
+onMounted(() => window.addEventListener('douwan:open-feedback', onExternalOpen))
+onBeforeUnmount(() => {
+  window.removeEventListener('douwan:open-feedback', onExternalOpen)
+  clearHide()
+})
 </script>
 
 <template>
   <div
     class="fb no-print"
-    :class="{ 'is-open': slid }"
+    :class="{ 'is-open': slid, 'is-tab-hidden': tabHidden }"
     @mouseenter="onMouseEnter"
     @mouseleave="onMouseLeave"
     @focusin="onFocusIn"
@@ -194,7 +206,7 @@ onBeforeUnmount(clearHide)
     >
       <span class="fb__hint" aria-hidden="true">反馈</span>
       <span class="fb__body">
-        <span class="fb__icon"><PixelIcon name="info" :size="16" /></span>
+        <span class="fb__icon"><Icon name="info" :size="16" /></span>
         <span class="fb__label">意见反馈</span>
       </span>
     </button>
@@ -275,26 +287,28 @@ onBeforeUnmount(clearHide)
   width: 44px;
   min-height: 88px;
   padding: 10px 0;
-  border: 1px solid #EBD9A8;
+  border: 1px solid var(--line);
   border-right: 0;
-  border-radius: 14px 0 0 14px;
-  background: linear-gradient(180deg, #FFE977 0%, #FFD62E 100%);
-  color: var(--ink);
-  box-shadow: -2px 2px 10px rgba(82, 62, 24, .14);
+  border-radius: 12px 0 0 12px;
+  background: var(--primary);
+  color: var(--primary-ink);
+  box-shadow: -1px 2px 8px rgba(31, 31, 29, .10);
   cursor: pointer;
   /* 收起时只留 16px 在屏幕里，其余滑出视口 */
   transform: translateX(28px);
   transition: transform .24s var(--ease), box-shadow .2s var(--ease);
 }
 
+/* 全屏工作台：浮标收起，入口在顶部命令栏里（弹窗不受影响） */
+.fb.is-tab-hidden { display: none; }
 .fb.is-open .fb__tab,
 .fb__tab:focus-visible {
   transform: translateX(0);
-  box-shadow: -3px 4px 16px rgba(82, 62, 24, .2);
+  box-shadow: -2px 3px 14px rgba(31, 31, 29, .16);
 }
 
 .fb__tab:hover {
-  background: linear-gradient(180deg, #FFE36B 0%, #FFC400 100%);
+  background: var(--primary-deep);
 }
 
 /* 收起时露出的那条「反馈」竖排小字：让人知道这里可以点 */
@@ -304,11 +318,11 @@ onBeforeUnmount(clearHide)
   top: 50%;
   transform: translateY(-50%);
   writing-mode: vertical-rl;
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 2px;
-  color: #7A5A08;
-  transition: opacity .16s var(--ease);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--primary-ink);
+  transition: opacity .16s var(--ease);line-height:var(--ty-caption-lh)
 }
 
 .fb.is-open .fb__hint {
@@ -342,8 +356,8 @@ onBeforeUnmount(clearHide)
 .fb__label {
   writing-mode: vertical-rl;
   font-size: var(--fs-2xs);
-  font-weight: 800;
-  letter-spacing: 1px;
+  font-weight: 700;
+  letter-spacing: 0;line-height:var(--ty-caption-lh)
 }
 
 /* ---------------------------------------------------------------- 弹窗内容 */
@@ -358,7 +372,7 @@ onBeforeUnmount(clearHide)
   margin: 0;
   font-size: var(--fs-sm);
   color: var(--ink-2);
-  line-height: 1.7;
+  line-height: var(--ty-body-lh);
 }
 
 .fbForm__types {
@@ -377,19 +391,19 @@ onBeforeUnmount(clearHide)
   font-size: var(--fs-xs);
   font-weight: 700;
   cursor: pointer;
-  transition: var(--t);
+  transition: var(--t);line-height:var(--ty-label-lh)
 }
 
 .fbChip:hover {
   border-color: #EED9B7;
-  background: #FFF1D8;
+  background: var(--orange-soft);
 }
 
 .fbChip.on {
   border-color: var(--primary);
   background: var(--primary-soft);
   color: var(--ink);
-  font-weight: 850;
+  font-weight: 700;
 }
 
 .fbField {
@@ -401,8 +415,8 @@ onBeforeUnmount(clearHide)
 
 .fbField__label {
   font-size: var(--fs-xs);
-  font-weight: 750;
-  color: var(--ink-2);
+  font-weight: 700;
+  color: var(--ink-2);line-height:var(--ty-label-lh)
 }
 
 .fbField__label em {
@@ -420,13 +434,13 @@ onBeforeUnmount(clearHide)
   font-size: var(--fs-sm);
   font-family: inherit;
   padding: 10px 12px;
-  transition: var(--t);
+  transition: var(--t);line-height:var(--ty-body-lh)
 }
 
 .fbField__area {
   resize: vertical;
   min-height: 108px;
-  line-height: 1.7;
+  line-height: var(--ty-body-lh);
 }
 
 .fbField__area:focus,
@@ -440,14 +454,14 @@ onBeforeUnmount(clearHide)
   align-self: flex-end;
   font-size: var(--fs-2xs);
   color: var(--muted-2);
-  margin-top: -2px;
+  margin-top: -2px;line-height:var(--ty-caption-lh)
 }
 
 .fbForm__hint {
   margin: 0;
   font-size: var(--fs-2xs);
   color: var(--muted);
-  line-height: 1.6;
+  line-height: var(--ty-caption-lh);
 }
 
 .fbForm__error {
@@ -457,7 +471,7 @@ onBeforeUnmount(clearHide)
   background: var(--danger-soft);
   color: var(--danger);
   font-size: var(--fs-xs);
-  font-weight: 700;
+  font-weight: 700;line-height:var(--ty-label-lh)
 }
 
 /* ---------------------------------------------------------------- 手机 */
@@ -481,7 +495,7 @@ onBeforeUnmount(clearHide)
   }
 
   .fbForm__lead {
-    font-size: var(--fs-xs);
+    font-size: var(--fs-xs);line-height:var(--ty-label-lh)
   }
 }
 

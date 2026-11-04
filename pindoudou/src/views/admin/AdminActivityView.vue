@@ -24,7 +24,7 @@ import AdminTable from '../../components/admin/AdminTable.vue'
 import AdminPager from '../../components/admin/AdminPager.vue'
 import AdminModal from '../../components/admin/AdminModal.vue'
 import AdminTag from '../../components/admin/AdminTag.vue'
-import PixelIcon from '../../components/ui/PixelIcon.vue'
+import Icon from '../../components/ui/Icon.vue'
 
 import { activityApi } from '../../lib/adminApi.js'
 import { ApiError, datetime, fromNow, money, syncQuery } from '../../lib/api.js'
@@ -999,7 +999,7 @@ onMounted(() => {
           </div>
         </template>
         <div v-else class="adm-empty">
-          <div class="adm-empty__icon"><PixelIcon name="chart" :size="26" /></div>
+          <div class="adm-empty__icon"><Icon name="chart-no-axes-combined" :size="24" /></div>
           <strong>窗口内还没有活跃数据</strong>
           <p>有人在窗口期内调用过需要登录的接口、或前端上报过功能事件之后，这里才会有柱子。</p>
         </div>
@@ -1142,7 +1142,7 @@ onMounted(() => {
           </div>
         </template>
         <div v-else class="adm-empty">
-          <div class="adm-empty__icon"><PixelIcon name="user" :size="26" /></div>
+          <div class="adm-empty__icon"><Icon name="user-round" :size="24" /></div>
           <strong>窗口内还没有访问记录</strong>
           <p>前台打开任意页面（含未登录访客）都会上报一条，最长一个落库周期后出现在这里。</p>
         </div>
@@ -1803,14 +1803,14 @@ onMounted(() => {
         <div class="adm-kpis">
           <div class="adm-kpi">
             <span class="adm-kpi__label">用户</span>
-            <span class="adm-kpi__value" style="font-size:15px">
+            <span class="adm-kpi__value" style="font-size:15px;line-height:var(--ty-card-lh)">
               {{ detail.user.nickname || detail.user.username }}
             </span>
             <span class="adm-kpi__hint adm-mono">{{ detail.user.username }} · #{{ detail.user.user_id }}</span>
           </div>
           <div class="adm-kpi">
             <span class="adm-kpi__label">渠道</span>
-            <span class="adm-kpi__value" style="font-size:15px">
+            <span class="adm-kpi__value" style="font-size:15px;line-height:var(--ty-card-lh)">
               {{ detail.user.channel_label || detail.user.channel || '未知来源' }}
             </span>
             <span class="adm-kpi__hint" :title="detail.channel_detail || ''">
@@ -1824,7 +1824,7 @@ onMounted(() => {
           </div>
           <div class="adm-kpi">
             <span class="adm-kpi__label">全时段累计</span>
-            <span class="adm-kpi__value" style="font-size:15px">
+            <span class="adm-kpi__value" style="font-size:15px;line-height:var(--ty-card-lh)">
               {{ num(detail.total_active_days) }} 天 · {{ num(detail.total_requests) }} 请求
             </span>
             <span class="adm-kpi__hint">
@@ -1936,7 +1936,7 @@ onMounted(() => {
   font-size:var(--fs-2xs);
   color: var(--muted);
   text-align: center;
-  white-space: nowrap;
+  white-space: nowrap;line-height:var(--ty-caption-lh)
 }
 
 .adm-trend__legend {
@@ -1944,7 +1944,7 @@ onMounted(() => {
   gap: 14px;
   margin-top: 8px;
   font-size: var(--fs-2xs);
-  color: var(--muted);
+  color: var(--muted);line-height:var(--ty-caption-lh)
 }
 
 .adm-trend__dot {
@@ -1979,7 +1979,7 @@ onMounted(() => {
   margin: 0;
   padding-left: 18px;
   color: var(--muted);
-  font-size: var(--fs-2xs);
+  font-size: var(--fs-2xs);line-height:var(--ty-caption-lh)
 }
 
 .adm-notes li {
@@ -1987,6 +1987,6 @@ onMounted(() => {
 }
 
 .adm-modal__body h2 {
-  font-size: var(--fs-sm);
+  font-size: var(--fs-sm);line-height:var(--ty-body-lh)
 }
 </style>

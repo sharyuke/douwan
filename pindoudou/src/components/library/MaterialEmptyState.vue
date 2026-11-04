@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from 'vue'
-import PixelIcon from '../ui/PixelIcon.vue'
+import Icon from '../ui/Icon.vue'
 
 const props = defineProps({
   mode: { type: String, default: 'search' },
@@ -33,7 +33,7 @@ const action = computed(() => {
 
 <template>
   <div class="empty libEmpty" data-audit="library-empty">
-    <div class="empty__icon"><PixelIcon :name="icon" :size="24" /></div>
+    <div class="empty__icon"><Icon :name="icon" :size="24" /></div>
     <strong>{{ title }}</strong>
     <p>{{ hint }}</p>
     <button v-if="action" type="button" class="btn" @click="$emit('clear')">{{ action }}</button>

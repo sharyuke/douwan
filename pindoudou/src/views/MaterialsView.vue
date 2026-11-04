@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import BaseDialog from '../components/ui/BaseDialog.vue'
-import PixelIcon from '../components/ui/PixelIcon.vue'
+import Icon from '../components/ui/Icon.vue'
 import {
   pattern, hasPattern, projectName, materials, stats, options, layout,
   currentProjectId, openProject, ensureProjectLoaded, projects, saveProject, buildBoards, markBoard, buildProgress
@@ -393,11 +393,11 @@ function onPNG() {
 <template>
   <div class="wrap main--pad">
     <div v-if="!hasPattern" class="empty">
-      <div class="empty__icon"><PixelIcon name="list" :size="24" /></div>
+      <div class="empty__icon"><Icon name="list" :size="24" /></div>
       <strong>还没有可统计的图案</strong>
       <p>先上传照片或从素材中心挑一个图案，材料清单会自动按图纸逐格统计。</p>
       <div class="row" style="gap:9px">
-        <RouterLink to="/create" class="btn primary">去创作</RouterLink>
+        <RouterLink to="/editor" class="btn primary">去创作</RouterLink>
         <RouterLink v-if="projects.length" to="/projects" class="btn btn-secondary">打开已有作品</RouterLink>
       </div>
     </div>
@@ -456,7 +456,7 @@ function onPNG() {
                没有这条，用户只能靠一块一块点，或者被预检的红字堵死。 -->
           <div v-if="batchCount > 1" class="batchBar">
             <span>分 {{ batchCount }} 批打印（一批最多 {{ batchSize }} 页）：</span>
-            <button class="btn btn-secondary sm" :disabled="batchNo <= 1" @click="selectBatch(batchNo - 1)">← 上一批</button>
+            <button class="btn btn-secondary sm" :disabled="batchNo <= 1" @click="selectBatch(batchNo - 1)"><Icon name="chevron-left" :size="16" />上一批</button>
             <label>
               第
               <input
@@ -465,7 +465,7 @@ function onPNG() {
               >
               / {{ batchCount }} 批
             </label>
-            <button class="btn btn-secondary sm" :disabled="batchNo >= batchCount" @click="selectBatch(batchNo + 1)">下一批 →</button>
+            <button class="btn btn-secondary sm" :disabled="batchNo >= batchCount" @click="selectBatch(batchNo + 1)">下一批<Icon name="chevron-right" :size="16" /></button>
             <span class="muted">本批 = 第 {{ (batchNo - 1) * batchSize + 1 }}–{{ Math.min(layout.count, batchNo * batchSize) }} 块</span>
           </div>
           <p class="hint" style="margin-bottom:14px">
@@ -539,7 +539,7 @@ function onPNG() {
                   <td>{{ r.name || '—' }}</td>
                   <td class="num">{{ num(r.count) }}</td>
                   <td class="num">{{ r.owned ? num(r.owned) : '—' }}</td>
-                  <td class="num" :style="r.lack ? 'color:var(--danger);font-weight:800' : ''">{{ r.lack ? num(r.lack) : '—' }}</td>
+                  <td class="num" :style="r.lack ? 'color:var(--danger);font-weight:700' : ''">{{ r.lack ? num(r.lack) : '—' }}</td>
                   <td><span class="tag">{{ r.suggest }}</span></td>
                 </tr>
                 <tr v-if="!restock || !restock.packages.length">
@@ -552,7 +552,7 @@ function onPNG() {
           <div class="divider"></div>
           <div class="row row--between row--wrap">
             <div>
-              <b style="font-size:var(--fs-xs)">全部颜色的用量</b>
+              <b style="font-size:var(--fs-xs);line-height:var(--ty-label-lh)">全部颜色的用量</b>
               <p class="hint">不区分库存，按图纸实际用量排序</p>
             </div>
             <span class="muted">{{ materials.rows.length }} 色 · {{ num(materials.totalBeads) }} 颗</span>
@@ -588,7 +588,7 @@ function onPNG() {
                想看全部要点一次「展开全部」（会先摆出代价）。板少时行为和以前完全一样。 -->
           <template v-if="detailMode === 'single'">
             <div class="boardNav">
-              <button class="btn btn-secondary sm" :disabled="detailNo <= 1" @click="goDetailBoard(detailNo - 1)">← 上一板</button>
+              <button class="btn btn-secondary sm" :disabled="detailNo <= 1" @click="goDetailBoard(detailNo - 1)"><Icon name="chevron-left" :size="16" />上一板</button>
               <label class="boardNav__jump">
                 第
                 <input
@@ -597,7 +597,7 @@ function onPNG() {
                 >
                 / {{ layout.count }} 块
               </label>
-              <button class="btn btn-secondary sm" :disabled="detailNo >= layout.count" @click="goDetailBoard(detailNo + 1)">下一板 →</button>
+              <button class="btn btn-secondary sm" :disabled="detailNo >= layout.count" @click="goDetailBoard(detailNo + 1)">下一板<Icon name="chevron-right" :size="16" /></button>
               <button class="btn sm soft" @click="askExpandAll">展开全部 {{ layout.count }} 块</button>
             </div>
             <p class="hint" style="margin-top:8px">
@@ -658,7 +658,7 @@ function onPNG() {
             <button class="btn btn-secondary" @click="onSVG" title="可无损放大；估算超过约 16 MB 会先丢掉色号，仍超上限就拒绝（1000×1000 约 57 MB，会直接拒绝并说明该用哪个）">SVG 矢量</button>
             <button class="btn btn-secondary" @click="onJSON" title="结构化网格数据；1000×1000 是 10 MB 量级的文本，导出后会报出真实体积">Pattern JSON</button>
             <!-- 必须带上作品 id：BuildView 靠路由参数装载图案，光跳 /build 会是空页面 -->
-            <RouterLink class="btn green" :to="buildLink">去拼制并完成 ›</RouterLink>
+            <RouterLink class="btn green" :to="buildLink">去拼制并完成<Icon name="chevron-right" :size="16" /></RouterLink>
           </div>
         </div>
       </section>
@@ -667,7 +667,7 @@ function onPNG() {
     <!-- 打印选项 -->
     <BaseDialog v-model="printDialog" title="打印 / 导出分板 PDF" size="sm">
       <div class="stack stack--sm">
-        <p style="font-size:var(--fs-xs);line-height:1.8;color:var(--ink-2)">
+        <p style="font-size:var(--fs-xs);line-height:var(--ty-label-lh);color:var(--ink-2)">
           将要打印 <b>{{ selectedBoards.size }}</b> 块板，每块板单独一页，含行列坐标与格内色号，
           最后一页是材料清单。纸张请选 A4，「实际大小 / 100%」。
         </p>
@@ -714,28 +714,28 @@ function onPNG() {
   padding:15px;border-radius:var(--r-md);background:var(--surface);border:1px solid var(--line);
   display:flex;flex-direction:column;gap:4px;box-shadow:var(--sh-1);
 }
-.summaryCard b{font-size:22px;font-weight:850;letter-spacing:-.02em}
+.summaryCard b{font-size:18px;font-weight:700;letter-spacing:0;line-height:var(--ty-section-lh)}
 .summaryCard.warn{border-color:#F3C9C4;background:var(--danger-soft)}
 .summaryCard.warn b{color:var(--danger)}
 .boardTile{position:relative}
 .boardTile__check{
-  margin-top:6px;font-size:var(--fs-2xs);font-weight:800;color:var(--muted-2);text-align:center;
+  margin-top:6px;font-size:var(--fs-2xs);font-weight:700;color:var(--muted-2);text-align:center;line-height:var(--ty-caption-lh)
 }
 .boardTile.on .boardTile__check{color:var(--green-deep)}
 .selectedInfo{
   margin-top:14px;padding:11px;border-radius:var(--r-sm);background:var(--green-soft);
-  border:1px solid #D3E6CD;font-size:var(--fs-xs);color:var(--green-deep);font-weight:700;
+  border:1px solid #D3E6CD;font-size:var(--fs-xs);color:var(--green-deep);font-weight:700;line-height:var(--ty-label-lh)
 }
-.alertBox{padding:12px;border-radius:var(--r-sm);background:var(--danger-soft);color:var(--danger);font-size:var(--fs-xs);font-weight:700}
-.okBox{padding:12px;border-radius:var(--r-sm);background:var(--green-soft);color:var(--green-deep);font-size:var(--fs-xs);font-weight:700}
-.boardInfo{padding:11px;border-radius:var(--r-sm);background:var(--surface-2);border:1px solid var(--line);font-size:var(--fs-2xs);color:var(--muted);line-height:1.75}
+.alertBox{padding:12px;border-radius:var(--r-sm);background:var(--danger-soft);color:var(--danger);font-size:var(--fs-xs);font-weight:700;line-height:var(--ty-label-lh)}
+.okBox{padding:12px;border-radius:var(--r-sm);background:var(--green-soft);color:var(--green-deep);font-size:var(--fs-xs);font-weight:700;line-height:var(--ty-label-lh)}
+.boardInfo{padding:11px;border-radius:var(--r-sm);background:var(--surface-2);border:1px solid var(--line);font-size:var(--fs-2xs);color:var(--muted);line-height:var(--ty-caption-lh)}
 .boardInfo.bad{border-color:#F3C9C4;background:var(--danger-soft);color:var(--danger);font-weight:700}
 /* 板号导航：1225 块板的明细一次只画一块，靠这四个控件换板 */
 .boardNav{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
-.boardNav__jump{font-size:var(--fs-2xs);color:var(--muted);font-weight:700;display:inline-flex;align-items:center;gap:5px}
+.boardNav__jump{font-size:var(--fs-2xs);color:var(--muted);font-weight:700;display:inline-flex;align-items:center;gap:5px;line-height:var(--ty-caption-lh)}
 .boardNav__input{
   width:74px;padding:5px 8px;border-radius:var(--r-xs);border:1px solid transparent;
-  background:var(--surface-3);font:inherit;font-size:var(--fs-2xs);font-weight:800;text-align:center;color:var(--ink);
+  background:var(--surface-3);font:inherit;font-size:var(--fs-2xs);font-weight:700;text-align:center;color:var(--ink);line-height:var(--ty-caption-lh)
 }
 .boardNav__input:focus{outline:none;border-color:var(--pink);background:var(--surface);box-shadow:0 0 0 3px rgba(255,142,199,.18)}
 /* 分板打印的批次条：板数超过 256 页上限时才出现（1000×1000 = 1225 块 = 5 批）。
@@ -743,12 +743,12 @@ function onPNG() {
 .batchBar{
   display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:0 0 12px;
   padding:9px 11px;border-radius:var(--r-sm);background:var(--surface-2);
-  border:1px solid var(--line);font-size:var(--fs-2xs);font-weight:700;color:var(--muted);
+  border:1px solid var(--line);font-size:var(--fs-2xs);font-weight:700;color:var(--muted);line-height:var(--ty-caption-lh)
 }
 .batchBar label{display:inline-flex;align-items:center;gap:4px}
 .batchBar input{
   width:58px;padding:4px 6px;border-radius:var(--r-xs);border:1px solid transparent;
-  background:var(--surface-3);font:inherit;font-size:var(--fs-2xs);font-weight:800;text-align:center;color:var(--ink);
+  background:var(--surface-3);font:inherit;font-size:var(--fs-2xs);font-weight:700;text-align:center;color:var(--ink);line-height:var(--ty-caption-lh)
 }
 .batchBar input:focus{outline:none;border-color:var(--pink);background:var(--surface);box-shadow:0 0 0 3px rgba(255,142,199,.18)}
 .boardMatBlock{padding:12px 0;border-bottom:1px solid var(--line)}

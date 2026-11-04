@@ -8,6 +8,7 @@
    ========================================================================= */
 import { RouterLink, useRoute } from 'vue-router'
 import { siteNav } from './siteNav.js'
+import Icon from '../ui/Icon.vue'
 
 defineProps({
   open: { type: Boolean, default: true }
@@ -40,7 +41,7 @@ function isActive(item) {
         :aria-current="isActive(item) ? 'page' : undefined"
         :title="item.label"
       >
-        <img class="side__icon" :src="item.iconSrc" alt="" aria-hidden="true" width="28" height="28">
+        <Icon class="side__icon" :name="item.icon" :size="24" />
         <span class="side__label">{{ item.label }}</span>
       </RouterLink>
     </nav>
@@ -53,14 +54,10 @@ function isActive(item) {
       :title="open ? '收起导航' : '展开导航'"
       @click="$emit('toggle')"
     >
-      <svg
+      <Icon
+        name="chevron-left" :size="20"
         class="side__chev" :class="{ 'is-closed': !open }"
-        viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"
-        fill="none" stroke="currentColor" stroke-width="2"
-        stroke-linecap="round" stroke-linejoin="round"
-      >
-        <path d="M15 6l-6 6 6 6"></path>
-      </svg>
+      />
       <span class="side__label">{{ open ? '收起导航' : '展开导航' }}</span>
     </button>
   </aside>
@@ -111,7 +108,7 @@ function isActive(item) {
   font-size: 14px;
   font-weight: 700;
   white-space: nowrap;
-  transition: background .16s var(--ease), color .16s var(--ease);
+  transition: background .16s var(--ease), color .16s var(--ease);line-height:var(--ty-body-lh)
 }
 .side__item:hover {
   background: var(--surface-3);
@@ -124,15 +121,12 @@ function isActive(item) {
 .side__item.is-active {
   background: var(--primary-soft);
   color: var(--primary-ink);
-  font-weight: 850;
+  font-weight: 700;
 }
 
-/* 交付包原图 192×192 透明 PNG，按 28px 显示，保持比例、不加底板 */
+/* 图标规范：导航用 24px 档，线色跟着 currentColor（选中态由 .is-active 的 color 决定） */
 .side__icon {
-  width: 28px;
-  height: 28px;
   flex: 0 0 auto;
-  object-fit: contain;
 }
 
 .side__label {
@@ -166,7 +160,7 @@ function isActive(item) {
   font-weight: 700;
   white-space: nowrap;
   cursor: pointer;
-  transition: background .16s var(--ease), color .16s var(--ease);
+  transition: background .16s var(--ease), color .16s var(--ease);line-height:var(--ty-label-lh)
 }
 .side__fold:hover {
   background: var(--surface-3);

@@ -25,14 +25,14 @@ const COMMON_FEATURES = [
     body: '每格印完整色号，统计每种颜色要多少颗，输出可以直接拿去下单的采购清单。'
   },
   {
-    icon: 'layers',
+    icon: 'columns-2',
     color: 'var(--yellow-deep)',
     bg: 'var(--yellow-soft)',
     title: '按真实底板自动分板',
     body: '档位都是 52 / 78 / 104 / 120 钉画线板的整数倍（52 = 一块 52 钉板、120 = 一块 120 钉板、312 = 3 × 3 块 104 钉板），图纸上的边界线正好落在真实板边上；比一块板更大的画布，按「规格 × 横向几块 × 纵向几块」自己加板（单边最大 1000 格，例如 104 × 9 = 936 格），下面会直接算出成品尺寸。'
   },
   {
-    icon: 'lock',
+    icon: 'lock-keyhole',
     color: 'var(--green-deep)',
     bg: 'var(--green-soft)',
     title: '浏览器本地处理',
@@ -234,7 +234,7 @@ export const BUILD_TOOL_CONTENT = {
 
   'pet-bead-pattern': make({
     slug: 'pet-bead-pattern',
-    badge: '宠物专属 · 免费素材',
+    badge: '宠物专属 · 素材库',
     h1: '宠物拼豆图纸生成器',
     lead: '把我家猫/狗变成拼豆作品。上传宠物照片，或用素材库里的宠物图案，生成能直接照着拼的图纸。',
     demoCol: 'pet',

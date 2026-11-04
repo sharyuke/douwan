@@ -23,7 +23,6 @@ import { trackPageView } from '../lib/telemetry.js'
 import { applyRouteMeta } from '../lib/seo.js'
 
 const Home = () => import('../views/HomeView.vue')
-const Beginner = () => import('../views/BeginnerView.vue')
 const Editor = () => import('../views/EditorView.vue')
 const Library = () => import('../views/LibraryView.vue')
 const AssetDetail = () => import('../views/AssetDetailView.vue')
@@ -149,15 +148,13 @@ export const routes = [
   /* 首页 = 之前那版带插画的主视觉（2026-10-26 恢复）。
      手机 / 平板 / 电脑三端都是它：主视觉标题图 + 上传卡 + 三条真实能力
      + 首屏以下的可抓取正文（SEO V3.0 的内容区）。
-     新手简化版没有删，改成「创作」命令底下的**操作台**（见 /create）。 */
-  { path: '/', name: 'home', component: Home, meta: { title: '免费拼豆图纸生成器' } },
+     「创作」等入口都直接进全屏工作台（/editor）。 */
+  { path: '/', name: 'home', component: Home, meta: { title: '豆玩拼豆图纸生成器' } },
   /* 老链接：以前首页挪去 /home 放过一天，现在首页回到 /，这里直接跳回去。 */
   { path: '/home', redirect: '/' },
-  /* 「创作」命令底下的操作台 = 新手简化版的三步向导（选图 → 调整 → 拿图纸）。
-     应用内页面：一律 noindex，也不进 Sitemap（见 src/data/seo.js 的 APP_ROUTES）。
-     专业工作台在 /editor，顶栏的「新手 / 专业」开关随时能换，两边是同一件作品。
-     noFooter：它是工具页，底部不挂站点的三栏页脚（那条页脚挪到首页了）。 */
-  { path: '/create', name: 'create', component: Beginner, meta: { title: '拼豆操作台', noindex: true, noFooter: true } },
+  /* 「创作」直接进全屏工作台：新手三步向导（操作台）2026-11-01 下线，
+     /create 只作为老链接保留，跳回 /editor（带上原来的 query，比如 ?tab=library）。 */
+  { path: '/create', redirect: to => ({ path: '/editor', query: to.query }) },
   { path: '/editor/:projectId?', name: 'editor', component: Editor, meta: { title: '创作工作台', studio: true, noindex: true } },
 
   /* ---- 公开可索引的素材页面 ----

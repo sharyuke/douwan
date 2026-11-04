@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import BaseDialog from '../components/ui/BaseDialog.vue'
-import PixelIcon from '../components/ui/PixelIcon.vue'
+import Icon from '../components/ui/Icon.vue'
 import {
   pattern, hasPattern, projectName, stats, layout, options, materials,
   buildProgress, buildBoard, buildStats, buildBoards, toggleBuildCell, markBuildCell,
@@ -508,11 +508,11 @@ onBeforeUnmount(() => {
 <template>
   <div class="wrap main--pad">
     <div v-if="!hasPattern" class="empty">
-      <div class="empty__icon"><PixelIcon name="sparkles" :size="24" /></div>
+      <div class="empty__icon"><Icon name="sparkles" :size="24" /></div>
       <strong>还没有可以开始拼的作品</strong>
       <p>先生成一张图纸，或者在「我的作品」里打开一件已保存的作品。</p>
       <div class="row" style="gap:9px">
-        <RouterLink to="/create" class="btn primary">去创作</RouterLink>
+        <RouterLink to="/editor" class="btn primary">去创作</RouterLink>
         <RouterLink v-if="projects.length" to="/projects" class="btn btn-secondary">打开已有作品</RouterLink>
       </div>
     </div>
@@ -525,13 +525,13 @@ onBeforeUnmount(() => {
             <b>{{ projectName }}</b>
             <span class="tag new" v-if="currentBoard && !isFinished">第 {{ currentBoard.no }} / {{ boardCount }} 板</span>
             <span class="tag">{{ stats.size }} · {{ stats.colors }} 色</span>
-            <span v-if="isFinished" class="tag free"><PixelIcon name="check" :size="12" /> 已完成</span>
+            <span v-if="isFinished" class="tag free"><Icon name="check" :size="16" /> 已完成</span>
             <span class="tag warn" v-else-if="!gate.ok">逐颗进度需 Pro</span>
           </div>
           <div class="bar"><i :style="{ width: viewStats.percent + '%' }"></i></div>
           <div class="row row--between row--wrap">
             <span class="muted">
-              总进度 <b class="buildBig" style="font-size:18px">{{ viewStats.percent }}%</b> ·
+              总进度 <b class="buildBig" style="font-size:18px;line-height:var(--ty-section-lh)">{{ viewStats.percent }}%</b> ·
               已完成 {{ num(viewStats.done) }} / {{ num(viewStats.total) }} 颗 ·
               剩 {{ num(viewStats.remaining) }} 颗
             </span>
@@ -545,19 +545,19 @@ onBeforeUnmount(() => {
         </div>
         <div class="col" style="gap:8px">
           <button v-if="!isFinished" class="btn primary lg" @click="openFinish">
-            <PixelIcon name="check" :size="16" /> 我拼完了 · 完成作品
+            <Icon name="check" :size="16" /> 我拼完了 · 完成作品
           </button>
           <template v-else>
             <button class="btn green lg" @click="shareOpen = true">生成分享卡</button>
             <button class="btn btn-secondary sm" @click="openFinish">{{ finishPhoto ? '换成品照片' : '上传成品照片' }}</button>
           </template>
           <button class="btn btn-secondary" :disabled="progressLocked" @click="doMarkBoard(true)">
-            <PixelIcon :name="gate.ok ? 'check' : 'lock'" :size="14" />
+            <Icon :name="gate.ok ? 'check' : 'lock'" :size="16" />
             {{ gate.ok ? '本板完成' : '本板完成（Pro）' }}
           </button>
           <div class="row" style="gap:6px">
-            <button class="btn btn-secondary sm" :disabled="buildBoard <= 0" @click="prevBoard">← 上板</button>
-            <button class="btn btn-secondary sm" :disabled="buildBoard >= boardCount - 1" @click="nextBoard">下板 →</button>
+            <button class="btn btn-secondary sm" :disabled="buildBoard <= 0" @click="prevBoard"><Icon name="chevron-left" :size="16" />上板</button>
+            <button class="btn btn-secondary sm" :disabled="buildBoard >= boardCount - 1" @click="nextBoard">下板<Icon name="chevron-right" :size="16" /></button>
           </div>
           <!-- 板号跳转：1225 块板时「下一板」点一千次不现实，直接输板号 -->
           <label class="boardJump">
@@ -597,7 +597,7 @@ onBeforeUnmount(() => {
           点「取消完成」会把它们原样加回去。
         </p>
         <p v-if="finishStale" class="hint staleHint">
-          <PixelIcon name="alert" :size="16" />
+          <Icon name="info" :size="16" />
           <span>
             完成之后这套图纸又改过（完成时 {{ num(currentProject ? currentProject.completedBeads || 0 : 0) }} 颗，
             现在 {{ num(stats.total) }} 颗）。完成记录不会自动清掉 —— 拼豆是真的用掉了；
@@ -629,7 +629,7 @@ onBeforeUnmount(() => {
         <h2>进度 100%</h2>
         <p>最后一颗也标记完了。点下面的按钮把它记成「完成」：会记下完成时间、按材料表扣减库存，并进入成长记录。</p>
         <div class="row" style="justify-content:center;gap:9px;margin-top:16px">
-          <button class="btn primary lg" @click="openFinish"><PixelIcon name="check" :size="16" /> 完成作品</button>
+          <button class="btn primary lg" @click="openFinish"><Icon name="check" :size="16" /> 完成作品</button>
         </div>
       </div>
 
@@ -639,9 +639,9 @@ onBeforeUnmount(() => {
           <div class="card__head">
             <h3 v-if="currentBoard">第 {{ currentBoard.no }} 板 · {{ currentBoard.coord }}</h3>
             <div class="row">
-              <button class="btn btn-secondary sm" @click="zoom = Math.max(0.4, zoom - 0.2)">−</button>
+              <button class="btn btn-secondary sm" @click="zoom = Math.max(0.4, zoom - 0.2)"><Icon name="minus" :size="16" /></button>
               <span class="muted" style="min-width:44px;text-align:center">{{ Math.round(zoom * 100) }}%</span>
-              <button class="btn btn-secondary sm" @click="zoom = Math.min(3, zoom + 0.2)">＋</button>
+              <button class="btn btn-secondary sm" @click="zoom = Math.min(3, zoom + 0.2)"><Icon name="plus" :size="16" /></button>
               <button class="btn btn-secondary sm" @click="fitCell(); draw()">适应</button>
             </div>
           </div>
@@ -683,7 +683,7 @@ onBeforeUnmount(() => {
                 >
                   <i :style="{ background: n.color.hex }"></i>
                   {{ n.color.code }} × {{ n.remain }}
-                  <small v-if="n.remain <= 0"><PixelIcon name="check" :size="10" /></small>
+                  <small v-if="n.remain <= 0"><Icon name="check" :size="16" /></small>
                 </span>
               </div>
               <p class="hint">
@@ -709,9 +709,9 @@ onBeforeUnmount(() => {
               <!-- 1225 块板时列表只画当前附近的 60 行：整列渲染 1225 行、每次标记都 patch 一遍，
                    拖动会明显发涩；这里用「上/下一组 + 板号跳转」保留选板能力 -->
               <div v-if="boardCount > BOARD_LIST_WINDOW" class="boardWindow">
-                <button class="btn btn-secondary sm" :disabled="boardListStart <= 0" @click="stepBoardWindow(-1)">← 上一组</button>
+                <button class="btn btn-secondary sm" :disabled="boardListStart <= 0" @click="stepBoardWindow(-1)"><Icon name="chevron-left" :size="16" />上一组</button>
                 <span class="muted">第 {{ boardListStart + 1 }}–{{ Math.min(boardCount, boardListStart + BOARD_LIST_WINDOW) }} 块</span>
-                <button class="btn btn-secondary sm" :disabled="boardListStart + BOARD_LIST_WINDOW >= boardCount" @click="stepBoardWindow(1)">下一组 →</button>
+                <button class="btn btn-secondary sm" :disabled="boardListStart + BOARD_LIST_WINDOW >= boardCount" @click="stepBoardWindow(1)">下一组<Icon name="chevron-right" :size="16" /></button>
               </div>
               <div class="boardProgressList">
                 <button
@@ -733,7 +733,7 @@ onBeforeUnmount(() => {
 
           <section class="card">
             <div class="card__body stack stack--sm">
-              <button v-if="!isFinished" class="btn primary block" @click="openFinish"><PixelIcon name="check" :size="16" /> 完成作品</button>
+              <button v-if="!isFinished" class="btn primary block" @click="openFinish"><Icon name="check" :size="16" /> 完成作品</button>
               <button class="btn btn-secondary block" :class="{ primary: isFinished }" @click="shareOpen = true">生成分享卡</button>
               <button class="btn btn-secondary block" @click="saveProject()">保存作品与进度</button>
               <button class="btn soft block" :disabled="progressLocked" @click="resetProgress">重置全部进度</button>
@@ -753,7 +753,7 @@ onBeforeUnmount(() => {
     <BaseDialog v-model="shareOpen" title="生成分享卡" size="sm">
       <div class="shareCard">
         <div class="shareCard__head">
-          <img class="shareCard__logo" :src="logoDouwan" alt="豆玩 DOUWAN" width="102" height="34">
+          <img class="shareCard__logo" :src="logoDouwan" alt="豆玩 DOUWAN" width="89" height="34">
           <span class="spacer"></span>
           <span class="tag new">{{ viewStats.percent }}%</span>
         </div>
@@ -775,8 +775,8 @@ onBeforeUnmount(() => {
             <div class="box" style="flex-direction:column;gap:4px">
               <img v-if="finishPhoto" :src="finishPhoto" alt="成品照片">
               <template v-else>
-                <div><PixelIcon name="sparkles" :size="28" /></div>
-                <div style="font-size:var(--fs-2xs);color:var(--muted)">放你的成品照片</div>
+                <div><Icon name="sparkles" :size="24" /></div>
+                <div style="font-size:var(--fs-2xs);color:var(--muted);line-height:var(--ty-caption-lh)">放你的成品照片</div>
               </template>
             </div>
             <figcaption>成品</figcaption>
@@ -809,7 +809,7 @@ onBeforeUnmount(() => {
     <BaseDialog v-model="finishOpen" :title="photoOnly ? '成品照片' : '完成这件作品'" size="sm">
       <div class="stack stack--sm">
         <template v-if="!photoOnly">
-          <p style="font-size:var(--fs-sm);line-height:1.85;color:var(--ink-2)">
+          <p style="font-size:var(--fs-sm);line-height:var(--ty-body-lh);color:var(--ink-2)">
             完成后会记下完成时间、按材料表扣减「我的库存」，并把拼制进度补满。
             点错了可以「取消完成」，库存和进度都会退回原样。
           </p>
@@ -841,7 +841,7 @@ onBeforeUnmount(() => {
             你还没在「我的库存」里登记色号，所以这次不会扣任何库存（完成记录照常）。
           </p>
         </template>
-        <p v-else style="font-size:var(--fs-sm);line-height:1.85;color:var(--ink-2)">
+        <p v-else style="font-size:var(--fs-sm);line-height:var(--ty-body-lh);color:var(--ink-2)">
           这件作品已经完成。成品照片只存进本机作品档案，分享卡的「成品」那一格会用它。
         </p>
 
@@ -878,7 +878,7 @@ onBeforeUnmount(() => {
 
     <!-- Pro 引导：只拦「逐颗 / 整板进度」，不拦完成作品 -->
     <BaseDialog v-model="proOpen" title="逐颗标记进度是 Pro 功能" size="sm">
-      <p style="font-size:var(--fs-sm);line-height:1.85;color:var(--ink-2)">
+      <p style="font-size:var(--fs-sm);line-height:var(--ty-body-lh);color:var(--ink-2)">
         {{ check('build.mode').reason || '逐颗 / 整板标记拼制进度需要 Pro 套餐。' }}
         它的作用是把「一张图纸」变成「真的拼完」：逐颗标记、每块板单独记录、知道这一板还差多少颗。
       </p>
@@ -895,7 +895,7 @@ onBeforeUnmount(() => {
          而且 markColor 会扫完全部 100 万格 —— 点之前先说清颗数和代价 -->
     <BaseDialog v-model="colorConfirm" title="整色标记" size="sm">
       <div v-if="colorPending" class="stack stack--sm">
-        <p style="font-size:var(--fs-sm);line-height:1.85;color:var(--ink-2)">
+        <p style="font-size:var(--fs-sm);line-height:var(--ty-body-lh);color:var(--ink-2)">
           色号 <b>{{ colorPending.code }}</b> 在整张图纸上有 <b>{{ num(colorPending.count) }}</b> 颗豆，
           分布在 {{ boardCount }} 块板上。
         </p>
@@ -928,37 +928,37 @@ onBeforeUnmount(() => {
 .boardProgressItem{
   display:grid;grid-template-columns:64px minmax(0,1fr) 46px;gap:9px;align-items:center;
   padding:7px 9px;border-radius:var(--r-xs);border:1px solid var(--line);background:var(--surface);
-  font-size:var(--fs-2xs);transition:var(--t);
+  font-size:var(--fs-2xs);transition:var(--t);line-height:var(--ty-caption-lh)
 }
 .boardProgressItem:hover{border-color:var(--line-strong)}
 .boardProgressItem.on{border-color:var(--green);background:var(--green-soft)}
 .boardProgressItem.full{opacity:.75}
-.bpNo{font-weight:800;white-space:nowrap}
+.bpNo{font-weight:700;white-space:nowrap}
 .bpBar{height:7px;border-radius:99px;background:var(--surface-3);overflow:hidden;display:block}
 .bpBar i{display:block;height:100%;background:var(--green);border-radius:99px}
-.bpPct{text-align:right;font-weight:800;color:var(--muted)}
+.bpPct{text-align:right;font-weight:700;color:var(--muted)}
 .needPill{cursor:pointer;transition:var(--t)}
 .needPill:hover{background:var(--yellow-soft)}
-.needPill small{font-size:var(--fs-2xs);color:var(--green-deep)}
+.needPill small{font-size:var(--fs-2xs);color:var(--green-deep);line-height:var(--ty-caption-lh)}
 /* 整色标记进行中：这一块会同步扫 100 万格，先把点击挡住，别让用户以为点了没反应 */
 .buildNeed.busy{opacity:.55;pointer-events:none}
 /* 板号跳转：1225 块板时「下一板」点一千次不现实 */
-.boardJump{font-size:var(--fs-2xs);color:var(--muted);font-weight:700;display:inline-flex;align-items:center;gap:5px}
+.boardJump{font-size:var(--fs-2xs);color:var(--muted);font-weight:700;display:inline-flex;align-items:center;gap:5px;line-height:var(--ty-caption-lh)}
 .boardJump__input{
   width:76px;padding:5px 8px;border-radius:var(--r-xs);border:1px solid transparent;
-  background:var(--surface-3);font:inherit;font-size:var(--fs-2xs);font-weight:800;text-align:center;color:var(--ink);
+  background:var(--surface-3);font:inherit;font-size:var(--fs-2xs);font-weight:700;text-align:center;color:var(--ink);line-height:var(--ty-caption-lh)
 }
 .boardJump__input:focus{outline:none;border-color:var(--pink);background:var(--surface);box-shadow:0 0 0 3px rgba(255,142,199,.18)}
 /* 板列表开窗的翻页条 */
-.boardWindow{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;font-size:var(--fs-2xs)}
+.boardWindow{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;font-size:var(--fs-2xs);line-height:var(--ty-caption-lh)}
 /* 免费版说明条：逐颗进度要 Pro，但完成作品不用升级 —— 说清楚，别做成一堵墙 */
 .proNote{
   display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;
   margin-top:14px;padding:13px 16px;border-radius:var(--r-md);
   background:var(--yellow-soft);border:1px solid #F3E2C8;
 }
-.proNote b{font-size:var(--fs-xs)}
-.proNote p{margin-top:4px;font-size:var(--fs-2xs);color:var(--ink-2);line-height:1.7;max-width:640px}
+.proNote b{font-size:var(--fs-xs);line-height:var(--ty-label-lh)}
+.proNote p{margin-top:4px;font-size:var(--fs-2xs);color:var(--ink-2);line-height:var(--ty-caption-lh);max-width:640px}
 /* 完成后那块：成品照片 + 后续操作 */
 .finishArt{display:flex;align-items:flex-start;justify-content:center;gap:18px;flex-wrap:wrap;margin-top:16px}
 .finishArt figure{margin:0;text-align:center}
@@ -967,15 +967,15 @@ onBeforeUnmount(() => {
   border:1px solid var(--line);display:grid;place-items:center;box-shadow:var(--sh-1);
 }
 .finishArt .box img{width:100%;height:100%;object-fit:cover;display:block}
-.finishArt figcaption{font-size:var(--fs-2xs);color:var(--muted);margin-top:5px;font-weight:700}
+.finishArt figcaption{font-size:var(--fs-2xs);color:var(--muted);margin-top:5px;font-weight:700;line-height:var(--ty-caption-lh)}
 /* 完成弹窗里的照片选择 */
 .photoRow{display:flex;align-items:center;gap:12px}
 .photoBox{
   width:104px;height:104px;flex:0 0 auto;border-radius:var(--r-sm);overflow:hidden;
   background:var(--surface-2);border:1px dashed var(--line-strong);display:grid;place-items:center;
-  font-size:var(--fs-2xs);color:var(--muted);
+  font-size:var(--fs-2xs);color:var(--muted);line-height:var(--ty-caption-lh)
 }
 .photoBox img{width:100%;height:100%;object-fit:cover;display:block}
-.photoBox .muted{font-size:var(--fs-2xs)}
+.photoBox .muted{font-size:var(--fs-2xs);line-height:var(--ty-caption-lh)}
 @media(max-width:1000px){.buildGrid{grid-template-columns:1fr}}
 </style>

@@ -1,6 +1,6 @@
 <script setup>
 import { toasts } from '../../composables/useToast.js'
-import PixelIcon from './PixelIcon.vue'
+import Icon from './Icon.vue'
 </script>
 
 <template>
@@ -8,7 +8,7 @@ import PixelIcon from './PixelIcon.vue'
     <TransitionGroup name="toast">
       <div v-for="t in toasts" :key="t.id" class="toast" :class="t.kind">
         <span aria-hidden="true">
-          <PixelIcon :name="t.kind === 'ok' ? 'check' : t.kind === 'warn' ? 'alert' : t.kind === 'err' ? 'close' : 'info'" :size="12" />
+          <Icon :name="t.kind === 'ok' ? 'check' : t.kind === 'warn' ? 'alert' : t.kind === 'err' ? 'close' : 'info'" :size="16" />
         </span>
         <span>{{ t.text }}</span>
       </div>

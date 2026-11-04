@@ -76,7 +76,7 @@
     generateBtn: !!document.querySelector('.srcPrompt button')
   }
 
-  // ---------- 3) 免费素材库：点一张「和当前不是同一个」的，必须直接换图 ----------
+  // ---------- 3) 素材库：点一张「和当前不是同一个」的，必须直接换图 ----------
   tabs[2]?.click()
   await sleep(200)
   const picks = [...document.querySelectorAll('.srcAssets .srcAsset')]
@@ -84,7 +84,7 @@
   out.library = {
     count: picks.length,
     allLinked: !!document.querySelector('a[href*="/library"]'),
-    // 这个入口叫「免费素材库」，列出来的必须全是免费可用的，
+    // 这个入口叫「素材库」，列出来的必须全是免费可用的，
     // 否则用户点第一个就撞上「会员专属」，等于把人堵在门口。
     // 素材库现在只列后台已发布素材，静态 ASSETS 里查不到名字 ——
     // 档位直接读卡片 title（内置素材和后台素材都带这一句）。

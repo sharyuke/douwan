@@ -65,20 +65,20 @@ watch(() => props.active, revealActive)
 .catTab{
   position:relative;min-width:0;height:112px;padding:6px 4px;
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;
-  border-radius:16px;border:1px solid #EDE4D7;background:#FFFDFC;
-  color:#27201B;box-shadow:0 4px 14px rgba(92,64,30,.045);
+  border-radius:16px;border:1px solid var(--line-strong);background:#fff;
+  color:var(--ink);box-shadow:0 4px 14px rgba(31,31,29,.04);
   transition:transform .18s var(--ease),background .18s var(--ease),
     border-color .18s var(--ease),box-shadow .18s var(--ease);
 }
-.catTab:hover{transform:translateY(-2px);border-color:#F0D9A8;box-shadow:0 8px 20px rgba(92,64,30,.08)}
-.catTab.on{background:#FFE29A;border-color:#FFC84B;box-shadow:0 6px 16px rgba(255,200,75,.22)}
+.catTab:hover{transform:translateY(-2px);border-color:var(--primary);box-shadow:0 8px 20px rgba(31,31,29,.07)}
+.catTab.on{background:var(--primary);border-color:var(--primary);box-shadow:0 6px 16px rgba(200,230,60,.28)}
 .catTab.on:hover{transform:translateY(-1px)}
 .catIcon{
   display:block;width:54px;height:54px;object-fit:contain;flex:0 0 auto;
   image-rendering:pixelated;
 }
 .catName{
-  font-size:14px;font-weight:750;line-height:1.2;letter-spacing:-.01em;
+  font-size:14px;font-weight:700;line-height:var(--ty-body-lh);letter-spacing:0;
   white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis;
 }
 
@@ -98,6 +98,6 @@ watch(() => props.active, revealActive)
   .catScroll{gap:8px}
   .catTab{flex:0 0 82px;width:82px;height:92px;border-radius:14px;gap:5px}
   .catIcon{width:40px;height:40px}
-  .catName{font-size:12px;font-weight:700}
+  .catName{font-size:12px;font-weight:700;line-height:var(--ty-caption-lh)}
 }
 </style>

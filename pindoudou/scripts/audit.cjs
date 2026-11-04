@@ -5,7 +5,7 @@
    为什么需要它：单元测试无法发现「画布空白」「底栏被挤到视口外」这类问题。
    用法：
      node scripts/audit.cjs                 # 检查默认页面集
-     node scripts/audit.cjs /create /library
+     node scripts/audit.cjs /editor /library
    ========================================================================= */
 
 const http = require('http')
@@ -54,11 +54,10 @@ const PAGES = [
   { name: 'home', path: '/' },
   // 老链接：首页恢复成 / 之后，/home 只剩一个跳转 —— 这里盯着它别跳错
   { name: 'homeLegacy', path: '/home' },
-  // 操作台 = 新手简化版的三步向导（2026-10-26 从首页挪到「创作」底下）
-  { name: 'create', path: '/create' },
+  // /create（旧操作台）2026-11-01 下线，现在只做跳转到 /editor，不再单列页面
   { name: 'library', path: '/materials/' },
   { name: 'editor', path: '/editor' },
-  // ?tab= 是外链能用到的那种深链（「免费素材库」直接指到左栏那个入口），
+  // ?tab= 是外链能用到的那种深链（「素材库」直接指到左栏那个入口），
   // 单独列一项，顺便留一张「侧栏停在素材库」的截图
   { name: 'editorLibraryTab', path: '/editor?tab=library' },
   { name: 'editorProject', path: '/editor/p_audit_fixture' },
@@ -421,6 +420,12 @@ async function main() {
       })
 
       const url = `${origin}${page.path.replace('p_audit_fixture', fixtureId).replace('p_audit_done', fixtureDoneId)}`
+      /* 升级公告（2026-11-01）只在首次会话弹一次：自检只关心各页自己的行为，
+         进入页面前先把这个会话标记成「看过了」。公告本身由
+         scripts/verify-upgrade-notice.cjs 单独验。 */
+      await send('Page.addScriptToEvaluateOnNewDocument', {
+        source: "try { sessionStorage.setItem('douwan-upgrade-notice','1') } catch (e) {}"
+      }).catch(() => {})
       await send('Page.navigate', { url })
       await sleep(3200)
       // 再等两帧：canvas 的像素读取需要绘制提交完成，
@@ -476,10 +481,23 @@ async function main() {
                整页截图会 captureBeyondViewport，所以不能用 docH 判断 */
             cardOverflowsViewport: card ? card.getBoundingClientRect().bottom > innerHeight + 2 : false,
             /* 舞台内部出现滚动条 = 图纸没适配好（画布把舞台顶出去了），
-               留给 2px 余量避免四舍五入误报 */
+               留给 2px 余量避免四舍五入误报。
+               全屏工作台那一档舞台是 overflow:hidden（画布不滚，只靠拖动平移），
+               scrollHeight 会被标尺等内部元素撑得很大，量不到图纸本身 ——
+               那一档改成量图纸有没有超出舞台可见范围。 */
             stageScrollOverflow: (() => {
               const st = q('.stage')
-              return st ? st.scrollHeight > st.clientHeight + 2 : false
+              if (!st) return false
+              const ov = getComputedStyle(st).overflow
+              if (ov === 'hidden' || ov === 'clip') {
+                const board = q('.board')
+                if (!board) return false
+                const sr = st.getBoundingClientRect()
+                const br = board.getBoundingClientRect()
+                return br.bottom > sr.bottom + 2 || br.right > sr.right + 2 ||
+                       br.top < sr.top - 2 || br.left < sr.left - 2
+              }
+              return st.scrollHeight > st.clientHeight + 2
             })(),
             canvasCount: canvases.length,
             canvasesPainted: painted,

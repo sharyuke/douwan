@@ -24,6 +24,7 @@ import { createRequire } from 'node:module'
 
 import { EMPTY, estimateSvgBytes, toPatternJSON, BOARD_SIZE } from '../../src/lib/pattern.js'
 import { chartGeometry } from '../../src/lib/render.js'
+import { exportRulerPx } from '../../src/lib/exportTemplate.js'
 import {
   pngExportPlan, printPlan, exportSVG, exportPatternJSON, exportCleanPNG, exportPatternPNG,
   buildPrintHTML, printPattern, PNG_MAX_SIDE, PNG_MAX_PIXELS, SVG_SINGLE_BYTES, SVG_MAX_BYTES,
@@ -138,14 +139,16 @@ for (const [n, p] of [[1000, P1000], [464, P464], [116, P116]]) {
     `${n}×${n} 落在两条上限之内`)
 }
 {
-  // 「4 px/格 应该是 4000×4000」是个常见的误算：标尺两边各占 13 px，实际是 4026×4026。
+  // 「4 px/格 应该是 4000×4000」是个常见的误算：坐标留白两边还要占地方，实际是 4036×4036。
   // 这里把这条算式钉住 —— 哪天有人为了让 1000 格「正好 4000」去动标尺，这里会先红。
-  const four = chartGeometry(P1000, { cell: 4, ruler: true })
+  // 标尺宽度用导出专用的 exportRulerPx（标版版式里的坐标带约 4.6 格宽），
+  // 别拿 chartGeometry 的默认标尺来算 —— 那条是编辑器画布的口径。
+  const four = chartGeometry(P1000, { cell: 4, ruler: true, rulerPx: exportRulerPx(4) })
   check(four.width * four.height > PNG_MAX_PIXELS,
     `4 px/格 = ${four.width}×${four.height}（${(four.width * four.height / 1e6).toFixed(2)} Mpx）> ${PNG_MAX_PIXELS / 1e4} 万像素，所以只能落到 3 px/格`,
     `标尺两边各 ${four.ruler} px，格子区 4000 px`)
-  check(pngPlans[1000].cell === 3 && pngPlans[1000].geometry.width === 3026 && pngPlans[1000].geometry.height === 3026,
-    '1000×1000 的结论：cell=3 / 3026×3026')
+  check(pngPlans[1000].cell === 3 && pngPlans[1000].geometry.width === 3036 && pngPlans[1000].geometry.height === 3036,
+    '1000×1000 的图纸主体：cell=3 / 3036×3036')
   check(pngPlans[464].cell === 8, `464×464 → cell=${pngPlans[464].cell}（和旧上限下的行为一致）`)
   check(pngPlans[116].cell === 24 && !pngPlans[116].reduced, '116×116 仍是 24 px/格（小画布行为不变）')
 }
@@ -213,7 +216,7 @@ for (const codes of [false, true]) {
   check(res.ok === false, `exportSVG(codes=${codes ? 'Y' : 'N'}) 在 1000×1000 下拒绝`, `bytes=${MB(res.bytes).toFixed(1)} MB`)
   check(/约 [\d.]+ MB/.test(res.message) && /超过单文件/.test(res.message), '拒绝文案报出实际估算 MB')
   check(/个图元/.test(res.message) && /最多 1,000,000 格/.test(res.message), '拒绝文案说清「一格一个 <rect>」与图元/格数')
-  check(/图纸 PNG」（这张画布导出 3026×3026 像素）/.test(res.message), '拒绝文案指路图纸 PNG，并带上这张画布的真实导出尺寸')
+  check(/图纸 PNG」（这张画布导出 2119×2988 像素）/.test(res.message), '拒绝文案指路图纸 PNG，并带上这张画布的真实导出尺寸')
   if (codes) console.log(`     拒绝原文：${res.message}`)
 }
 {
@@ -244,9 +247,14 @@ console.log('\n④ Pattern JSON（100 万格 = 100 万个色号字符串）')
 console.log('\n⑤ 绘制链（桩 canvas：只验「不抛 / 尺寸与结构对得上 / 文案带真实数字」）')
 {
   const png = exportPatternPNG(P1000, { projectName: 'verify', cell: 24, codes: true })
-  check(png.ok === true && png.cell === 3 && png.width === 3026 && png.height === 3026,
+  /* 「图纸 PNG」导出的是**标版整页**（页眉 Logo + 网址胶囊 + 图纸 + 底部图案信息卡与颜色清单卡），
+     所以尺寸是整页的 2119×2988（V4 版式：页眉更高、双卡更高、留白更大），不是图纸主体的 3036×3036
+     —— 整页还要过 4096 px 边长那条墙，每格像素因此从 3 降到 2。
+     整页高度会随底部双卡的高度与图纸区/双卡之间的留白变（颜色多的时候卡片按列排，
+     行数固定 ⇒ 高度基本不变），改了卡片列数或留白，这里要跟着改。 */
+  check(png.ok === true && png.cell === 2 && png.width === 2119 && png.height === 2988,
     `1000×1000 图纸 PNG → cell=${png.cell} / ${png.width}×${png.height}`, png.message)
-  check(/3026×3026 像素/.test(png.message), 'PNG 文案带真实像素尺寸')
+  check(/2119×2988 像素/.test(png.message), 'PNG 文案带真实像素尺寸')
   check(/PDF 分板/.test(png.message) && /分板视图/.test(png.message), 'PNG 文案同时指路 PDF 分板与分板视图')
   console.log(`     PNG 文案：${png.message}`)
 
@@ -261,7 +269,8 @@ console.log('\n⑤ 绘制链（桩 canvas：只验「不抛 / 尺寸与结构对
 
   const html = buildPrintHTML(P1000, { projectName: 'verify', boardIndexes: [0, 1, 2] })
   const imgs = (html.match(/<img/g) || []).length
-  check(html.length > 0 && imgs === 4, `1000 格上只打 3 块板 → 文档生成成功（4 张图 = 1 封面 + 3 板）`, `img=${imgs}`)
+  /* 封面里有两张图：豆玩 Logo + 封面预览图。所以图数 = 板图数 + 2（不是 +1）。 */
+  check(html.length > 0 && imgs === 5, `1000 格上只打 3 块板 → 文档生成成功（5 张图 = 封面 Logo + 封面预览图 + 3 板）`, `img=${imgs}`)
   check(/只包含选中的 3 块板/.test(html) && /全图共 81 块/.test(html), '封面说明这份 PDF 只含选中的 3 块（全图 81 块）')
 
   printDocs.length = 0
@@ -279,7 +288,8 @@ console.log('\n⑤ 绘制链（桩 canvas：只验「不抛 / 尺寸与结构对
   }
   failPreviewCalls = 0
   check(!threw, '封面预览 toDataURL 抛错时 buildPrintHTML 不往外抛', threw ? String(threw.message) : '')
-  check(degraded.length > 0 && /预览图没画出来/.test(degraded) && (degraded.match(/<img/g) || []).length === 2, '退化成没有预览图的封面，板图照旧', `img=${(degraded.match(/<img/g) || []).length}`)
+  /* 预览图没了，封面上的 Logo 还在 —— 所以退化后是 3 张图（Logo + 2 块板），不是 2 张。 */
+  check(degraded.length > 0 && /预览图没画出来/.test(degraded) && (degraded.match(/<img/g) || []).length === 3, '退化成没有预览图的封面，板图照旧', `img=${(degraded.match(/<img/g) || []).length}`)
 
   /* 1000 格 + 全部板：新口径下 81 页，能出图（老口径是 1225 页，会在这里被拒）——
      这是「画布上限放到 1000 格后分板 PDF 还能用」的那条回归。 */

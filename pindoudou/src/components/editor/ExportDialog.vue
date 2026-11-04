@@ -1,0 +1,338 @@
+<script setup>
+/* 导出弹窗（Figma 124:1628）：格式 / 范围 / 纸张 / 包含内容 / 文件名 + 版式预览。
+   三种格式都接真实导出链路：PDF 走分板图纸打印、PNG 走高分辨率图纸、CSV 走材料清单。 */
+import { computed, nextTick, ref, watch } from 'vue'
+import BaseDialog from '../ui/BaseDialog.vue'
+import Icon from '../ui/Icon.vue'
+import { pattern, stats, projectName, hasPattern, layout, brand } from '../../composables/useStudio.js'
+import { inventory } from '../../composables/useInventory.js'
+import {
+  buildPatternImageCanvas, exportBoardPdf, exportPatternPNGAtDpi, exportMaterialsCSV
+} from '../../lib/exporters.js'
+import { toastOk, toastWarn, toastResult } from '../../composables/useToast.js'
+
+const props = defineProps({ modelValue: { type: Boolean, default: false } })
+const emit = defineEmits(['update:modelValue'])
+
+const FORMATS = [
+  { key: 'pdf', label: 'PDF 图纸', desc: '适合打印' },
+  { key: 'png', label: 'PNG 图片', desc: '适合分享' },
+  { key: 'csv', label: 'CSV 清单', desc: '材料表格' }
+]
+
+const format = ref('pdf')
+const range = ref('full')
+const paper = ref('portrait')
+const baseName = ref('')
+const busy = ref(false)
+const contents = ref({ ruler: true, codes: true, materials: false, info: true })
+const previewEl = ref(null)
+const previewMsg = ref('')
+
+const artW = computed(() => (pattern.value ? Math.min(pattern.value.artW || pattern.value.width, pattern.value.width) : 0))
+const artH = computed(() => (pattern.value ? Math.min(pattern.value.artH || pattern.value.height, pattern.value.height) : 0))
+const artOnly = computed(() => pattern.value && (artW.value !== pattern.value.width || artH.value !== pattern.value.height))
+const pageCount = computed(() => (layout.value ? layout.value.count : 1))
+const meta = computed(() => {
+  const p = pattern.value
+  if (!p) return ''
+  const s = stats.value
+  return `${p.width} × ${p.height} 颗 · 底板 ${s ? s.boardCm : ''} · ${s ? s.colors : 0} 色 · ${brand.value ? brand.value.name : ''}`
+})
+
+const fileName = computed(() => {
+  const base = (baseName.value || projectName.value || '豆玩图纸').trim()
+  const ext = format.value === 'csv' ? '-材料清单.csv' : format.value === 'png' ? '-图纸.png' : '_图纸.pdf'
+  return `${base}${ext}`
+})
+const rangeLabel = computed(() => {
+  const p = pattern.value
+  if (!p) return ''
+  return range.value === 'art' ? `成品区域 · ${artW.value} × ${artH.value}` : `完整画布 · ${p.width} × ${p.height}`
+})
+const summary = computed(() => {
+  if (format.value === 'pdf') return `PDF · ${rangeLabel.value} · ${pageCount.value} 页`
+  if (format.value === 'png') return `PNG · ${rangeLabel.value} · 1 个文件`
+  return 'CSV · 材料清单 · 1 个文件'
+})
+
+watch(() => props.modelValue, v => {
+  if (!v) return
+  baseName.value = projectName.value || ''
+  nextTick(drawPreview)
+})
+watch([format, range, paper, contents], () => { if (props.modelValue) nextTick(drawPreview) }, { deep: true })
+
+function targetPattern() {
+  const p = pattern.value
+  if (!p) return null
+  if (range.value === 'full') return p
+  const aw = artW.value, ah = artH.value
+  if (aw === p.width && ah === p.height) return p
+  const ox = Math.floor((p.width - aw) / 2)
+  const oy = Math.floor((p.height - ah) / 2)
+  const cells = new Int32Array(aw * ah)
+  for (let y = 0; y < ah; y++) {
+    for (let x = 0; x < aw; x++) cells[y * aw + x] = p.cells[(y + oy) * p.width + (x + ox)]
+  }
+  let beads = 0
+  const used = new Set()
+  for (const k of cells) {
+    if (k < 0) continue
+    beads += 1
+    used.add(k)
+  }
+  return {
+    ...p, width: aw, height: ah, cells,
+    artW: aw, artH: ah,
+    stats: { beadCount: beads, colorCount: used.size, emptyCount: cells.length - beads }
+  }
+}
+
+function drawPreview() {
+  const el = previewEl.value
+  const p = targetPattern()
+  if (!el || !p) return
+  try {
+    const longest = Math.max(p.width, p.height)
+    const cell = Math.max(2, Math.min(14, Math.floor(560 / longest)))
+    const built = buildPatternImageCanvas(p, {
+      format: 'png', cell, ruler: false, grid: true, codes: false,
+      includeLegend: false, includeStats: false
+    })
+    if (!built.ok) { previewMsg.value = built.message || '预览生成失败'; return }
+    const src = built.canvas
+    const scale = Math.min(1, 232 / src.width, 232 / src.height)
+    el.width = Math.max(1, Math.round(src.width * scale))
+    el.height = Math.max(1, Math.round(src.height * scale))
+    const ctx = el.getContext('2d')
+    ctx.clearRect(0, 0, el.width, el.height)
+    ctx.drawImage(src, 0, 0, el.width, el.height)
+    previewMsg.value = `底板 ${stats.value ? stats.value.boardCm : ''} · 缩放适应纸张`
+  } catch (e) {
+    previewMsg.value = `预览生成失败：${e && e.message ? e.message : '浏览器不支持'}`
+  }
+}
+
+async function run() {
+  const p = targetPattern()
+  if (!p || busy.value) return
+  busy.value = true
+  try {
+    if (format.value === 'pdf') {
+      const res = await exportBoardPdf(p, {
+        projectName: baseName.value || projectName.value,
+        orientation: paper.value,
+        ruler: contents.value.ruler,
+        codes: contents.value.codes,
+        grid: true,
+        includeLegend: contents.value.info,
+        includeMaterials: contents.value.materials,
+        inventoryMap: inventory.value
+      })
+      toastResult(res, '图纸已生成')
+      if (res && res.ok) emit('update:modelValue', false)
+    } else if (format.value === 'png') {
+      const res = exportPatternPNGAtDpi(p, {
+        dpi: 300,
+        projectName: baseName.value || projectName.value,
+        ruler: contents.value.ruler,
+        codes: contents.value.codes,
+        grid: true,
+        includeLegend: contents.value.info,
+        includeStats: contents.value.info
+      })
+      toastResult(res, '图纸已导出')
+      if (res && res.ok) emit('update:modelValue', false)
+    } else {
+      exportMaterialsCSV(p, inventory.value, baseName.value || projectName.value)
+      toastOk('材料清单已导出')
+      emit('update:modelValue', false)
+    }
+  } catch (e) {
+    toastWarn(e && e.message ? e.message : '导出失败')
+  } finally {
+    busy.value = false
+  }
+}
+</script>
+
+<template>
+  <BaseDialog
+    :model-value="modelValue" title="导出" head-icon="download"
+    dialog-class="cmdDlg" @update:model-value="v => emit('update:modelValue', v)"
+  >
+    <div v-if="!pattern" class="expEmpty">还没有生成图纸，先上传图片或选一个素材。</div>
+    <div v-else class="exp">
+      <div class="exp__form">
+        <div class="exp__title">
+          <b>{{ projectName }}</b>
+          <span>{{ meta }}</span>
+        </div>
+
+        <p class="cmdLabel exp__block">导出格式</p>
+        <div class="exp__formats">
+          <button
+            v-for="f in FORMATS" :key="f.key" type="button"
+            class="expFmt" :class="{ on: format === f.key }" @click="format = f.key"
+          >
+            <i class="expFmt__radio" aria-hidden="true" />
+            <b>{{ f.label }}</b>
+            <span>{{ f.desc }}</span>
+          </button>
+        </div>
+
+        <div class="exp__row">
+          <label class="expField">
+            <span>导出范围</span>
+            <select v-model="range">
+              <option value="full">完整画布 · {{ pattern.width }} × {{ pattern.height }}</option>
+              <option v-if="artOnly" value="art">成品区域 · {{ artW }} × {{ artH }}</option>
+            </select>
+            <Icon name="chevron-down" :size="16" />
+          </label>
+          <label v-if="format === 'pdf'" class="expField">
+            <span>纸张</span>
+            <select v-model="paper">
+              <option value="portrait">A4 · 纵向</option>
+              <option value="landscape">A4 · 横向</option>
+            </select>
+            <Icon name="chevron-down" :size="16" />
+          </label>
+        </div>
+
+        <template v-if="format !== 'csv'">
+          <p class="cmdLabel exp__block">包含内容</p>
+          <div class="exp__checks">
+            <label><input v-model="contents.ruler" type="checkbox"><i /><span>网格与坐标</span></label>
+            <label><input v-model="contents.codes" type="checkbox"><i /><span>色号标注</span></label>
+            <label><input v-model="contents.materials" type="checkbox"><i /><span>材料数量清单</span></label>
+            <label><input v-model="contents.info" type="checkbox"><i /><span>作品信息</span></label>
+          </div>
+        </template>
+
+        <div class="exp__name">
+          <span>文件名</span>
+          <input v-model="baseName" type="text" maxlength="40" :placeholder="projectName">
+          <em>{{ fileName }}</em>
+          <small>{{ format === 'pdf' ? `1 个文件 · ${pageCount} 页 · 保留当前画布尺寸` : '1 个文件 · 保留当前画布尺寸' }}</small>
+        </div>
+
+        <div class="cmdHint">
+          <Icon name="info" :size="16" />
+          <span>{{ hasPattern ? '导出内容按当前画布与所选格式生成，修改画布后重新导出即可。' : '当前画布为空，将导出空白网格图纸；绘制后可导出作品及材料清单。' }}</span>
+        </div>
+      </div>
+
+      <div class="exp__side">
+        <div class="expPreview">
+          <div class="expPreview__head">
+            <span>图纸预览</span>
+            <span>A4 · 第 1 / {{ pageCount }} 页</span>
+          </div>
+          <div class="expPreview__page">
+            <div class="expPreview__paper">
+              <div class="expPreview__pageHead">
+                <b>{{ projectName }}</b>
+                <span>{{ pattern.width }} × {{ pattern.height }} 颗 · {{ brand ? brand.name : '' }}</span>
+              </div>
+              <div class="expPreview__art"><canvas ref="previewEl" /></div>
+              <span class="expPreview__note">布局示意 · 非作品成品图</span>
+            </div>
+          </div>
+          <p class="expPreview__cap">{{ previewMsg }}</p>
+        </div>
+      </div>
+    </div>
+
+    <template #footer="{ close }">
+      <span class="cmdFoot__note"><span>{{ summary }}</span></span>
+      <div class="cmdFoot__actions">
+        <button type="button" class="btn btn-secondary" @click="close">取消</button>
+        <button type="button" class="btn primary" :disabled="!pattern || busy" @click="run">
+          <Icon name="download" :size="16" />{{ hasPattern ? '导出图纸' : '导出空白图纸' }}
+        </button>
+      </div>
+    </template>
+  </BaseDialog>
+</template>
+
+<style scoped>
+.exp{display:grid;grid-template-columns:1fr 1fr;gap:26px}
+.exp__title{display:flex;flex-direction:column;gap:4px;margin-bottom:16px}
+.exp__title b{font-size:var(--fs-md);font-weight:700;color:var(--ink);line-height:var(--ty-card-lh)}
+.exp__title span{font-size:var(--fs-xs);color:var(--muted);line-height:var(--ty-label-lh)}
+.exp__block{margin:16px 0 8px}
+.exp__formats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.expFmt{
+  position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:3px;
+  padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface);
+  text-align:left;transition:var(--t);
+}
+.expFmt:hover{border-color:var(--line-strong)}
+.expFmt.on{border-color:var(--primary-deep);background:#FBFDF1;box-shadow:0 0 0 1px var(--primary-deep) inset}
+.expFmt b{font-size:var(--fs-sm);font-weight:700;color:var(--ink);line-height:var(--ty-body-lh)}
+.expFmt span{font-size:var(--fs-xs);color:var(--muted);line-height:var(--ty-label-lh)}
+.expFmt__radio{
+  position:absolute;right:10px;top:10px;width:14px;height:14px;border-radius:50%;
+  border:1.5px solid var(--line-strong);background:#fff;
+}
+.expFmt.on .expFmt__radio{border-color:var(--primary-deep);box-shadow:inset 0 0 0 3px var(--primary-deep)}
+.exp__row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+.expField{position:relative;display:flex;flex-direction:column;gap:6px}
+.expField>span{font-size:var(--fs-xs);color:var(--muted);line-height:var(--ty-label-lh)}
+.expField select{
+  height:38px;padding:0 30px 0 12px;border:1px solid var(--line);border-radius:12px;
+  background:var(--surface);font:inherit;font-size:var(--fs-sm);color:var(--ink);
+  appearance:none;outline:none;cursor:pointer;line-height:var(--ty-body-lh)
+}
+.expField .pixelIcon{position:absolute;right:10px;bottom:13px;pointer-events:none}
+.exp__checks{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px}
+.exp__checks label{display:flex;align-items:center;gap:8px;cursor:pointer;font-size:var(--fs-sm);color:var(--ink);line-height:var(--ty-body-lh)}
+.exp__checks input{position:absolute;opacity:0;width:0;height:0}
+.exp__checks i{
+  width:18px;height:18px;border-radius:5px;border:1.5px solid var(--line-strong);
+  background:#fff;display:grid;place-items:center;flex:0 0 auto;
+}
+.exp__checks input:checked + i{background:var(--primary);border-color:var(--primary)}
+.exp__checks input:checked + i::after{
+  content:'';width:9px;height:5px;border-left:2px solid var(--primary-ink);
+  border-bottom:2px solid var(--primary-ink);transform:rotate(-45deg) translate(1px,-1px);
+}
+.exp__name{
+  display:flex;flex-direction:column;gap:6px;margin-top:16px;padding:12px 14px;
+  border-radius:12px;background:var(--surface-2);
+}
+.exp__name>span{font-size:var(--fs-xs);color:var(--muted);line-height:var(--ty-label-lh)}
+.exp__name input{
+  height:32px;border:0;border-bottom:1px solid var(--line-strong);background:transparent;
+  font:inherit;font-size:var(--fs-sm);color:var(--ink);outline:none;line-height:var(--ty-body-lh)
+}
+.exp__name em{font-style:normal;font-size:var(--fs-xs);color:var(--ink-2);line-height:var(--ty-label-lh)}
+.exp__name small{font-size:var(--fs-xs);color:var(--muted);line-height:var(--ty-label-lh)}
+.exp .cmdHint{margin-top:14px}
+.exp__side{display:flex;flex-direction:column}
+.expPreview{display:flex;flex-direction:column;gap:8px;height:100%}
+.expPreview__head{display:flex;align-items:center;justify-content:space-between;font-size:var(--fs-xs);color:var(--muted);line-height:var(--ty-label-lh)}
+.expPreview__page{
+  flex:1;min-height:0;display:flex;align-items:stretch;justify-content:center;
+  padding:14px;border:1px solid var(--line);border-radius:14px;background:var(--surface-2);
+}
+.expPreview__paper{
+  flex:1;min-height:0;display:flex;flex-direction:column;gap:10px;
+  padding:14px;background:#fff;border-radius:4px;box-shadow:0 1px 4px rgba(31,31,29,.08);
+}
+.expPreview__pageHead{display:flex;flex-direction:column;gap:2px;width:100%}
+.expPreview__pageHead b{font-size:var(--fs-xs);font-weight:700;color:var(--ink);line-height:var(--ty-label-lh)}
+.expPreview__pageHead span{font-size:12px;color:var(--muted);line-height:var(--ty-caption-lh)}
+.expPreview__art{flex:1;min-height:0;display:grid;place-items:center}
+.expPreview__art canvas{max-width:100%;max-height:100%;border-radius:2px}
+.expPreview__note{font-size:12px;color:var(--muted-2);line-height:var(--ty-caption-lh)}
+.expPreview__cap{font-size:var(--fs-xs);color:var(--muted);text-align:center;margin:0;line-height:var(--ty-label-lh)}
+.expEmpty{padding:40px 0;text-align:center;color:var(--muted);font-size:var(--fs-sm);line-height:var(--ty-body-lh)}
+@media(max-width:780px){
+  .exp{grid-template-columns:1fr;gap:18px}
+  .expPreview__page{min-height:180px}
+  .expPreview__art canvas{max-height:170px}
+}
+</style>

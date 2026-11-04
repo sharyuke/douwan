@@ -40,7 +40,127 @@
   }
   const mini = () => document.querySelector('.miniPreview')
 
+  /* 全屏创作工作台（≥1100px，2026-11 按 Figma 改版）没有左栏卡片：
+     卡片折叠 / 选图卡那一套断言只适用于平板的三栏版面，
+     桌面这一档的版面由 scripts/verify-console.cjs 单独验收。 */
+  if (document.querySelector('.csTop')) return { ok: true, consoleMode: true, skipped: true }
+
   const mobile = window.matchMedia('(max-width:780px)').matches
+
+  /* ======================================================================
+     v3 手机工作台（Figma 124:887）：顶栏 / 模式栏 / 画布 / 缩放栏 / 工具轨 / 底部抽屉
+     ====================================================================== */
+  if (document.querySelector('.msTop')) {
+    const out = { ok: true, mobile: true, mode: 'mobile-v3' }
+    const visible = el => !!el && el.getClientRects().length > 0
+    const txt = el => (el ? el.textContent.replace(/\s+/g, ' ').trim() : '')
+    const rect = sel => box(document.querySelector(sel))
+    const hasCanvas = !!document.querySelector('.stage canvas')
+
+    /* 顶栏：品牌 + 保存 / 导出 / 更多 */
+    out.top = {
+      logo: !!document.querySelector('.msTop__logo'),
+      save: txt(document.querySelector('.msTop .msPill')),
+      export: txt(document.querySelector('.msPill--dark')),
+      more: !!document.querySelector('.msTop .msIcon')
+    }
+    /* 模式栏：自由画布 / 图纸转换 / 素材库（自由画布没有上传入口） */
+    const cmdBtns = [...document.querySelectorAll('.msCmd > button')]
+    out.cmd = {
+      labels: cmdBtns.map(txt),
+      upload: txt(document.querySelector('.msCmd__upload')),
+      materials: txt(document.querySelector('.msCmd__materials')),
+      uploadHiddenInFree: !document.querySelector('.msCmd__upload')
+    }
+    /* 画布 + 缩放栏 + 工具轨 */
+    out.zoom = {
+      shown: visible(document.querySelector('.msZoom')),
+      undo: !!document.querySelector('.msZoom [title="撤销"]'),
+      redo: !!document.querySelector('.msZoom [title="重做"]'),
+      fit: !!document.querySelector('.msZoom__fit'),
+      pct: txt(document.querySelector('.msZoom__pct'))
+    }
+    const tools = [...document.querySelectorAll('.msTools .msTool')]
+    out.tools = {
+      labels: tools.map(txt),
+      count: tools.length,
+      sameRow: tools.length > 0 && new Set(tools.map(b => Math.round(b.getBoundingClientRect().top))).size === 1
+    }
+    out.layout = {
+      canvas: hasCanvas,
+      docOverflow: document.documentElement.scrollHeight - innerHeight,
+      top: rect('.msTop'),
+      tools: rect('.msTools'),
+      viewport: [innerWidth, innerHeight]
+    }
+    out.noPageScroll = out.layout.docOverflow <= 1
+    out.toolsAtBottom = !!out.layout.tools && Math.abs(out.layout.tools.bottom - innerHeight) <= 1
+    /* 旧版手机工作台的浮层不应该再出现（空画布时画布内的「上传图片 / 素材库」是 v3 空状态，不算旧版） */
+    out.legacyGone = !document.querySelector('.quickRow') && !document.querySelector('.mobileToolbar')
+
+    /* 颜色抽屉：打开有真实色块，收起后消失 */
+    const colorBtn = document.querySelector('.msTool--color')
+    if (colorBtn && !colorBtn.disabled) {
+      colorBtn.click(); await sleep(420)
+      out.colorSheet = {
+        open: !!document.querySelector('.msSheet--color'),
+        title: txt(document.querySelector('.msSheet__head b')),
+        swatches: document.querySelectorAll('.msSwatch').length
+      }
+      document.querySelector('.msSheet__head button')?.click(); await sleep(300)
+      out.colorSheet.closed = !document.querySelector('.msSheet--color')
+      out.colorSheet.ok = out.colorSheet.open && out.colorSheet.title === '颜色' &&
+        out.colorSheet.swatches > 0 && out.colorSheet.closed
+    }
+
+    /* 更多工具抽屉：画笔大小 + 辅助绘制 + 图纸处理 */
+    const moreBtn = [...document.querySelectorAll('.msTools .msTool')].find(b => /更多工具/.test(txt(b)))
+    if (moreBtn && !moreBtn.disabled) {
+      moreBtn.click(); await sleep(420)
+      out.moreSheet = {
+        open: !!document.querySelector('.msSheet--more'),
+        title: txt(document.querySelector('.msSheet__head b')),
+        groups: [...document.querySelectorAll('.msGroupTitle')].map(txt),
+        triple: document.querySelectorAll('.msTriple__btn').length
+      }
+      document.querySelector('.msSheet__head button')?.click(); await sleep(300)
+      out.moreSheet.closed = !document.querySelector('.msSheet--more')
+      out.moreSheet.ok = out.moreSheet.open && out.moreSheet.title === '更多工具' &&
+        out.moreSheet.groups.join(',') === '辅助绘制,图纸处理' &&
+        out.moreSheet.triple === 3 && out.moreSheet.closed
+    }
+
+    /* ⋯ 菜单抽屉：点遮罩收起 */
+    document.querySelector('.msTop .msIcon')?.click(); await sleep(420)
+    out.menuSheet = { open: !!document.querySelector('.msSheet--menu'), title: txt(document.querySelector('.msSheet__head b')) }
+    document.querySelector('.msScrim')?.click(); await sleep(300)
+    out.menuSheet.closed = !document.querySelector('.msSheet--menu')
+    out.menuSheet.ok = out.menuSheet.open && out.menuSheet.title === '更多' && out.menuSheet.closed
+
+    /* 导出：有图纸时打开「导出」弹窗；空画布时按钮禁用 */
+    const exportBtn = document.querySelector('.msPill--dark')
+    if (hasCanvas) {
+      exportBtn.click(); await sleep(700)
+      out.exportDialog = { title: txt(document.querySelector('.dialog__title')) }
+      document.querySelector('.dialog__head .iconbtn')?.click(); await sleep(300)
+      out.exportDialog.closed = !document.querySelector('.dialog__title')
+      out.exportDialog.ok = out.exportDialog.title.includes('导出') && out.exportDialog.closed
+    } else {
+      out.exportDisabledWhenEmpty = !!exportBtn && exportBtn.disabled
+    }
+
+    out.ok = out.top.logo && out.top.save === '保存' && out.top.export === '导出' && out.top.more &&
+      out.cmd.labels.slice(0, 2).join(',') === '自由画布,图纸转换' &&
+      out.cmd.uploadHiddenInFree && out.cmd.materials === '素材库' &&
+      out.zoom.shown && out.zoom.undo && out.zoom.redo && out.zoom.fit &&
+      out.tools.count === 5 && out.tools.labels.join(',') === '画笔,橡皮,填充,颜色,更多工具' && out.tools.sameRow &&
+      out.noPageScroll && out.toolsAtBottom && out.legacyGone && !!out.menuSheet.ok &&
+      (hasCanvas
+        ? (!!out.colorSheet?.ok && !!out.moreSheet?.ok && !!out.exportDialog?.ok)
+        : out.exportDisabledWhenEmpty === true)
+    return out
+  }
+
   const create = document.querySelector('.card--create')
   const canvasCard = document.querySelector('.canvasCard')
   if (!create || !canvasCard) return { ok: false, err: '工作台卡片没找到' }
@@ -141,289 +261,6 @@
     return out
   }
 
-  /* ======================================================================
-     手机端 4.0：顶栏页签 + 快捷区 / 大画布 / 参数条 / 底部工具行
-     ====================================================================== */
-  const styleOf = (sel, prop) => {
-    const el = document.querySelector(sel)
-    return el ? getComputedStyle(el)[prop] : null
-  }
-  out.asidesHidden = styleOf('.studio__sidebar', 'display') === 'none' &&
-    styleOf('.studio__insights', 'display') === 'none'
-  const visible = el => !!el && el.getClientRects().length > 0
-
-  /* ---------- 顶栏：三个页签 + 缩放 + 适应 ----------
-     旧的「功能 ▾ / 编辑 ▾」已经拆成快捷区与底部工具行，这里确认它们真的没了。 */
-  out.cmdLeft = document.querySelectorAll('.cmdBtn').length
-  out.fitTop = visible(document.querySelector('.fitTop'))
-
-  /* ---------- 快捷区与底部工具行 ---------- */
-  const quick = [...document.querySelectorAll('.quickItem')]
-  const tools = [...document.querySelectorAll('.toolItem')]
-  const sameRow = list => list.length > 0 &&
-    new Set(list.map(b => Math.round(b.getBoundingClientRect().top))).size === 1
-  out.quick = {
-    count: quick.length,
-    labels: quick.map(b => b.textContent.replace(/\s+/g, ' ').trim()),
-    sameRow: sameRow(quick),
-    heights: quick.map(b => Math.round(b.getBoundingClientRect().height))
-  }
-  out.tools = {
-    count: tools.length,
-    labels: tools.map(b => b.textContent.replace(/\s+/g, ' ').trim()),
-    sameRow: sameRow(tools),
-    heights: tools.map(b => Math.round(b.getBoundingClientRect().height))
-  }
-
-  const toolbarRect = box(document.querySelector('.canvasCard__toolbar'))
-  const canvasRect = box(canvasCard)
-  const stageRect = box(document.querySelector('.stage'))
-  const tabbarRect = box(document.querySelector('.tabbar'))
-  const quickRect = box(document.querySelector('.quickRow'))
-  const toolRect = box(document.querySelector('.mobileToolbar'))
-  out.layout = {
-    toolbarBottom: Math.round(toolbarRect.bottom),
-    quickTop: quickRect ? Math.round(quickRect.top) : null,
-    quickBottom: quickRect ? Math.round(quickRect.bottom) : null,
-    stageTop: Math.round(stageRect.top),
-    stageBottom: Math.round(stageRect.bottom),
-    toolTop: toolRect ? Math.round(toolRect.top) : null,
-    canvasBottom: Math.round(canvasRect.bottom),
-    tabbarTop: tabbarRect ? Math.round(tabbarRect.top) : null,
-    viewport: innerHeight,
-    docOverflow: document.documentElement.scrollHeight - innerHeight,
-    stageHeight: Math.round(stageRect.height)
-  }
-  out.toolbarAboveQuick = !!quickRect && quickRect.top >= toolbarRect.bottom - 1
-  out.quickAboveStage = stageRect.top >= (quickRect?.bottom ?? toolbarRect.bottom) - 1
-  out.toolsBelowStage = !!toolRect && toolRect.top >= canvasRect.bottom - 1
-  out.canvasAboveTabbar = !tabbarRect || toolRect.bottom <= tabbarRect.top + 1
-  out.noPageScroll = out.layout.docOverflow <= 1
-  out.stageTall = stageRect.height >= 180
-  /* 顶部作品条在手机上整条不显示，把高度让给画布；保存收进「更多功能」 */
-  const titleBar = document.querySelector('.canvasTitleBar')
-  out.titleBarHidden = !titleBar || getComputedStyle(titleBar).display === 'none'
-
-  /* 画布上只留六颗轻量浮控（撤销 / 重做 / 实际大小 / 放大 / 缩小 / 定位），没有常驻窄栏 */
-  const rail = document.querySelector('.toolRail')
-  const editPanel = document.querySelector('.editPanel')
-  const floaters = [...document.querySelectorAll('.stageTools__btn')]
-  out.editMenu = {
-    rail: visible(rail),
-    floaters: floaters.map(b => b.getAttribute('aria-label')),
-    panelClosed: !document.querySelector('.cmdPop--edit')
-  }
-  const hasCanvas = !!document.querySelector('.stage canvas')
-  const hasActualBtn = out.editMenu.floaters.some(t => /实际大小/.test(t || ''))
-  out.editMenuOk = !out.editMenu.rail && out.editMenu.panelClosed &&
-    (!hasCanvas || (out.editMenu.floaters.length === 6 && hasActualBtn &&
-      out.editMenu.floaters[0] === '撤销' && out.editMenu.floaters[1] === '重做'))
-
-  /* 顶部「更多」抽屉：换图 / 方案 / 分析 / 库存 / 保存作品 */
-  async function openTopMore() {
-    quick.find(b => /更多/.test(b.textContent))?.click()
-    await sleep(280)
-  }
-  async function pickFunction(re) {
-    await openTopMore()
-    const btn = [...document.querySelectorAll('.moreItem')].find(b => re.test(b.textContent))
-    btn?.click()
-    await sleep(420)
-    return btn
-  }
-
-  await openTopMore()
-  out.moreLabels = [...document.querySelectorAll('.moreItem')].map(b => b.textContent.replace(/\s+/g, ' ').trim())
-  out.moreSheet = !!document.querySelector('.modal--sheet')
-  out.uploadLabel = quick.map(b => b.textContent.replace(/\s+/g, ' ').trim()).find(t => /换图/.test(t)) || ''
-  out.uploadLabelOk = out.uploadLabel === '换图'
-  /* 顶部与底部「更多」互斥：底部开着时点顶部，只剩顶部那一套 */
-  tools.find(b => /更多/.test(b.textContent))?.click()
-  await sleep(300)
-  out.mutual = (document.querySelector('.dialog__head h2')?.textContent || '').trim() === '更多编辑工具' &&
-    document.querySelectorAll('.moreItem').length === 4
-  quick.find(b => /更多/.test(b.textContent))?.click()
-  await sleep(300)
-  out.mutexTitle = (document.querySelector('.dialog__head h2')?.textContent || '').trim()
-  out.mutual = out.mutual && out.mutexTitle === '更多功能'
-  /* 返回键：只关抽屉，不离开工作台 */
-  history.back()
-  await sleep(520)
-  out.backClosed = !document.querySelector('.modal--sheet')
-
-  /* 保存：顶部更多 → 保存作品，先弹名称编辑，确认后才落盘 */
-  let saveBtn = null
-  if (hasCanvas) {
-    await openTopMore()
-    saveBtn = [...document.querySelectorAll('.moreItem')].find(b => /保存作品/.test(b.textContent))
-    out.saveInFunctions = !!saveBtn
-  }
-  if (hasCanvas && saveBtn && !saveBtn.disabled) {
-    saveBtn.click()
-    await sleep(380)
-    const dlg = document.querySelector('.modal.show .dialog')
-    const input = dlg?.querySelector('input')
-    out.saveDialog = {
-      shown: !!dlg,
-      title: (dlg?.querySelector('.dialog__head h2')?.textContent || '').trim(),
-      value: input?.value || '',
-      focused: document.activeElement === input
-    }
-    dlg?.querySelector('.dialog__head .iconbtn')?.click()
-    await sleep(280)
-    out.saveDialog.closed = !document.querySelector('.modal.show')
-    out.saveDialog.ok = out.saveDialog.shown && out.saveDialog.title === '保存作品' &&
-      !!out.saveDialog.value && out.saveDialog.focused && out.saveDialog.closed
-  }
-
-  /* 空状态画布里的上传入口：按钮在画布内，点了要真的触发隐藏的 file input */
-  if (!hasCanvas) {
-    const up = document.querySelector('.emptyActions .btn.primary')
-    out.uploadBtnShown = !!up && up.offsetParent !== null
-    if (up) {
-      let clicks = 0
-      const orig = HTMLInputElement.prototype.click
-      HTMLInputElement.prototype.click = function () { clicks++ }
-      up.click()
-      HTMLInputElement.prototype.click = orig
-      out.uploadClickWired = clicks > 0
-    }
-  }
-
-  /* 每个功能：底部抽屉 + 只显示一张卡。画布 / 色板 / 换图走快捷区，
-     用量 / 方案 / 分析 / 库存走「更多功能」。 */
-  const PANELS = [
-    ['create', '图片', 'card--create', /换图/, 'quick'],
-    ['size', '画布与成品尺寸', 'card--size', /画布/, 'quick'],
-    ['scheme', '生成方案', 'card--scheme', /方案/, 'more'],
-    ['palette', '色板与参数', 'card--more', /色板/, 'quick'],
-    ['analysis', '作品分析', 'card--analysis', /分析/, 'more'],
-    ['colors', '颜色用量', 'card--colors', /用量/, 'more'],
-    ['stock', '我的库存', 'card--stock', /库存/, 'more']
-  ]
-  out.panels = {}
-  async function pickPanel(label, via) {
-    if (via === 'quick') {
-      const b = quick.find(x => label.test(x.textContent))
-      b?.click()
-      await sleep(420)
-      return b
-    }
-    return pickFunction(label)
-  }
-  for (const [key, title, cls, label, via] of PANELS) {
-    const btn = await pickPanel(label, via)
-    if (!btn) {
-      out.panels[key] = { ok: false, err: 'button missing' }
-      continue
-    }
-    const modal = document.querySelector('.modal.show')
-    const dialog = modal && modal.querySelector('.dialog')
-    const shownCards = modal
-      ? [...modal.querySelectorAll('.card')].filter(c => getComputedStyle(c).display !== 'none')
-      : []
-    const card = shownCards[0]
-    const body = card && card.querySelector('.card__body')
-    const info = {
-      sheet: !!modal && modal.classList.contains('modal--sheet'),
-      title: (dialog?.querySelector('.dialog__head h2')?.textContent || '').trim(),
-      cards: shownCards.length,
-      cardClass: card?.className || '',
-      bodyShown: !card || !body || shown(body),
-      dialogBottom: dialog ? Math.round(dialog.getBoundingClientRect().bottom) : null
-    }
-    /* 空状态下「颜色用量」没有卡片，只留一句说明；这句必须真的出现。 */
-    const emptyColors = !hasCanvas && key === 'colors'
-    if (emptyColors) {
-      info.emptyText = (dialog?.querySelector('.dialog__body')?.textContent || '').replace(/\s+/g, ' ').trim()
-    }
-    info.ok = info.sheet && info.title === title &&
-      (emptyColors
-        ? info.cards === 0 && /生成图纸后/.test(info.emptyText || '')
-        : info.cards === 1 && info.cardClass.includes(cls) && info.bodyShown) &&
-      (info.dialogBottom == null || info.dialogBottom <= innerHeight + 1)
-    const close = dialog?.querySelector('.dialog__head .iconbtn')
-    if (close) close.click()
-    await sleep(260)
-    info.closed = !document.querySelector('.modal.show')
-    info.ok = info.ok && info.closed
-    out.panels[key] = info
-  }
-
-  /* 「画布大小」抽屉不能只剩标题：那张卡就是抽屉正文，桌面端「点外面收起」的规则
-     在手机端会把正文收掉、留下一个空抽屉。这里按一下抽屉标题（拖把手的起点），
-     列表必须还在；选一档之后抽屉要直接关掉，不能留下空壳。 */
-  if (hasCanvas) {
-    await pickPanel(/画布/, 'quick')
-    const dlg = document.querySelector('.modal.show .dialog')
-    const bodyEl = dlg && dlg.querySelector('.dialog__body')
-    const bodyBefore = bodyEl ? Math.round(bodyEl.getBoundingClientRect().height) : 0
-    dlg?.querySelector('.dialog__head')?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
-    await sleep(140)
-    const panelAfter = dlg && dlg.querySelector('[data-size-panel]')
-    const bodyAfter = bodyEl ? Math.round(bodyEl.getBoundingClientRect().height) : 0
-    const row = dlg && (dlg.querySelector('[data-size="52×52"]') || dlg.querySelector('.sizeList .pick--row'))
-    if (row) row.click()
-    await sleep(600)
-    out.sizeSheet = {
-      bodyBefore,
-      bodyAfter,
-      panelKept: !!panelAfter && shown(panelAfter),
-      closedAfterPick: !document.querySelector('.modal.show')
-    }
-    out.sizeSheet.ok = bodyBefore > 120 && out.sizeSheet.panelKept && bodyAfter > 120 &&
-      out.sizeSheet.closedAfterPick
-  }
-
-  /* 底部工具行：选橡皮会切工具并展开参数条；选填充收起参数条 */
-  if (hasCanvas) {
-    const S = await window.__douzao.studio()
-    tools.find(b => /橡皮/.test(b.textContent))?.click()
-    await sleep(220)
-    out.toolSwitch = {
-      tool: S.tool.value,
-      params: visible(document.querySelector('.mobileParams')),
-      label: document.querySelector('.mobileParams__label')?.textContent?.trim() || ''
-    }
-    tools.find(b => /填充/.test(b.textContent))?.click()
-    await sleep(220)
-    out.toolSwitch.fillTool = S.tool.value
-    out.toolSwitch.fillHidesParams = !visible(document.querySelector('.mobileParams'))
-    tools.find(b => /画笔/.test(b.textContent))?.click()
-    await sleep(180)
-  }
-
-  /* 交付：快捷区「导出」直接打开图纸交付弹窗（不是抽屉） */
-  const deliveryBtn = quick.find(b => /导出/.test(b.textContent))
-  let deliveryOk = false
-  if (deliveryBtn && hasCanvas) {
-    deliveryBtn.click()
-    await sleep(420)
-    const dlg = document.querySelector('.modal.show .dialog')
-    const title = (dlg?.querySelector('.dialog__head h2')?.textContent || '').trim()
-    deliveryOk = title === '图纸交付' && !!dlg?.querySelector('.dialog__body')
-    dlg?.querySelector('.dialog__head .iconbtn')?.click()
-    await sleep(260)
-    deliveryOk = deliveryOk && !document.querySelector('.modal.show')
-  }
-  out.deliveryOk = deliveryOk
-  /* 空画布时「导出」必须是禁用态并给出原因，不能点开一个空弹窗 */
-  out.deliveryDisabledWhenEmpty = hasCanvas || (deliveryBtn ? deliveryBtn.disabled : false)
-  out.deliveryTitle = deliveryBtn ? (deliveryBtn.getAttribute('title') || '') : ''
-
-  out.ok = out.asidesHidden && out.cmdLeft === 0 && out.fitTop &&
-    out.quick.count === 5 && out.quick.sameRow && out.quick.heights.every(h => h >= 42) &&
-    out.tools.count === 6 && out.tools.sameRow && out.tools.heights.every(h => h >= 42) &&
-    out.toolbarAboveQuick && out.quickAboveStage && out.toolsBelowStage &&
-    out.canvasAboveTabbar && out.noPageScroll && out.stageTall && out.titleBarHidden &&
-    out.editMenuOk && out.uploadLabelOk && out.moreSheet && out.mutual && out.backClosed &&
-    (hasCanvas ? out.deliveryOk : out.deliveryDisabledWhenEmpty) &&
-    (!hasCanvas || (out.toolSwitch?.tool === 'erase' && out.toolSwitch?.params &&
-      out.toolSwitch?.label === '橡皮大小' && out.toolSwitch?.fillHidesParams)) &&
-    (!hasCanvas || !!out.sizeSheet?.ok) &&
-    (hasCanvas ? !!out.saveDialog?.ok : true) &&
-    Object.values(out.panels).every(p => p.ok) &&
-    (hasCanvas || (out.uploadBtnShown && out.uploadClickWired))
-
-  return out
+  /* 手机端已由上面的 v3 分支返回；走到这里说明版面既不是全屏工作台也不是手机工作台 */
+  return { ok: false, err: '未知工作台版面' }
 })()

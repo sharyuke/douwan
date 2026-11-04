@@ -31,6 +31,15 @@
   const box = el => (el ? el.getBoundingClientRect() : null)
   const shown = el => !!el && el.getClientRects().length > 0
 
+  /* 升级公告（2026-11-01）首次进入会盖一层弹窗：先关掉，
+     否则「更多」里的点击和「没有弹窗」的断言都会被它顶掉 */
+  const notice = q('.modal.show')
+  if (notice && /升级/.test(String(notice.textContent || ''))) {
+    const ack = [...notice.querySelectorAll('button')].find(b => /我知道了|继续使用/.test(String(b.textContent || '')))
+    if (ack) ack.click()
+    await sleep(600)
+  }
+
   const card = q('.canvasCard')
   const stage = q('.stage')
   const foot = q('.canvasCard__foot')
@@ -109,7 +118,7 @@
     range.dispatchEvent(new Event('input', { bubbles: true }))
     await sleep(120)
   }
-  out.eraser.sizeApplied = S.brushSize.value === S.BRUSH_MAX
+  out.eraser.sizeApplied = S.eraserSize.value === S.BRUSH_MAX
 
   tools.find(b => /画笔/.test(b.textContent))?.click()
   await sleep(200)

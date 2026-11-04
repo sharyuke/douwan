@@ -1,41 +1,66 @@
 <script setup>
 /**
- * 统一图标组件：把 src/data/icons.js 里的路径渲染成线性 SVG。
- * 用法 <Icon name="brush" />，颜色跟随 currentColor，尺寸用 size 调。
+ * 规范线性图标（Figma「豆玩 · 图标规范」155:2）
+ * -------------------------------------------------------------------------
+ * 一套 24×24 矢量用在 16 / 20 / 24 三档尺寸与所有状态：
+ *   · 线宽 1.65、round 端点与接头、只描边不填充
+ *   · 颜色走 currentColor，图标本身不染色（选中态也只改文字色）
+ *   · 尺寸只认三档，其它数值吸附到最近一档；图标框 ≠ 点击热区
+ * 旧名字（camelCase / fn- 前缀）通过 ICON_ALIASES 收口，新代码直接用规范名。
  */
-import { ICON_PATHS, ICON_FILLS } from '../../data/icons.js'
+import { computed } from 'vue'
+import { SPEC_ICONS, ICON_ALIASES } from '../../data/icons.js'
 
 const props = defineProps({
-  // 图标名，见 ICON_PATHS
   name: { type: String, required: true },
-  // 渲染尺寸（px），20 配 44px 高的工具按钮正合适
-  size: { type: [Number, String], default: 20 }
+  size: { type: [Number, String], default: 24 },
+  label: { type: String, default: '' },
+  strokeWidth: { type: [Number, String], default: 1.65 },
+  /** 仅给 chevron 这类同一段矢量的方向复用，其它图标不要传 */
+  rotate: { type: [Number, String], default: 0 }
 })
+
+const resolved = computed(() => ICON_ALIASES[props.name] || props.name)
+const path = computed(() => SPEC_ICONS[resolved.value] || SPEC_ICONS.info)
+
+/* 16 / 20 / 24 三档：≤17 → 16，18~21 → 20，≥22 → 24 */
+const px = computed(() => {
+  const raw = Number(props.size)
+  if (!Number.isFinite(raw) || raw <= 0) return 24
+  if (raw <= 17) return 16
+  if (raw <= 21) return 20
+  return 24
+})
+
+const boxStyle = computed(() => ({
+  width: `${px.value}px`,
+  height: `${px.value}px`,
+  transform: Number(props.rotate) ? `rotate(${Number(props.rotate)}deg)` : undefined
+}))
 </script>
 
 <template>
   <svg
-    class="icon"
-    :width="size"
-    :height="size"
+    class="pixelIcon uiIcon"
+    :width="px"
+    :height="px"
+    :style="boxStyle"
     viewBox="0 0 24 24"
     fill="none"
-    stroke="currentColor"
-    stroke-width="1.7"
+    :stroke-width="strokeWidth"
     stroke-linecap="round"
     stroke-linejoin="round"
-    aria-hidden="true"
+    :role="label ? 'img' : undefined"
+    :aria-label="label || undefined"
+    :aria-hidden="label ? undefined : 'true'"
+    :data-icon="resolved"
     focusable="false"
   >
-    <path v-for="(d, i) in (ICON_PATHS[name] || [])" :key="i" :d="d" />
-    <!-- 少数实心小块（比如填充那滴漆）单独描一遍 -->
-    <path
-      v-for="(d, i) in (ICON_FILLS[name] || [])" :key="'f' + i"
-      :d="d" fill="currentColor" stroke="none"
-    />
+    <path :d="path" stroke="currentColor" />
   </svg>
 </template>
 
 <style scoped>
-.icon{display:block;flex:0 0 auto}
+/* pixelIcon 是旧类名：站内已有几十条定位 / 旋转 / 隐藏规则挂在它上面，保留它免得布局跑偏 */
+.uiIcon{display:block;flex:0 0 auto;overflow:visible}
 </style>

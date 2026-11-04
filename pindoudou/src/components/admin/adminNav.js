@@ -7,8 +7,8 @@ export const ADMIN_NAV = [
   {
     group: '经营',
     items: [
-      { to: '/admin', label: '数据概览', icon: 'home', perm: 'overview.view', exact: true },
-      { to: '/admin/activity', label: '用户活跃监控', icon: 'chart', perm: 'activity.view' },
+      { to: '/admin', label: '数据概览', icon: 'layout-grid', perm: 'overview.view', exact: true },
+      { to: '/admin/activity', label: '用户活跃监控', icon: 'chart-no-axes-combined', perm: 'activity.view' },
       { to: '/admin/feedback', label: '意见反馈', icon: 'info', perm: 'feedback.view' },
       { to: '/admin/seo', label: 'SEO 管理', icon: 'search', perm: 'seo.view' }
     ]
@@ -16,22 +16,22 @@ export const ADMIN_NAV = [
   {
     group: '商品与交付',
     items: [
-      { to: '/admin/plans', label: '套餐管理', icon: 'box', perm: 'plan.manage' },
-      { to: '/admin/cards', label: '卡密管理', icon: 'lock', perm: 'card.view' },
+      { to: '/admin/plans', label: '套餐管理', icon: 'package', perm: 'plan.manage' },
+      { to: '/admin/cards', label: '卡密管理', icon: 'lock-keyhole', perm: 'card.view' },
       { to: '/admin/orders', label: '订单管理', icon: 'list', perm: 'order.view' }
     ]
   },
   {
     group: '内容与用户',
     items: [
-      { to: '/admin/assets', label: '素材库', icon: 'photo', perm: 'asset.view' },
-      { to: '/admin/users', label: '用户与兑换记录', icon: 'user', perm: 'user.view' }
+      { to: '/admin/assets', label: '素材库', icon: 'image', perm: 'asset.view' },
+      { to: '/admin/users', label: '用户与兑换记录', icon: 'user-round', perm: 'user.view' }
     ]
   },
   {
     group: '系统',
     items: [
-      { to: '/admin/settings', label: '系统设置', icon: 'sliders', perm: 'setting.view' },
+      { to: '/admin/settings', label: '系统设置', icon: 'sliders-horizontal', perm: 'setting.view' },
       { to: '/admin/logs', label: '操作日志', icon: 'save', perm: 'log.view' },
       { to: '/admin/admins', label: '管理员', icon: 'star', perm: 'admin.manage' }
     ]

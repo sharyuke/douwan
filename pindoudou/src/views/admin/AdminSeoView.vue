@@ -1182,12 +1182,12 @@ onMounted(() => {
   gap: 8px;
   margin: 6px 0 10px;
   font-size: var(--fs-xs);
-  color: var(--muted);
+  color: var(--muted);line-height:var(--ty-label-lh)
 }
 
 .adm-metric b {
   font-size: 18px;
-  color: var(--text);
+  color: var(--text);line-height:var(--ty-section-lh)
 }
 
 .adm-kpi-row {
@@ -1199,8 +1199,8 @@ onMounted(() => {
 }
 
 .adm-chip--mini {
-  font-size: 11px;
-  padding: 2px 8px;
+  font-size: 12px;
+  padding: 2px 8px;line-height:var(--ty-caption-lh)
 }
 
 .adm-check {
@@ -1209,14 +1209,14 @@ onMounted(() => {
   gap: 6px;
   font-size: var(--fs-xs);
   color: var(--text);
-  cursor: pointer;
+  cursor: pointer;line-height:var(--ty-label-lh)
 }
 
 .adm-notes {
   margin: 10px 0 0;
   padding-left: 18px;
   font-size: var(--fs-xs);
-  line-height: 1.9;
+  line-height: var(--ty-label-lh);
   color: var(--muted);
 }
 
@@ -1227,7 +1227,7 @@ onMounted(() => {
 .adm-hint {
   margin: 0;
   font-size: var(--fs-xs);
-  line-height: 1.7;
+  line-height: var(--ty-label-lh);
   color: var(--muted);
 }
 

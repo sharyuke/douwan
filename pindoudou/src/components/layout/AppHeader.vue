@@ -6,12 +6,11 @@ import {
   currentUser, displayName, isAnonymousDevice, isLoggedIn
 } from '../../composables/useUserAccount.js'
 import LoginDialog from '../ui/LoginDialog.vue'
-import PixelIcon from '../ui/PixelIcon.vue'
+import Icon from '../ui/Icon.vue'
 import logoDouwan from '../../assets/logo-douwan.webp'
 import { setPendingUpload } from '../../composables/usePendingUpload.js'
 import { libKeyword } from '../../composables/useAssets.js'
 import { toastErr } from '../../composables/useToast.js'
-import { isBeginner, requestSwitch } from '../../composables/useBeginnerMode.js'
 
 const loginOpen = ref(false)
 const uploadInput = ref(null)
@@ -26,6 +25,7 @@ const needLogin = computed(() => !isLoggedIn.value || isAnonymousDevice.value)
 
 const route = useRoute()
 const router = useRouter()
+const isHome = computed(() => route.name === 'home')
 
 /* 主导航在桌面 / 平板的左侧栏与手机底部标签栏，顶栏不放导航，避免双导航。 */
 const isLibrary = computed(() => route.name === 'materials-center' || route.name === 'material-category')
@@ -60,7 +60,7 @@ function onUpload(e) {
  *     现在它跟着当前作品走（带上作品 id），没图纸时才锁住。
  */
 const STUDIO_STEPS = [
-  { n: 1, label: '创建', hint: '上传照片 / AI生成素材 / 免费素材库' },
+  { n: 1, label: '创建', hint: '上传照片 / AI生成素材 / 素材库' },
   { n: 2, label: '设计', hint: '选方案、调颜色与画布大小' },
   { n: 3, label: '完成', hint: '逐颗拼制并标记作品完成' }
 ]
@@ -109,22 +109,14 @@ function goStep(s) {
   if (to && route.path !== to) router.push(to).catch(() => {})
 }
 
-/* ---------------------------------------------------------------- 模式切换
-   操作台（/create，新手三步）和专业工作台（/editor）是同一件作品的两层界面，
-   切换按钮常驻顶栏（不藏在「更多」里）。需要保护时由 requestSwitch 弹层确认。 */
-function switchTo(target) {
-  if ((target === 'beginner') === isBeginner.value) return
-  requestSwitch(target, 'header')
-}
 </script>
 
 <template>
-  <header class="topbar no-print" :class="{ 'topbar--library': isLibrary }">
+  <header class="topbar no-print" :class="{ 'topbar--library': isLibrary, 'topbar--home': isHome }">
     <div class="topbar__in">
       <RouterLink to="/" class="brand" aria-label="豆玩 DOUWAN 首页">
-        <img class="brand__logo" :src="logoDouwan" alt="豆玩 DOUWAN" width="157" height="52">
+        <img class="brand__logo" :src="logoDouwan" alt="豆玩 DOUWAN" width="144" height="55">
       </RouterLink>
-      <span class="brand__slogan">所爱皆可拼，万物皆可造</span>
 
       <!-- 工作台里用创作流程指示 -->
       <div v-if="inStudio" class="topsteps" aria-label="创作流程">
@@ -139,54 +131,41 @@ function switchTo(target) {
             :title="stepTitle(s)"
             @click="goStep(s)"
           >
-            <i><PixelIcon v-if="stepDone(s.n)" name="check" :size="11" /><template v-else>{{ s.n }}</template></i>
+            <i><Icon v-if="stepDone(s.n)" name="check" :size="16" /><template v-else>{{ s.n }}</template></i>
             <span class="stepLabel">{{ s.label }}</span>
           </button>
         </template>
       </div>
 
       <label v-if="isLibrary" class="libSearch">
-        <PixelIcon name="search" :size="15" />
+        <Icon name="search" :size="16" />
         <input v-model="libKeyword" type="search" placeholder="搜索你喜欢的素材…" aria-label="搜索素材">
       </label>
 
       <div class="topbar__actions">
         <input ref="uploadInput" class="libFile" type="file" accept="image/*" data-audit="header-file" @change="onUpload">
-        <div class="modeSwitch" role="group" aria-label="模式切换">
-          <button
-            type="button"
-            :class="{ on: isBeginner }"
-            :aria-pressed="isBeginner"
-            title="操作台：三步做出图纸"
-            @click="switchTo('beginner')"
-          >新手</button>
-          <button
-            type="button"
-            :class="{ on: !isBeginner }"
-            :aria-pressed="!isBeginner"
-            title="专业工作台：逐颗编辑、色板与高级参数"
-            @click="switchTo('pro')"
-          >专业</button>
-        </div>
         <button
           v-if="isLibrary"
           type="button" class="btn primary libUpload"
           title="上传图片去创作"
           @click="triggerUpload"
         >
-          <PixelIcon name="fn-upload" :size="16" />
+          <Icon name="image-up" :size="16" />
           <span class="libUpload__label">上传图片去创作</span>
         </button>
-        <RouterLink v-if="inStudio" to="/projects" class="btn btn-secondary btn--desktop">作品</RouterLink>
         <button
           v-if="needLogin"
           type="button"
           class="btn btn-secondary loginBtn"
           data-audit="header-login"
           @click="openLogin"
-        >登录</button>
+        >
+          <Icon name="user-round" :size="16" />
+          <span>登录</span>
+        </button>
         <RouterLink
           to="/account"
+          :class="{ 'is-guest': needLogin }"
           class="btn btn-secondary accountBtn"
           :title="needLogin ? '个人中心（可登录或绑定账号）' : '个人中心'"
           aria-label="个人中心"
@@ -199,12 +178,7 @@ function switchTo(target) {
             alt=""
             referrerpolicy="no-referrer"
           >
-          <svg v-else viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"
-               fill="none" stroke="currentColor" stroke-width="2"
-               stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="8" r="4"></circle>
-            <path d="M4.5 20c0-3.4 3.4-6 7.5-6s7.5 2.6 7.5 6"></path>
-          </svg>
+          <Icon v-else name="user-round" :size="16" />
           <span class="accountBtn__label">{{ needLogin ? '个人中心' : (displayName || '个人中心') }}</span>
         </RouterLink>
       </div>
@@ -225,21 +199,10 @@ function switchTo(target) {
 .libSearch:focus-within{border-color:#F0D98A;box-shadow:0 0 0 3px rgba(255,214,46,.14)}
 .libSearch input{
   flex:1;min-width:0;border:0;background:transparent;outline:none;
-  font-size:var(--fs-sm);color:var(--ink);
+  font-size:var(--fs-sm);color:var(--ink);line-height:var(--ty-body-lh)
 }
 .libSearch input::placeholder{color:var(--muted-2)}
 .libUpload{flex:0 0 auto}
-/* 模式切换：常驻顶栏，手机上也看得见（不藏在「更多」里） */
-.modeSwitch{
-  display:inline-flex;gap:3px;padding:3px;flex:0 0 auto;
-  background:var(--surface-3);border:1px solid var(--line);border-radius:var(--r-pill);
-}
-.modeSwitch button{
-  padding:5px 11px;border-radius:var(--r-pill);font-size:var(--fs-2xs);
-  font-weight:700;color:var(--muted);transition:var(--t);white-space:nowrap;
-}
-.modeSwitch button:hover{color:var(--ink)}
-.modeSwitch button.on{background:var(--primary);color:var(--primary-ink)}
 /* 素材库顶栏多了搜索框：中等宽度先收掉 slogan，给搜索留位置 */
 @media(max-width:1240px){.topbar--library .brand__slogan{display:none}}
 @media(max-width:1000px){

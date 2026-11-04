@@ -9,7 +9,7 @@ import { computed, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import ConfirmHost from './ConfirmHost.vue'
 import AdminModal from './AdminModal.vue'
-import PixelIcon from '../ui/PixelIcon.vue'
+import Icon from '../ui/Icon.vue'
 import logoDouwan from '../../assets/logo-douwan.webp'
 import { ADMIN_NAV, ADMIN_TITLES } from './adminNav.js'
 import { admin, isSuper, roleLabel, can, logout } from '../../composables/useAdminAuth.js'
@@ -101,7 +101,7 @@ async function submitPassword() {
               class="adm-nav__item"
               :class="{ on: isActive(item) }"
             >
-              <i><PixelIcon :name="item.icon" :size="16" /></i>{{ item.label }}
+              <i><Icon :name="item.icon" :size="16" /></i>{{ item.label }}
             </RouterLink>
           </template>
         </nav>
@@ -117,7 +117,7 @@ async function submitPassword() {
         <!-- 顶栏 -->
         <header class="adm-top">
           <button class="adm-burger" type="button" aria-label="打开导航" @click="drawerOpen = true">
-            <PixelIcon name="list" :size="20" />
+            <Icon name="list" :size="20" />
           </button>
           <div class="adm-top__heading">
             <div class="adm-top__title">{{ pageMeta.title }}</div>
@@ -130,7 +130,7 @@ async function submitPassword() {
             <div class="adm-userchip" @click="copyWithToast(admin && admin.username, '已复制账号')">
               <span class="adm-avatar">{{ initials }}</span>
               <span style="line-height:1.2">
-                <span class="adm-strong" style="font-size:var(--fs-xs);display:block">
+                <span class="adm-strong" style="font-size:var(--fs-xs);display:block;line-height:var(--ty-label-lh)">
                   {{ admin ? (admin.nickname || admin.username) : '—' }}
                 </span>
                 <span class="adm-2xs adm-muted">{{ roleLabel }}</span>
@@ -163,7 +163,7 @@ async function submitPassword() {
               class="adm-nav__item"
               :class="{ on: isActive(item) }"
             >
-              <i><PixelIcon :name="item.icon" :size="16" /></i>{{ item.label }}
+              <i><Icon :name="item.icon" :size="16" /></i>{{ item.label }}
             </RouterLink>
           </template>
         </nav>

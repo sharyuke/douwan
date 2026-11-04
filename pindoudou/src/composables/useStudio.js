@@ -9,8 +9,10 @@ import { computed, nextTick, reactive, ref, shallowRef, watch } from 'vue'
 import {
   BOARD_SIZE, EMPTY, beadCountOf, variantParams, generateVariants as runVariants, generateVariant,
   applyInventory, materialList, boardLayout, BEAD_WEIGHT_G,
-  buildability, estimateMinutes, readImagePixels, MAX_SOURCE_SIDE, colorFloorForCells
+  buildability, estimateMinutes, readImagePixels, MAX_SOURCE_SIDE, colorFloorForCells,
+  cleanupIsolated, CLEANUP_MAX_DE, PATTERN_VERSION, patternProfile
 } from '../lib/pattern.js'
+import { hexToLab } from '../lib/color.js'
 /* 拼板规格（52 / 78 / 104 / 120 钉画线板）与豆径（2.6mm 小豆 / 5mm 中号豆）的唯一口径 */
 import {
   BEADS, BEAD_KEYS, DEFAULT_BEAD, BOARD_SPECS, BOARD_MIN, SIZE_TIERS,
@@ -119,6 +121,8 @@ export const options = reactive({
   cartoonStyle: saved.cartoonStyle || 'standard',
   numbering: saved.numbering !== false,
   showGrid: saved.showGrid !== false,
+  /** 画布上的成品尺寸标注（标尺里的 W/H 尺寸线 + 厘米胶囊）：关 = 只留刻度 */
+  sizeMarks: saved.sizeMarks !== false,
   boardLines: saved.boardLines !== false,
   inventoryMode: saved.inventoryMode || 'strict'
 })
@@ -145,6 +149,25 @@ export const sourceKind = ref('raster')
  * 矢量素材按 1:1（它们本来就是照 29 格整块底板画的，SVG 的 200×160 只是取像素的画布尺寸）。
  */
 export const sourceAspect = ref(1)
+/**
+ * 源图是不是「拿图纸自己重建的位图」。
+ *
+ * 从老存档打开时没有原图，就把当前图纸重建成一张位图当源图（见 rebuildThumbSource）：
+ * 最长边提到 REBUILD_SOURCE_SIDE（1024 px），插值管几何（边界落在 1/k 格的
+ * 精细位置）、落色管颜色（像素收回图案本来的颜色），放大重新取样是脆边，
+ * 既不一块一块、也不长一圈虚边（2026-10-31 用户反馈「放大之后变模糊了」）。
+ * 这个标记只剩一个用途：saveProject 不给这种源图存快照（存了也是同样分辨率，白占地方）。
+ */
+export const sourceFromPattern = ref(false)
+/**
+ * 存档里带的那份源图（最长边 512 px 的 data URL）。
+ *
+ * 为什么要存：作品存下来再打开时原图已经不在内存里，以前只能拿图纸重建一张位图当源图，
+ * 于是「放大尺寸 / 恢复方案」都是在放大一张低分辨率的图 —— 出来一片马赛克
+ * （2026-10-29 用户反馈「放大缩小尺寸为什么会出现这样的情况」）。
+ * 存一份够重新取样的源图，重新打开的作品放大才有细节。
+ */
+let sourceSnapshot = null
 /**
  * 手机上「已生成图纸」的紧凑提示（桌面端仍走原来的 toast）。
  * 只在 ≤780px 上传照片、自动匹配画布后写入；字段全部来自真实生成结果，
@@ -175,11 +198,37 @@ export const genMs = ref(0)
 export const projectName = ref('我的拼豆作品')
 export const saveStatus = ref('未保存')
 export const currentView = ref('pattern')
+/**
+ * 创作模式：free = 自由画布（从零手绘）/ edit = 图纸转换（上传图片转图纸）。
+ *
+ * 这是两件互不相干的事：各自有一份图纸、源图、画布尺寸、作品名与保存关联。
+ * 切换模式只换文档，绝不把图纸转换导入的图片 / 生成出来的图纸带进自由画布
+ * （见下面的 switchCreateMode / activateCreateMode）。界面上的分段开关读这个 ref。
+ */
+export const createMode = ref('edit')
+/** 当前内存里这份文档属于哪种模式（切换时靠它决定把文档收进哪个槽位） */
+export const workspaceMode = ref('edit')
+/** 两种模式各自收着的文档；null = 这个模式还没有自己的文档 */
+const modeWorkspaces = { free: null, edit: null }
 export const zoom = ref(1)
 export const tool = ref('paint')
-/** 画笔 / 橡皮的笔刷边长（格）。1 = 原来的单格编辑，大笔刷用于大面积涂改 */
+/** 画笔的笔刷边长（格）。1 = 单格编辑，2~5 用于大面积上色（设计稿 124:84） */
 export const brushSize = ref(1)
-export const BRUSH_MAX = 32
+/** 橡皮的笔刷边长（格）。与画笔分开存，切换工具不会把对方的尺寸带走 */
+export const eraserSize = ref(1)
+/** 笔刷边长上限：设计稿「画笔尺寸 / 橡皮尺寸」的滑杆都是 1–5 颗 */
+export const BRUSH_MAX = 5
+
+/** 当前工具自己的笔刷边长（填充 / 吸色等工具不画，读出来仍是画笔那一档） */
+export function toolSizeOf(t = tool.value) {
+  return t === 'erase' ? eraserSize.value : brushSize.value
+}
+export function setToolSize(value, t = tool.value) {
+  const n = Math.min(BRUSH_MAX, Math.max(1, Math.round(Number(value)) || 1))
+  if (t === 'erase') eraserSize.value = n
+  else brushSize.value = n
+  return n
+}
 export const brushColorId = ref('')
 export const selectedBoard = ref(0)
 export const canvasEl = shallowRef(null)
@@ -256,6 +305,17 @@ function padToCanvas(p, cw, ch) {
   }
   const beads = beadCountOf(cells)
   const total = bw * bh
+  /* 手工修改记录跟着格子一起平移：它是按格子下标记的，底板变了下标就变了 */
+  let editMap
+  if (p.editMap instanceof Map && p.editMap.size) {
+    editMap = new Map()
+    for (const [i, e] of p.editMap) {
+      const nx = (i % p.width) + ox - sx
+      const ny = Math.floor(i / p.width) + oy - sy
+      if (nx < 0 || ny < 0 || nx >= bw || ny >= bh) continue
+      editMap.set(ny * bw + nx, e)
+    }
+  }
   return {
     ...p,
     width: bw,
@@ -263,6 +323,7 @@ function padToCanvas(p, cw, ch) {
     artW: aw,
     artH: ah,
     cells,
+    editMap,
     stats: {
       ...(p.stats || {}),
       beadCount: beads,
@@ -288,27 +349,30 @@ function repadVariants(cw, ch) {
 }
 
 /**
- * 手工改过的图纸换尺寸：**不重新取样**，旧格子 1:1 挪进新画布。
+ * 手工改过的图纸换尺寸：**不重新取样**，按新的成品区域改画面。
  *
  * 为什么：setCanvasSize 原来一律 regenerate，按源图重新采样会把逐颗修改冲掉
  * （2026-10-28 用户反馈：图纸转换后换钉板尺寸，已经编辑好的图不要重置）。
- * 平移规则：**以底板中心为锚，整张图（含画到留白里的格子）一起挪** ——
- * 换更大的板时图案居中落到新板正中、四周补空格；同一块板上改成品区域时图案原地不动
- * （只是成品区域框变小）；越出底板放不下的格子裁掉。
- * 成品区域（artW/artH）落成新尺寸，底板口径（分板 / 豆径）跟着画布规格走。
- * 想按新尺寸重新转换仍走「恢复方案」。
  *
- * scaleArt = true 时，**底板已经装不下原来的图**（旧成品区域比新成品区域大）
- * 走「等比缩小」而不是「裁边」：整张图缩到新成品区域里，手改的格子按块合并。
- * 这条只给「换钉板（底板变小）」用 —— 同一块板上拖成品尺寸滑杆时图案仍然原地不动。
+ * 两条路，看**成品区域有没有变**：
+ *   · 变了 → **画面等比缩放**（从底稿投影，见 masterFromPattern）：整张图缩到新的成品区域里，
+ *     缩小时按块合并、放大时从底稿把细节还原（缩到 52 再放回 104，细节一颗不少）。
+ *     界面写「117 × 117 颗」时画面就得是 117 × 117 格大 —— 数字与画面对不上，
+ *     是最容易被当成「坏了」的那种不一致
+ *     （2026-10-29 用户反馈：拖清晰度滑杆调的是**画面在画布上的大小**，
+ *     不是把画布改小；以前只把成品区域的框改小，画面照旧留在原处）。
+ *   · 没变（只是底板换大了）→ 旧格子 1:1 挪进新底板，以底板中心为锚居中落位，
+ *     画到留白里的格子也跟着走，不会丢。
+ * 画在成品区域之外（板面留白里）的豆子在缩放时带不过去，要如实报数（别静默丢）。
+ * 想按新尺寸重新转换仍走「恢复方案」。
  *
  * @returns {{ next: object, moved: boolean, croppedBeads: number, keptArtEmpty: number, scaled: boolean }}
  *          moved = 格子整体挪过位（下标失效，进度与撤销栈要清）
- *          croppedBeads = 裁掉的豆子颗数（底板缩小时 > 0）
+ *          croppedBeads = 没带过去的豆子颗数（缩放时是成品区域外那颗）
  *          keptArtEmpty = 幸存下来的「去背景空格」（只数新旧成品区域都盖住的）
- *          scaled = 走的是「等比缩小」而不是 1:1 平移
+ *          scaled = 走的是「等比缩放」而不是 1:1 平移
  */
-function resizePreserveCells(p, bw, bh, aw, ah, bs, bk, { scaleArt = false } = {}) {
+function resizePreserveCells(p, bw, bh, aw, ah, bs, bk) {
   const oldW = p.width
   const oldH = p.height
   const oldArtW = Math.max(1, Math.min(oldW, p.artW || oldW))
@@ -323,10 +387,17 @@ function resizePreserveCells(p, bw, bh, aw, ah, bs, bk, { scaleArt = false } = {
   const cells = new Int32Array(bw * bh).fill(EMPTY)
   let croppedBeads = 0
   let keptArtEmpty = 0
-  /* 底板装不下原图了 → 缩图，不裁图 */
-  const scaled = scaleArt && (oldArtW > aw || oldArtH > ah)
+  /* 成品区域变了 → 画面跟着缩放（数字与画面对得上）；没变（只换底板）→ 1:1 平移 */
+  const scaled = oldArtW !== aw || oldArtH !== ah
+  /* 底稿：这个方案见过的**最大网格**（见 masterFromPattern 的说明）。
+     画面一律从它投影，缩小再放大才能把并掉的细节还回来。 */
+  const master = ensureMaster(p)
+  let nextMaster = master
+  let palette = Array.from(p.palette || [])
   if (scaled) {
-    const art = resampleArtCells(p, sx, sy, oldArtW, oldArtH, aw, ah)
+    const art = projectMasterArt(master, aw, ah)
+    /* 画面上的格子下标属于底稿色板（之后 recalcStats 会修剪掉没用的色号） */
+    palette = master.palette.slice()
     for (let y = 0; y < ah; y++) {
       const dstRow = (oy + y) * bw
       for (let x = 0; x < aw; x++) {
@@ -343,6 +414,11 @@ function resizePreserveCells(p, bw, bh, aw, ah, bs, bk, { scaleArt = false } = {
         if (inArtY && x >= sx && x < sx + oldArtW) continue
         if (p.cells[row + x] >= 0) croppedBeads++
       }
+    }
+    /* 放大到比底稿还大：把投影结果升格成新底稿，
+       此后在这个更大的尺寸上缩小再放大，仍能精确还原。 */
+    if (aw > master.artW || ah > master.artH) {
+      nextMaster = { artW: aw, artH: ah, cells: Int32Array.from(art), palette: master.palette.slice() }
     }
   } else {
     for (let y = 0; y < oldH; y++) {
@@ -374,6 +450,10 @@ function resizePreserveCells(p, bw, bh, aw, ah, bs, bk, { scaleArt = false } = {
     artW: aw,
     artH: ah,
     cells,
+    palette,
+    colors: palette.map(c => c.id),
+    editMap: remapEditMap(p, bw, bh, aw, ah, sx, sy, ox, oy),
+    master: nextMaster,
     boardSize: bs,
     beadKey: bk
   }
@@ -392,70 +472,407 @@ function resizePreserveCells(p, bw, bh, aw, ah, bs, bk, { scaleArt = false } = {
 }
 
 /**
- * 把旧成品区域等比缩到新成品区域：每个新格子取覆盖它的那块旧格子里
- * **出现最多的豆色**（整块没豆就留空）。
+ * 底稿（master）：每个方案在内存里留一份**最大网格**的成品区域 + 色板。
  *
- * 为什么需要它（2026-10-29 用户反馈「画布编辑后切换钉板画面会裁掉」）：
- * 底板换小到装不下原来的图时，1:1 平移只能把图裁掉一半 —— 画面少一大半，
- * 看着像坏了。而没手改过的图走的是「按新尺寸重新取样」，整张图会等比缩小；
- * 手改过的图也得等比缩小，只是缩的是**改过的网格**而不是原图。
+ * 为什么要它（2026-10-31 用户反馈）：「缩小之后再放大，细节全部丢失了」。
+ * 缩小时几颗旧格并成一颗（块内多数色），这是必然的有损操作；但如果下一笔放大
+ * 又拿**缩小后的画面**当源，那些并掉的细节就再也回不来了。
+ * 所以缩小时只改画面、不动底稿；放大时从底稿投影 —— 缩到 52 再放回 104，
+ * 104 的细节一颗不少。在更小尺寸上逐颗改的格子会按比例写回底稿对应的那一块
+ * （见 bakeEditsIntoMaster），换回大尺寸时修改还在原处。
  *
- * 代价：缩图时几颗旧格会并成一颗（取块内多数色），单颗手改的小细节可能被同色淹没。
+ * 只存成品区域（四周留白由底板决定，不属于图纸内容）；放大到比底稿还大时
+ * 把投影结果升格成新底稿（见 resizePreserveCells），此后仍能精确还原。
+ * 底稿不进存档（体积会翻倍），打开存档时底稿 = 存档里的网格。
  */
-function resampleArtCells(p, sx, sy, oldArtW, oldArtH, aw, ah) {
+function masterFromPattern(p) {
+  const aw = Math.max(1, Math.min(p.width, p.artW || p.width))
+  const ah = Math.max(1, Math.min(p.height, p.artH || p.height))
+  const sx = Math.floor((p.width - aw) / 2)
+  const sy = Math.floor((p.height - ah) / 2)
   const cells = new Int32Array(aw * ah).fill(EMPTY)
-  for (let ny = 0; ny < ah; ny++) {
-    const y0 = sy + Math.floor(ny * oldArtH / ah)
-    const y1 = Math.min(sy + oldArtH, sy + Math.max(Math.floor(ny * oldArtH / ah) + 1, Math.ceil((ny + 1) * oldArtH / ah)))
-    for (let nx = 0; nx < aw; nx++) {
-      const x0 = sx + Math.floor(nx * oldArtW / aw)
-      const x1 = Math.min(sx + oldArtW, sx + Math.max(Math.floor(nx * oldArtW / aw) + 1, Math.ceil((nx + 1) * oldArtW / aw)))
-      /* 块内颜色最多的是这一格的颜色；平手时取先扫到的那个（结果稳定可复现） */
-      const counts = new Map()
-      for (let y = y0; y < y1; y++) {
-        const row = y * p.width
-        for (let x = x0; x < x1; x++) {
-          const v = p.cells[row + x]
-          if (v < 0) continue
-          counts.set(v, (counts.get(v) || 0) + 1)
-        }
-      }
-      let best = EMPTY
-      let bestN = 0
-      for (const [v, n] of counts) {
-        if (n > bestN) { bestN = n; best = v }
-      }
-      cells[ny * aw + nx] = best
-    }
+  for (let y = 0; y < ah; y++) {
+    const row = (sy + y) * p.width + sx
+    for (let x = 0; x < aw; x++) cells[y * aw + x] = p.cells[row + x]
   }
-  return cells
+  return { artW: aw, artH: ah, cells, palette: Array.from(p.palette || []) }
+}
+
+/** 拿这个方案的底稿；还没有（刚生成 / 刚打开存档）就按当前画面建一份 */
+function ensureMaster(p) {
+  const m = p.master
+  if (m && m.cells && m.cells.length === m.artW * m.artH && Array.isArray(m.palette)) return m
+  return masterFromPattern(p)
 }
 
 /**
- * 全部方案做「保留手工修改」的尺寸调整（setCanvasSize 的手工编辑分支）。
- * 方案基底与 active 各自平移；进度 / 撤销栈按下标是否失效处理；
- * 裁掉了豆子时即使 silent 也要说一声 —— 丢数据不能没有解释。
- *
- * scaleArt：底板换小到装不下原图时走「等比缩图」（不裁画面），见 resizePreserveCells。
+ * 把底稿的成品区域投影到 aw × ah：每个新格子取覆盖它的那块底稿里**出现最多的豆色**
+ * （整块没豆就留空；平手取先扫到的，结果稳定可复现）。
+ * 放大时覆盖块落在一格之内 ⇒ 就是那颗豆，等于按比例铺满；缩小就是块内多数色。
  */
-function resizeVariantsPreserving(aw, ah, { silent = false, scaleArt = false } = {}) {
+function projectMasterArt(master, aw, ah) {
+  const mw = master.artW
+  const mh = master.artH
+  if (aw === mw && ah === mh) return Int32Array.from(master.cells)
+  const out = new Int32Array(aw * ah).fill(EMPTY)
+  const counts = new Map()
+  for (let ny = 0; ny < ah; ny++) {
+    const y0 = Math.floor(ny * mh / ah)
+    const y1 = Math.min(mh, Math.max(y0 + 1, Math.ceil((ny + 1) * mh / ah)))
+    for (let nx = 0; nx < aw; nx++) {
+      const x0 = Math.floor(nx * mw / aw)
+      const x1 = Math.min(mw, Math.max(x0 + 1, Math.ceil((nx + 1) * mw / aw)))
+      counts.clear()
+      let best = EMPTY
+      let bestN = 0
+      for (let y = y0; y < y1; y++) {
+        const row = y * mw
+        for (let x = x0; x < x1; x++) {
+          const v = master.cells[row + x]
+          if (v < 0) continue
+          const n = (counts.get(v) || 0) + 1
+          counts.set(v, n)
+          if (n > bestN) { bestN = n; best = v }
+        }
+      }
+      out[ny * aw + nx] = best
+    }
+  }
+  return out
+}
+
+/**
+ * 把这一笔在**当前画面**上的改动写回底稿：改过的画面格子按比例映射到
+ * 底稿里它盖住的那一块，整块都改成这颗豆（擦掉就是 EMPTY）。
+ * 画在成品区域之外（板面留白里）的豆子不属于底稿，跳过。
+ */
+function bakeEditsIntoMaster(p, diffs) {
+  const master = ensureMaster(p)
+  const mw = master.artW
+  const mh = master.artH
+  const aw = Math.max(1, Math.min(p.width, p.artW || p.width))
+  const ah = Math.max(1, Math.min(p.height, p.artH || p.height))
+  const sx = Math.floor((p.width - aw) / 2)
+  const sy = Math.floor((p.height - ah) / 2)
+  const palette = master.palette.slice()
+  const indexOf = new Map(palette.map((c, i) => [c.id, i]))
+  const cells = Int32Array.from(master.cells)
+  let touched = false
+  for (const [i, e] of diffs) {
+    const rx = (i % p.width) - sx
+    const ry = Math.floor(i / p.width) - sy
+    if (rx < 0 || ry < 0 || rx >= aw || ry >= ah) continue
+    let k = EMPTY
+    if (e) {
+      k = indexOf.get(e.id)
+      if (k === undefined) {
+        palette.push(e.color)
+        k = palette.length - 1
+        indexOf.set(e.id, k)
+      }
+    }
+    const x0 = Math.floor(rx * mw / aw)
+    const x1 = Math.min(mw, Math.max(x0 + 1, Math.ceil((rx + 1) * mw / aw)))
+    const y0 = Math.floor(ry * mh / ah)
+    const y1 = Math.min(mh, Math.max(y0 + 1, Math.ceil((ry + 1) * mh / ah)))
+    for (let y = y0; y < y1; y++) {
+      const row = y * mw
+      for (let x = x0; x < x1; x++) {
+        cells[row + x] = k
+        touched = true
+      }
+    }
+  }
+  return touched ? { artW: mw, artH: mh, cells, palette } : master
+}
+
+/**
+ * 手工修改记录跟着画面一起挪位（按块缩放 / 换底板都走这里）。
+ * 规则与豆子一致：成品区域内的按比例映射，画在成品区域外的丢掉（那边本来也带不过去）。
+ */
+function remapEditMap(p, bw, bh, aw, ah, sx, sy, ox, oy) {
+  if (!(p.editMap instanceof Map) || !p.editMap.size) return undefined
+  const oldArtW = Math.max(1, Math.min(p.width, p.artW || p.width))
+  const oldArtH = Math.max(1, Math.min(p.height, p.artH || p.height))
+  const out = new Map()
+  for (const [i, e] of p.editMap) {
+    const rx = (i % p.width) - sx
+    const ry = Math.floor(i / p.width) - sy
+    if (rx < 0 || ry < 0 || rx >= oldArtW || ry >= oldArtH) continue
+    const nx = Math.min(aw - 1, Math.floor(rx * aw / oldArtW))
+    const ny = Math.min(ah - 1, Math.floor(ry * ah / oldArtH))
+    out.set((oy + ny) * bw + ox + nx, e)
+  }
+  return out
+}
+
+/* ------------------------------------------------------------ 手工修改层 */
+
+/**
+ * 手工修改层（editLayer）：只记**用户亲手改过的格子**，分辨率是**改那一刻的网格**。
+ *
+ * 为什么不能只用 editMap（2026-11-01 用户定稿：「缩放分两部分，原图部分按原图缩放，
+ * 修改的部分按修改时所在的尺寸缩放」）：editMap 记的是当前网格的下标，跟着画面按比例
+ * 映射 —— 在 104 上改的一颗，缩到 52 再放回 104 就变成 2×2 一块（52 的分辨率），
+ * 那一颗 104 的精度被吃掉了。所以另存一层：
+ *   · 这一层**不随画面缩小**，只在「在更大的网格上改」时按比例放大；
+ *   · 换尺寸时把它投影到新网格：放大 = 一颗铺满它对应的块，缩小 = 块内改过的值占多数者胜；
+ *   · 没改过的格子在这一层是空的，换尺寸时那部分永远按原图重新取样。
+ *
+ * 编码：mask[i] = 1 表示这格被改过；cells[i] = 这一层色板的下标，EMPTY = 用户擦掉；
+ * palette 只存这一层用到的颜色（按色号 id 与主色板对齐）。
+ */
+function createEditLayer(w, h) {
+  return { w, h, mask: new Uint8Array(w * h), cells: new Int32Array(w * h).fill(EMPTY), palette: [] }
+}
+
+/** 按当前图纸的 editMap 建一层（老存档 / 首次编辑时用；分辨率 = 当前网格） */
+function editLayerFromPattern(p) {
+  if (!(p.editMap instanceof Map) || !p.editMap.size) return null
+  const art = artBoxOf(p)
+  const sx = Math.floor((p.width - art.w) / 2)
+  const sy = Math.floor((p.height - art.h) / 2)
+  const layer = createEditLayer(art.w, art.h)
+  const indexOf = new Map()
+  for (const [i, e] of p.editMap) {
+    const rx = (i % p.width) - sx
+    const ry = Math.floor(i / p.width) - sy
+    if (rx < 0 || ry < 0 || rx >= art.w || ry >= art.h) continue
+    const at = ry * art.w + rx
+    layer.mask[at] = 1
+    if (!e) {
+      layer.cells[at] = EMPTY
+      continue
+    }
+    const color = e.color || (e.id ? getColorById(e.id) : null)
+    if (!color) {
+      layer.cells[at] = EMPTY
+      continue
+    }
+    let k = indexOf.get(color.id)
+    if (k === undefined) {
+      k = layer.palette.length
+      layer.palette.push(color)
+      indexOf.set(color.id, k)
+    }
+    layer.cells[at] = k
+  }
+  return layer.mask.some(Boolean) ? layer : null
+}
+
+/** 层要跟得上当前网格：只在变大时按比例放大（每颗旧格铺满它盖住的那一块） */
+function growEditLayer(layer, w, h) {
+  if (layer && layer.w >= w && layer.h >= h) return layer
+  if (!layer) return createEditLayer(w, h)
+  const nw = Math.max(w, layer.w)
+  const nh = Math.max(h, layer.h)
+  const out = createEditLayer(nw, nh)
+  out.palette = layer.palette.slice()
+  for (let y = 0; y < layer.h; y++) {
+    const y0 = Math.floor(y * nh / layer.h)
+    const y1 = Math.max(y0 + 1, Math.ceil((y + 1) * nh / layer.h))
+    for (let x = 0; x < layer.w; x++) {
+      const i = y * layer.w + x
+      if (!layer.mask[i]) continue
+      const x0 = Math.floor(x * nw / layer.w)
+      const x1 = Math.max(x0 + 1, Math.ceil((x + 1) * nw / layer.w))
+      for (let yy = y0; yy < y1; yy++) {
+        for (let xx = x0; xx < x1; xx++) {
+          const j = yy * nw + xx
+          out.mask[j] = 1
+          out.cells[j] = layer.cells[i]
+        }
+      }
+    }
+  }
+  return out
+}
+
+/**
+ * 把当前网格上的几格改动写进层里（层分辨率不够先放大）。
+ * 在更小的网格上改：这一笔按比例盖住层里对应的那一块（= 修改时的尺寸决定它的粗细）。
+ * 层是只读的：每次都换新对象，撤销快照才不会被后续改动污染。
+ */
+function writeEditsToLayer(layer, aw, ah, diffs) {
+  const base = growEditLayer(layer, aw, ah)
+  const mask = Uint8Array.from(base.mask)
+  const cells = Int32Array.from(base.cells)
+  const palette = base.palette.slice()
+  const indexOf = new Map(palette.map((c, i) => [c.id, i]))
+  for (const e of diffs) {
+    let k = EMPTY
+    if (e.color) {
+      k = indexOf.get(e.color.id)
+      if (k === undefined) {
+        k = palette.length
+        palette.push(e.color)
+        indexOf.set(e.color.id, k)
+      }
+    }
+    const x0 = Math.floor(e.rx * base.w / aw)
+    const x1 = Math.min(base.w, Math.max(x0 + 1, Math.ceil((e.rx + 1) * base.w / aw)))
+    const y0 = Math.floor(e.ry * base.h / ah)
+    const y1 = Math.min(base.h, Math.max(y0 + 1, Math.ceil((e.ry + 1) * base.h / ah)))
+    for (let y = y0; y < y1; y++) {
+      for (let x = x0; x < x1; x++) {
+        const at = y * base.w + x
+        mask[at] = 1
+        cells[at] = k
+      }
+    }
+  }
+  return { w: base.w, h: base.h, mask, cells, palette }
+}
+
+/**
+ * 把修改层投影到一张（刚从原图重新取样出来的）图纸上。
+ * 每颗层格子按它覆盖的面积给目标格子投票：放大时一颗铺满对应的块，
+ * 缩小时块内被改过的值按面积占多数者胜。没被任何层格子盖住的格子保持原图取样结果。
+ */
+function applyEditLayer(p, layer) {
+  if (!layer || !layer.mask) return null
+  const art = artBoxOf(p)
+  const aw = art.w
+  const ah = art.h
+  const ox = Math.floor((p.width - aw) / 2)
+  const oy = Math.floor((p.height - ah) / 2)
+  const lw = layer.w
+  const lh = layer.h
+  const acc = new Map()
+  for (let i = 0; i < layer.mask.length; i++) {
+    if (!layer.mask[i]) continue
+    const v = layer.cells[i]
+    const x = i % lw
+    const y = (i - x) / lw
+    const tx0 = x * aw / lw
+    const tx1 = (x + 1) * aw / lw
+    const ty0 = y * ah / lh
+    const ty1 = (y + 1) * ah / lh
+    const nx0 = Math.floor(tx0)
+    const nx1 = Math.min(aw - 1, Math.ceil(tx1) - 1)
+    const ny0 = Math.floor(ty0)
+    const ny1 = Math.min(ah - 1, Math.ceil(ty1) - 1)
+    for (let ny = ny0; ny <= ny1; ny++) {
+      const wy = Math.min(ty1, ny + 1) - Math.max(ty0, ny)
+      if (wy <= 0) continue
+      for (let nx = nx0; nx <= nx1; nx++) {
+        const wx = Math.min(tx1, nx + 1) - Math.max(tx0, nx)
+        if (wx <= 0) continue
+        const at = ny * aw + nx
+        let votes = acc.get(at)
+        if (!votes) {
+          votes = new Map()
+          acc.set(at, votes)
+        }
+        votes.set(v, (votes.get(v) || 0) + wx * wy)
+      }
+    }
+  }
+  if (!acc.size) return null
+  const cells = Int32Array.from(p.cells)
+  const palette = p.palette.slice()
+  const indexOf = new Map(palette.map((c, i) => [c.id, i]))
+  const map = new Map()
+  for (const [at, votes] of acc) {
+    let best = EMPTY
+    let bestW = -1
+    for (const [v, weight] of votes) {
+      if (weight > bestW) {
+        bestW = weight
+        best = v
+      }
+    }
+    let k = EMPTY
+    let entry = null
+    if (best >= 0) {
+      const color = layer.palette[best]
+      if (!color) continue
+      let pi = indexOf.get(color.id)
+      if (pi === undefined) {
+        pi = palette.length
+        palette.push(color)
+        indexOf.set(color.id, pi)
+      }
+      k = pi
+      entry = { id: color.id, color }
+    }
+    const target = (oy + Math.floor(at / aw)) * p.width + ox + (at % aw)
+    cells[target] = k
+    map.set(target, entry)
+  }
+  if (!map.size) return null
+  return {
+    ...p,
+    cells,
+    palette,
+    colors: palette.map(c => c.id),
+    editMap: map,
+    editLayer: layer
+  }
+}
+
+/** 换尺寸前把每个方案的修改层取出来（没有层就按 editMap 现建一层） */
+function collectEditLayers() {
+  const out = []
+  for (const v of variants.value) {
+    const t = v.active || v
+    const layer = t.editLayer && t.editLayer.mask ? t.editLayer : editLayerFromPattern(t)
+    if (layer) out.push({ key: v.key, onActive: !!v.active, layer })
+  }
+  return out
+}
+
+/** 按原图重新取样之后，把修改层落回每个方案；返回落回去的格子数 */
+function applyEditLayers(list) {
+  if (!list || !list.length) return 0
+  let total = 0
+  variants.value = variants.value.map(v => {
+    const hit = list.find(e => e.key === v.key)
+    if (!hit) return v
+    const target = hit.onActive && v.active ? v.active : v
+    const next = applyEditLayer(target, hit.layer)
+    if (!next) return v
+    recalcStats(next)
+    total += next.editMap.size
+    return hit.onActive && v.active ? { ...v, active: next } : { ...v, ...next }
+  })
+  return total
+}
+
+/**
+ * 全部方案做「保留手工修改」的尺寸调整（没有源图时的兜底：按当前图纸块缩放）。
+ * 方案基底与 active 各自缩放；进度 / 撤销栈按下标是否失效处理；
+ * 没带过去的豆子即使 silent 也要说一声 —— 丢数据不能没有解释。
+ *
+ * announce：要不要弹提示。拖滑杆是连续动作，每次都弹一条会刷满提示栏，
+ * 那边改用尺寸说明行回填（见 EditorSidebar 的 applySizeNow）；
+ * 丢豆子那种必须说的，announce 关掉也照弹。
+ */
+function resizeVariantsPreserving(aw, ah, { silent = false, announce = true } = {}) {
   const max = maxCells.value
   const bw = Math.max(1, Math.min(max, canvasCapW.value))
   const bh = Math.max(1, Math.min(max, canvasCapH.value))
   const bs = boardProfile(bw, bh)
   const bk = options.beadKey || autoBeadKey(bw, bh)
+  /* 旧图纸的底板与成品区域：提示语要说清「是换了底板」还是「只是画面改大小」 */
+  const first = variants.value[0]
+  const oldBoardW = first ? first.width : bw
+  const oldBoardH = first ? first.height : bh
+  const oldArtW = first ? Math.max(1, Math.min(oldBoardW, first.artW || oldBoardW)) : aw
+  const oldArtH = first ? Math.max(1, Math.min(oldBoardH, first.artH || oldBoardH)) : ah
+  const boardChanged = oldBoardW !== bw || oldBoardH !== bh
   let moved = false
   let croppedBeads = 0
   let scaled = false
   variants.value = variants.value.map(v => {
-    /* 底稿与「库存重配色」那份**都要**挪：只挪显示的那一份，
+    /* 底稿与「库存重配色」那份**都要**缩：只缩显示的那一份，
        另一份会留在旧尺寸上（切回底稿时又看到旧图，等于「换板只换了一半」）。 */
-    const r = resizePreserveCells(v, bw, bh, aw, ah, bs, bk, { scaleArt })
+    const r = resizePreserveCells(v, bw, bh, aw, ah, bs, bk)
     moved = moved || r.moved
     croppedBeads += r.croppedBeads
     scaled = scaled || r.scaled
     if (!v.active) return r.next
-    const ra = resizePreserveCells(v.active, bw, bh, aw, ah, bs, bk, { scaleArt })
+    const ra = resizePreserveCells(v.active, bw, bh, aw, ah, bs, bk)
     moved = moved || ra.moved
     croppedBeads += ra.croppedBeads
     scaled = scaled || ra.scaled
@@ -469,17 +886,31 @@ function resizeVariantsPreserving(aw, ah, { silent = false, scaleArt = false } =
   }
   if (moved) clearUndoStacks()
   saveStatus.value = '未保存'
-  let text = scaled
-    ? `已按新底板把图案缩到 ${aw} × ${ah} 格，手工修改保留（细节按块合并）`
-    : `已保留手工修改，画布调整为 ${aw} × ${ah} 格`
+  /* 放大：目标尺寸在底稿范围内 ⇒ 从留底细节还原；超过底稿 ⇒ 每颗豆按比例复制。
+     缩小：块内多数色合并，底稿不动（放大回来会恢复）。 */
+  const grows = aw > oldArtW || ah > oldArtH
+  const firstMaster = first ? ensureMaster(first.active || first) : null
+  const withinMaster = !!firstMaster && aw <= firstMaster.artW && ah <= firstMaster.artH
+  const grew = scaled && grows
+  const restored = grew && withinMaster
+  let text
+  if (scaled) {
+    const how = restored ? '从留底细节还原，颜色不变' : grew ? '每颗豆按比例复制，颜色不变' : '细节按块合并，留底不变，放大回来会恢复'
+    text = boardChanged
+      ? `已按新底板把画面${grows ? '放大' : '缩小'}到 ${aw} × ${ah} 格，手工修改保留（${how}）`
+      : `已把画面${grows ? '放大' : '缩小'}到 ${aw} × ${ah} 格，手工修改保留（${how}）`
+  } else {
+    text = `已保留手工修改，画布调整为 ${aw} × ${ah} 格`
+  }
   if (croppedBeads > 0) text += scaled ? `，画在成品区域外的 ${croppedBeads} 颗没带过去` : `，放不下的 ${croppedBeads} 颗已裁掉`
   if (progressReset) text += '，拼制进度已重置'
   text += '；想按新尺寸重新转换请点「恢复方案」'
   if (croppedBeads > 0) toastWarn(text)
-  else if (scaled || !silent) toastOk(text)
+  else if (announce && (scaled || !silent)) toastOk(text)
   /* runWithBusy 会先把 generating 置 true 等一帧，等的是 regenerate 来收尾；
      这条路不跑 regenerate，得自己复位，否则「生成中」永远转。 */
   generating.value = false
+  return { scaled, grew, restored, croppedBeads, moved, boardChanged }
 }
 
 /**
@@ -837,8 +1268,8 @@ export const canRedo = ref(false)
 /**
  * 这张图纸有没有被**手工改过**（画笔 / 橡皮 / 填充 / 吸色 / 镜像 / 换色）。
  *
- * 干什么用：新手版调尺寸或改颜色数会重新生成图纸，把手工改的格子冲掉。
- * 模式切换与参数重算前要拿它当保护条件（见 composables/useBeginnerMode.js）。
+ * 干什么用：改尺寸或改颜色数会重新生成图纸，把手工改的格子冲掉。
+ * 参数重算前要拿它当保护条件（见 EditorSidebar 的改尺寸说明）。
  *
  * 为什么不用 undoDepth 判断：重新生成会清空历史栈，undoDepth 归零，
  * 但「这张图被手改过」这件事本身不会因为重新生成而消失（用户还是想保留那份结果）。
@@ -866,7 +1297,16 @@ function snapshotOf(key) {
     key: v.key,
     cells: Int32Array.from(t.cells),
     /* 色板（含顺序）必须一起存：cells 里放的是它的下标，见上面 ③ */
-    palette
+    palette,
+    /* 手工修改记录跟着快照走：撤销回到哪一步，记录就回到那一步
+       （否则「撤销掉的一笔」在换尺寸时又会被当成手工修改重新落回去） */
+    edits: t.editMap instanceof Map ? new Map(t.editMap) : undefined,
+    /* 修改层同样是不可变对象（每次改动都换新的一份），快照存引用就够 ——
+       撤销时连修改层一起回退，否则「撤销掉的一笔」会在下次换尺寸时又落回去。 */
+    editLayer: t.editLayer,
+    /* 底稿是不可变对象（每次改动都换新的一份），快照直接存引用就够 ——
+       撤销时连底稿一起回退，否则「撤销掉的一笔」会被下一次放大从底稿里带回来。 */
+    master: t.master
   }
 }
 
@@ -890,7 +1330,52 @@ let pendingSnap = null
 let editDepth = 0
 
 /**
- * 开始一次可撤销的编辑。可以嵌套：内层只记深度，不覆盖外层的快照
+ * 把这一笔相对「落笔前」的改动记进方案的**手工修改记录**（格子下标 → { id, color } | null，
+ * null = 用户擦掉了这一格）。
+ *
+ * 干什么用：换尺寸时按原图重新取样（放大才长细节），取回来的是一张全新的机器图纸；
+ * 这张记录就是「哪些格子是用户自己点的、点成了什么色」，新图纸生成后按比例把它们落回去
+ * （见 setCanvasSize）。没有它，重新取样就会把手改覆盖掉。
+ *
+ * ⚠️ 必须在 flushPendingStats 之前调用：recalcStats 会修剪色板并重映射 cells 下标，
+ * 之后再和落笔前的快照比，会把整张图都当成「改过」。
+ */
+function recordEdits(snap) {
+  const v = variants.value.find(x => x.key === snap.key)
+  if (!v) return
+  const t = v.active || v
+  const cur = t.cells
+  if (!cur || cur.length !== snap.cells.length) return
+  const art = artBoxOf(t)
+  const sx = Math.floor((t.width - art.w) / 2)
+  const sy = Math.floor((t.height - art.h) / 2)
+  let map = null
+  /* 这一笔的改动（成品区域相对坐标）：同时写进修改层。
+     修改层记的是「改那一刻的尺寸」，换尺寸时按它自己的分辨率缩放（见 editLayer 的说明）。 */
+  const diffs = []
+  for (let i = 0; i < cur.length; i++) {
+    if (cur[i] === snap.cells[i]) continue
+    if (!map) map = new Map(t.editMap || [])
+    const k = cur[i]
+    const color = k >= 0 ? t.palette[k] : null
+    if (k >= 0 && !color) continue
+    map.set(i, color ? { id: color.id, color } : null)
+    const rx = (i % t.width) - sx
+    const ry = Math.floor(i / t.width) - sy
+    if (rx >= 0 && ry >= 0 && rx < art.w && ry < art.h) diffs.push({ rx, ry, color })
+  }
+  if (!map) return
+  const idx = variants.value.findIndex(x => x.key === snap.key)
+  const list = variants.value.slice()
+  const baseLayer = t.editLayer && t.editLayer.mask ? t.editLayer : editLayerFromPattern(t)
+  const editLayer = diffs.length ? writeEditsToLayer(baseLayer, art.w, art.h, diffs) : baseLayer
+  /* 改过的格子同时写回底稿：没有源图时按块缩放还要靠它还原细节。 */
+  const next = { ...t, editMap: map, editLayer, master: bakeEditsIntoMaster(t, map) }
+  list[idx] = v.active ? { ...v, active: next } : next
+  variants.value = list
+}
+
+/** 开始一次可撤销的编辑。可以嵌套：内层只记深度，不覆盖外层的快照
  * （拖拽时每个 pointermove 都会进一次，靠这个把一整笔合成一步）。
  */
 export function beginEdit({ progress = false } = {}) {
@@ -911,10 +1396,12 @@ export function endEdit() {
   if (editDepth === 0) return false
   editDepth--
   if (editDepth > 0) return false
-  /* 挂起的统计重算在这里补上：整笔编辑期间只算这一次 */
-  flushPendingStats()
   const snap = pendingSnap
   pendingSnap = null
+  /* 先记手工修改记录，再补统计：统计会把色板修剪 + 重映射下标，之后比就不准了 */
+  if (snap) recordEdits(snap)
+  /* 挂起的统计重算在这里补上：整笔编辑期间只算这一次 */
+  flushPendingStats()
   if (!snap || sameAsCurrent(snap)) return false
   undoStack.push(snap)
   if (undoStack.length > historyLimit()) undoStack.shift()
@@ -922,6 +1409,9 @@ export function endEdit() {
   saveStatus.value = '未保存'
   /* 真的改动了 ⇒ 这张图纸带手工修改，模式切换 / 参数重算要拿它做保护判断 */
   manualEdited.value = true
+  /* 空白画布上落下第一笔之后就不再是「还没画过的草稿」，
+     切到图纸转换时要留着这张图，不能把它当成空状态清掉。 */
+  clearBlankDraft()
   syncHistoryFlags()
   return true
 }
@@ -1024,7 +1514,11 @@ function applySnapshot(snap) {
     ...target,
     cells: Int32Array.from(snap.cells),
     palette: snap.palette.slice(),
-    colors: snap.palette.map(c => c.id)
+    colors: snap.palette.map(c => c.id),
+    /* 撤销 / 重做连手工修改记录与修改层一起回退（见 snapshotOf 的说明） */
+    editMap: snap.edits ? new Map(snap.edits) : undefined,
+    editLayer: snap.editLayer,
+    master: snap.master
   }
   recalcStats(next)
   const list = variants.value.slice()
@@ -1037,6 +1531,9 @@ function applySnapshot(snap) {
 
 /** 撤销。返回是否真的退了一步（快捷键那边靠它决定要不要 preventDefault） */
 export function undo() {
+  /* 拖笔 / 换色预览这类开着的事务不能被撤销插进来：
+     否则会把「改到一半」的中间态写进历史，收口时快照对不上 */
+  if (editDepth > 0) return false
   while (undoStack.length) {
     const snap = undoStack.pop()
     const current = snapshotOf(snap.key)
@@ -1063,6 +1560,7 @@ export function undo() {
 
 /** 重做 */
 export function redo() {
+  if (editDepth > 0) return false
   while (redoStack.length) {
     const snap = redoStack.pop()
     const current = snapshotOf(snap.key)
@@ -1170,6 +1668,255 @@ function ensurePaletteIndex(color) {
   return list.length - 1
 }
 
+/**
+ * 自由画布的空白图纸：整板都是空格，左侧编辑工具可以直接往上画。
+ * 已经有图纸（上传生成的、打开的存档、或者已经画过的）时什么都不做。
+ * @returns {boolean} 这次是不是新铺了一张空白图纸
+ */
+export function ensureBlankCanvas() {
+  if (pattern.value && pattern.value.cells && pattern.value.cells.length) return false
+  const cw = canvasCapW.value
+  const ch = canvasCapH.value
+  const aw = Math.max(1, Math.min(options.canvasW, cw))
+  const ah = Math.max(1, Math.min(options.canvasH, ch))
+  const bw = Math.max(cw, aw)
+  const bh = Math.max(ch, ah)
+  const cells = new Int32Array(bw * bh).fill(EMPTY)
+  const p = {
+    version: PATTERN_VERSION,
+    key: 'easy',
+    label: '好拼版',
+    tagline: '自由画布',
+    width: bw,
+    height: bh,
+    artW: aw,
+    artH: ah,
+    brandId: options.brandId,
+    ...patternProfile(bw, bh, boardProfile(bw, bh), options.beadKey || autoBeadKey(bw, bh)),
+    cells,
+    palette: [],
+    colors: [],
+    /* 还没画过：切到图纸转换时收起，把上传卡让出来 */
+    blankDraft: true,
+    stats: {
+      beadCount: 0,
+      cellCount: cells.length,
+      emptyCount: aw * ah,
+      emptyRatio: 1,
+      padCount: cells.length - aw * ah,
+      colorCount: 0,
+      similarity: 0,
+      deltaE: 0,
+      buildability: 1,
+      isolatedCount: 0,
+      smallRegionRatio: 0,
+      estimatedMinutes: 0
+    },
+    notes: []
+  }
+  variants.value = [p]
+  activeKey.value = 'easy'
+  clearHistory()
+  if (!brushColorId.value && availableColors.value.length) {
+    brushColorId.value = availableColors.value[0].id
+  }
+  currentView.value = 'pattern'
+  return true
+}
+
+/** 空白草稿还一笔没画：从自由画布切到图纸转换时收起，上传卡才能出来 */
+export function discardBlankDraft() {
+  const p = pattern.value
+  if (!p || !p.blankDraft) return false
+  if (beadCountOf(p.cells) > 0) return false
+  variants.value = []
+  clearHistory()
+  return true
+}
+
+function clearBlankDraft() {
+  const idx = variants.value.findIndex(v => v.key === activeKey.value)
+  if (idx < 0) return
+  const v = variants.value[idx]
+  const t = v.active || v
+  if (!t.blankDraft && !v.blankDraft) return
+  const next = { ...t, blankDraft: false }
+  const list = variants.value.slice()
+  list[idx] = v.active ? { ...v, blankDraft: false, active: next } : next
+  variants.value = list
+}
+
+/* ---------------------------------------------------------------- 两套独立文档
+   自由画布与图纸转换各存一份文档。切换模式时把当前这份收进它的槽位、
+   把目标模式那份放回来（没有就新建：自由画布铺空白网格，图纸转换留给上传卡）。
+   不这样做的话，图纸转换导入的图片 / 生成的图纸会一直留在同一个工作区里，
+   切到自由画布看到的还是那张转换出来的图。 */
+
+function captureWorkspace() {
+  return {
+    variants: variants.value,
+    activeKey: activeKey.value,
+    canvasW: options.canvasW,
+    canvasH: options.canvasH,
+    canvasMaxW: options.canvasMaxW,
+    canvasMaxH: options.canvasMaxH,
+    projectName: projectName.value,
+    currentProjectId: currentProjectId.value,
+    saveStatus: saveStatus.value,
+    sourceImg: sourceImg.value,
+    sourceUrl: sourceUrl.value,
+    sourceName: sourceName.value,
+    sourceKind: sourceKind.value,
+    sourceAspect: sourceAspect.value,
+    sourceFromPattern: sourceFromPattern.value,
+    sourceSnapshot,
+    rebuildSourceGrid,
+    manualEdited: manualEdited.value,
+    buildProgress: buildProgress.value,
+    currentView: currentView.value
+  }
+}
+
+function applyWorkspace(snap) {
+  if (!snap) return false
+  cancelColorReplace()
+  /* 画布尺寸先落回去：图纸的 width/height 与成品区域都要跟它一致 */
+  options.canvasW = snap.canvasW
+  options.canvasH = snap.canvasH
+  options.canvasMaxW = snap.canvasMaxW
+  options.canvasMaxH = snap.canvasMaxH
+  variants.value = snap.variants
+  activeKey.value = snap.activeKey
+  projectName.value = snap.projectName
+  currentProjectId.value = snap.currentProjectId
+  saveStatus.value = snap.saveStatus
+  sourceImg.value = snap.sourceImg
+  sourceUrl.value = snap.sourceUrl
+  sourceName.value = snap.sourceName
+  sourceKind.value = snap.sourceKind
+  sourceAspect.value = snap.sourceAspect
+  sourceFromPattern.value = snap.sourceFromPattern
+  sourceSnapshot = snap.sourceSnapshot
+  rebuildSourceGrid = snap.rebuildSourceGrid
+  buildProgress.value = snap.buildProgress
+  fitNotice.value = null
+  cartoonPreviewUrl.value = ''
+  previewMode.value = 'source'
+  currentView.value = snap.currentView
+  /* 撤销栈记的是另一份图纸的格子，跨文档没有意义 */
+  clearHistory()
+  /* clearHistory 会把「手改过」标记清掉，这里按存档恢复 */
+  manualEdited.value = snap.manualEdited
+  return true
+}
+
+/** 清空工作区，按需铺一张自由画布的空白网格（图纸转换则留给上传卡） */
+export function resetWorkspace({ blank = false } = {}) {
+  cancelColorReplace()
+  variants.value = []
+  activeKey.value = 'easy'
+  projectName.value = '我的拼豆作品'
+  currentProjectId.value = ''
+  saveStatus.value = '未保存'
+  sourceImg.value = null
+  sourceUrl.value = ''
+  sourceName.value = ''
+  sourceKind.value = 'raster'
+  sourceAspect.value = 1
+  sourceFromPattern.value = false
+  sourceSnapshot = null
+  rebuildSourceGrid = null
+  buildProgress.value = new Set()
+  fitNotice.value = null
+  cartoonPreviewUrl.value = ''
+  previewMode.value = 'source'
+  clearHistory()
+  manualEdited.value = false
+  currentView.value = blank ? 'pattern' : 'original'
+  if (blank) ensureBlankCanvas()
+  return true
+}
+
+/** 把当前内存里的文档收进它所属模式的槽位（打开存档前调用，别让另一模式的作品被覆盖） */
+export function stashCurrentWorkspace() {
+  modeWorkspaces[workspaceMode.value] = captureWorkspace()
+}
+
+/**
+ * 导入图像（上传 / 拖图 / 素材库）一律写进「图纸转换」那份文档：
+ * 当前在自由画布时先把自由画布收进它的槽位，再切过去。
+ */
+function enterConversionWorkspace() {
+  if (workspaceMode.value === 'edit') return
+  stashCurrentWorkspace()
+  workspaceMode.value = 'edit'
+  createMode.value = 'edit'
+  if (!applyWorkspace(modeWorkspaces.edit)) resetWorkspace({ blank: false })
+}
+
+/**
+ * 切换创作模式：收好当前文档，放回目标模式的文档。
+ * @param {'free'|'edit'} mode
+ * @param {{blankFree?: boolean}} opts blankFree = 自由画布没有文档时铺不铺空白网格
+ *        （全屏 / 手机工作台铺；平板旧版面没有模式开关，保持原来的上传引导）
+ * @returns {boolean} 是否真的换了模式
+ */
+export function switchCreateMode(mode, { blankFree = true } = {}) {
+  const target = mode === 'edit' ? 'edit' : 'free'
+  if (workspaceMode.value === target) {
+    createMode.value = target
+    return false
+  }
+  modeWorkspaces[workspaceMode.value] = captureWorkspace()
+  workspaceMode.value = target
+  createMode.value = target
+  const snap = modeWorkspaces[target]
+  if (snap) applyWorkspace(snap)
+  else resetWorkspace({ blank: target === 'free' && blankFree })
+  return true
+}
+
+/**
+ * 进入工作台 / 打开某件存档时把「当前文档」对齐到指定模式。
+ * @param {'free'|'edit'} mode
+ * @param {{blankFree?: boolean, loaded?: boolean}} opts
+ *        loaded = true 表示当前内存里的文档就是刚打开的那件存档（不要再用槽位覆盖它）
+ */
+export function activateCreateMode(mode, { blankFree = true, loaded = false } = {}) {
+  const target = mode === 'edit' ? 'edit' : 'free'
+  const prev = workspaceMode.value
+  if (prev !== target) {
+    /* 当前这份属于另一种模式：先收好，否则会被目标模式的文档盖掉 */
+    if (!loaded) modeWorkspaces[prev] = captureWorkspace()
+    workspaceMode.value = target
+    createMode.value = target
+    if (loaded) {
+      modeWorkspaces[target] = null
+      return true
+    }
+    const snap = modeWorkspaces[target]
+    if (snap) applyWorkspace(snap)
+    else resetWorkspace({ blank: target === 'free' && blankFree })
+    return true
+  }
+  createMode.value = target
+  if (loaded) {
+    /* 刚打开的存档就是当前文档，槽位里那份旧文档作废 */
+    modeWorkspaces[target] = null
+    return false
+  }
+  /* 当前没有文档（刚进页面 / 上次留下的只有一份失效的作品关联）：
+     有槽位就放回来，没有就按目标模式新建，顺手把 currentProjectId 清干净 */
+  if (!hasPattern.value) {
+    const snap = modeWorkspaces[target]
+    if (snap) applyWorkspace(snap)
+    else resetWorkspace({ blank: target === 'free' && blankFree })
+    return true
+  }
+  if (target === 'free' && blankFree) ensureBlankCanvas()
+  return false
+}
+
 export function paintAt(x, y, { record = true } = {}) {
   const p = pattern.value
   if (!p) return false
@@ -1188,7 +1935,8 @@ export function paintAt(x, y, { record = true } = {}) {
       pi = ensurePaletteIndex(color)
       if (pi < 0) return false
     }
-    const size = Math.min(BRUSH_MAX, Math.max(1, Math.round(brushSize.value) || 1))
+    /* 画笔与橡皮各用各的尺寸：橡皮擦一大片不该把画笔也撑大 */
+    const size = Math.min(BRUSH_MAX, Math.max(1, Math.round(toolSizeOf(tool.value)) || 1))
     const half = Math.floor(size / 2)
     const startX = Math.max(0, x - half)
     const startY = Math.max(0, y - half)
@@ -1281,6 +2029,110 @@ export function replaceColorEverywhere(fromId, toColor) {
   return n
 }
 
+/* ---------------- 换色弹窗：整色替换 + 实时预览（未点「替换」前随时可取消） ---------------- */
+
+/** 换色弹窗状态。null = 关闭；{ fromId, toId } = 打开中（toId 空串 = 还没选目标色） */
+export const colorReplace = ref(null)
+/** 当前预览里会被替换掉的豆子数（0 = 还没选目标色） */
+export const colorReplaceCount = ref(0)
+/* 打开弹窗那一刻的画面（cells + 色板）。预览与取消都以它为底。
+   预览期间编辑事务一直开着（openColorReplace 里 beginEdit）：确认时整次替换
+   收成一步可撤销历史，取消时 revertEdit 整体回滚 —— 翻着试几个目标色
+   也只会在历史上留一步（或者一步都不留）。 */
+let colorReplaceBase = null
+
+/** 打开换色弹窗，fromId 是要被替换掉的颜色。 */
+export function openColorReplace(fromId) {
+  if (colorReplace.value) cancelColorReplace()
+  const p = pattern.value
+  if (!p || !p.palette.some(c => c.id === fromId)) return false
+  colorReplaceBase = {
+    key: activeKey.value,
+    cells: Int32Array.from(p.cells),
+    palette: p.palette.slice()
+  }
+  colorReplace.value = { fromId, toId: '' }
+  colorReplaceCount.value = 0
+  /* 事务必须在预览动手之前开，快照才是「替换前」的画面 */
+  beginEdit()
+  return true
+}
+
+/** 回到打开弹窗时的画面（还没选目标色 / 清掉目标色时）。 */
+function colorReplaceRestoreBase() {
+  const base = colorReplaceBase
+  if (!base) return
+  /* deferStats：预览是连续动作，统计等确认 / 取消收尾时算一次（见 replaceCells）。
+     这同时保证预览期间色板只增不减 —— base.cells 的下标始终有效。 */
+  replaceCells(base.key, base.cells, { deferStats: true })
+}
+
+/** 选了目标色就实时预览。传 null / 原色自己 = 清掉预览。@returns 替换掉的豆子数 */
+export function previewColorReplace(toColor) {
+  const st = colorReplace.value
+  const base = colorReplaceBase
+  if (!st || !base) return 0
+  if (!toColor || toColor.id === st.fromId) {
+    st.toId = ''
+    colorReplaceCount.value = 0
+    colorReplaceRestoreBase()
+    return 0
+  }
+  const fromIndex = base.palette.findIndex(c => c.id === st.fromId)
+  if (fromIndex < 0) return 0
+  const toIndex = ensurePaletteIndex(toColor)
+  if (toIndex < 0) return 0
+  /* 每次都从打开时的画面重新映射：换目标色不会叠在上一次预览上 */
+  const mapped = Int32Array.from(base.cells)
+  let n = 0
+  for (let i = 0; i < mapped.length; i++) {
+    if (mapped[i] === fromIndex) { mapped[i] = toIndex; n++ }
+  }
+  st.toId = toColor.id
+  colorReplaceCount.value = n
+  if (n) replaceCells(base.key, mapped, { deferStats: true })
+  else colorReplaceRestoreBase()
+  return n
+}
+
+/** 确认替换：画面已经是预览结果，这里只负责把事务收口成一步历史。 */
+export function confirmColorReplace() {
+  const st = colorReplace.value
+  if (!st || !st.toId) { cancelColorReplace(); return 0 }
+  const n = colorReplaceCount.value
+  colorReplace.value = null
+  colorReplaceBase = null
+  endEdit()
+  return n
+}
+
+/** 取消换色：画面回到打开弹窗前，不留任何历史。 */
+export function cancelColorReplace() {
+  if (!colorReplace.value) return
+  colorReplace.value = null
+  colorReplaceBase = null
+  revertEdit()
+}
+
+/**
+ * 去除杂色：把整张图里「孤零零一颗、四周全是别的颜色」的豆并进四周出现最多的颜色。
+ * 判定口径与自动生成时的去孤立豆完全一致（`cleanupIsolated`，ΔE00 ≤ 18 才并），
+ * 所以手动点一次不会把有意留的点状细节吃掉。
+ * 和其它编辑一样是一步可撤销的操作；统计要重算（可能少一个色号）。
+ * @returns 实际改掉的颗数（0 = 没有找到杂色）
+ */
+export function removeSpecks(maxDE = CLEANUP_MAX_DE) {
+  const p = pattern.value
+  if (!p || !p.cells || !p.cells.length) return 0
+  const labs = p.palette.map(c => hexToLab(c.hex))
+  beginEdit()
+  const { idx, changed } = cleanupIsolated(p.cells, p.width, p.height, labs, maxDE)
+  if (!changed) { cancelEdit(); return 0 }
+  replaceCells(activeKey.value, idx)
+  endEdit()
+  return changed
+}
+
 /**
  * 镜像：整张图纸按水平 / 垂直中轴翻转（axis: 'h' 左右，'v' 上下）。
  * 和其它编辑一样是一步可撤销的操作，统计不用重算（色板没变）。
@@ -1345,8 +2197,50 @@ export const variantCount = computed(() => {
   return r.ok && r.value ? 3 : 1
 })
 
+/* ------------------------------------------------- 图片调整（亮度 / 对比度 / 饱和度）
+   设计稿「图片调整」面板里的原图调整：三个滑杆都是 -100 ~ +100，0 = 原样。
+   预览用 CSS filter（画布上的原图直接套），生成时把同一组滤镜烘焙成一张位图再取样 ——
+   两边用的是同一个换算，看到什么就生成什么。 */
+export const sourceFilter = reactive({ brightness: 0, contrast: 0, saturation: 0 })
+
+export const sourceFilterActive = computed(() =>
+  !!(sourceFilter.brightness || sourceFilter.contrast || sourceFilter.saturation))
+
+export const sourceCssFilter = computed(() => {
+  const f = []
+  if (sourceFilter.brightness) f.push(`brightness(${1 + sourceFilter.brightness / 100})`)
+  if (sourceFilter.contrast) f.push(`contrast(${1 + sourceFilter.contrast / 100})`)
+  if (sourceFilter.saturation) f.push(`saturate(${1 + sourceFilter.saturation / 100})`)
+  return f.length ? f.join(' ') : 'none'
+})
+
+let filterCache = { key: '', img: null }
+function filteredSource() {
+  const img = sourceImg.value
+  if (!img || !sourceFilterActive.value) return img
+  const key = `${sourceFilter.brightness}|${sourceFilter.contrast}|${sourceFilter.saturation}|${sourceUrl.value}`
+  if (filterCache.key === key) return filterCache.img
+  const w = img.naturalWidth || img.width
+  const h = img.naturalHeight || img.height
+  if (!w || !h) return img
+  const c = document.createElement('canvas')
+  c.width = w
+  c.height = h
+  const ctx = c.getContext('2d')
+  ctx.filter = sourceCssFilter.value
+  ctx.drawImage(img, 0, 0, w, h)
+  filterCache = { key, img: c }
+  return c
+}
+
+export function resetSourceFilter() {
+  sourceFilter.brightness = 0
+  sourceFilter.contrast = 0
+  sourceFilter.saturation = 0
+}
+
 function sourceImage() {
-  return sourceImg.value
+  return filteredSource()
 }
 
 /**
@@ -1404,7 +2298,9 @@ export function regenerate({ silent = false, keys } = {}) {
       boardSize: boardProfile(cw, ch),
       beadKey: options.beadKey || autoBeadKey(cw, ch),
       /** 空串 = 不做卡通化（照片直接出图的原始路线） */
-      cartoonStyle: options.cartoon ? options.cartoonStyle : ''
+      cartoonStyle: options.cartoon ? options.cartoonStyle : '',
+      /** 图纸重建的源图 + 没缩小 ⇒ 最近邻采样（颜色一格不错，见 sourceNearestOpt） */
+      sourceNearest: sourceNearestOpt(gw, gh)
     })
 
     // 应用库存约束（若开启且用户确有库存）
@@ -1530,7 +2426,8 @@ export function regenerateActive() {
       matteLevel: options.matteLevel,
       cartoonStyle: options.cartoon ? options.cartoonStyle : '',
       boardSize: boardProfile(cw, ch),
-      beadKey: options.beadKey || autoBeadKey(cw, ch)
+      beadKey: options.beadKey || autoBeadKey(cw, ch),
+      sourceNearest: sourceNearestOpt(gw, gh)
     })
     const meta = variants.value.find(v => v.key === key) || {}
     const idx = variants.value.findIndex(v => v.key === key)
@@ -1563,11 +2460,59 @@ export function selectVariant(key) {
 
 /* ------------------------------------------------------------------ 源图载入 */
 
+/** 存档里源图的最长边（px）：512 够 300~450 格的图纸重新取样，再大就把 localStorage 撑爆 */
+const SOURCE_SAVE_SIDE = 512
+
+/**
+ * 把源图缩成一份能进存档的快照（最长边 512 px）。
+ *
+ * 带透明通道的（贴纸 / 免抠素材）存 PNG —— 存 JPEG 会把透明区压成黑底，
+ * 重新打开后再抠图 / 取样全错；不透明的照片存 JPEG，体积只有 PNG 的几分之一。
+ * 任何一步失败都返回 null：源图是「锦上添花」，不能因为它让保存失败。
+ */
+function makeSourceSnapshot(img) {
+  try {
+    const sw = (img && (img.naturalWidth || img.width)) || 0
+    const sh = (img && (img.naturalHeight || img.height)) || 0
+    if (!sw || !sh) return null
+    const k = Math.min(1, SOURCE_SAVE_SIDE / Math.max(sw, sh))
+    const w = Math.max(1, Math.round(sw * k))
+    const h = Math.max(1, Math.round(sh * k))
+    const c = document.createElement('canvas')
+    c.width = w
+    c.height = h
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0, w, h)
+    /* 抽样看有没有透明像素：整张扫一遍没必要，每 7 个像素取一个已经够准 */
+    const d = ctx.getImageData(0, 0, w, h).data
+    let alpha = false
+    for (let i = 3; i < d.length; i += 28) {
+      if (d[i] < 250) { alpha = true; break }
+    }
+    const url = alpha ? c.toDataURL('image/png') : c.toDataURL('image/jpeg', 0.82)
+    return { url }
+  } catch {
+    return null
+  }
+}
+
 export function loadImageSource(img, url, name = '', kind = 'raster') {
+  /* 新拖进来的图是一件新作品（2026-10-31）：此前打开的那件作品还挂在
+     currentProjectId 上，直接点保存会把新图盖进旧作品里，旧作品就没了。
+     这里先解除关联，保存时另建一件；旧作品原样留在「我的作品」里，想接着改再打开它。
+     打开存档走的是 openProject（不经过这里），所以不会误伤「改存档再保存」那条路。
+     拼制进度记的是旧图纸的格子下标，换了图必须一起清掉。 */
+  if (currentProjectId.value) currentProjectId.value = ''
+  if (buildProgress.value.size) buildProgress.value = new Set()
+  saveStatus.value = '未保存'
   sourceImg.value = img
   sourceUrl.value = url
   sourceName.value = name
   sourceKind.value = kind
+  /* 这是真原图（不是图纸重建出来的）：存档要带一份，重新打开后放大才有细节 */
+  sourceFromPattern.value = false
+  rebuildSourceGrid = null
+  sourceSnapshot = makeSourceSnapshot(img)
   /* 宽高比默认就是图片本身的；源图自带透明背景时会被 autoFitForSource 换成
      「主体包围盒」的比例（贴纸的花边留白不该占格子，见那里的说明）。 */
   const sw = (img && (img.naturalWidth || img.width)) || 0
@@ -1579,6 +2524,57 @@ export function loadImageSource(img, url, name = '', kind = 'raster') {
   cartoonPreviewUrl.value = ''
   previewMode.value = options.cartoon ? 'cartoon' : 'source'
   if (options.cartoon) refreshCartoonPreview()
+}
+
+/**
+ * 裁切原图（手机工作台「裁切」抽屉）：只保留 rect 那一块，替换源图并重新生成。
+ * 与 loadImageSource 的区别是这是同一件作品的编辑动作 —— 不清作品关联、
+ * 不改作品名，保存时仍更新原来那件。
+ * @param {{x:number,y:number,w:number,h:number}} rect 0~1 的相对范围
+ */
+export async function cropSource(rect) {
+  const img = sourceImg.value
+  if (!img) return false
+  const sw = (img.naturalWidth || img.width) || 0
+  const sh = (img.naturalHeight || img.height) || 0
+  if (!sw || !sh) return false
+  const clamp01 = v => Math.max(0, Math.min(1, Number(v) || 0))
+  const x = Math.round(clamp01(rect.x) * sw)
+  const y = Math.round(clamp01(rect.y) * sh)
+  const w = Math.max(1, Math.min(sw - x, Math.round(clamp01(rect.w) * sw)))
+  const h = Math.max(1, Math.min(sh - y, Math.round(clamp01(rect.h) * sh)))
+  if (w < 2 || h < 2) return false
+  const canvas = document.createElement('canvas')
+  canvas.width = w
+  canvas.height = h
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return false
+  ctx.drawImage(img, x, y, w, h, 0, 0, w, h)
+  /* 透明图（贴纸 / 抠图后的图）必须存 PNG，JPEG 会把透明区压成黑色 */
+  let alpha = false
+  try {
+    const d = ctx.getImageData(0, 0, w, h).data
+    for (let i = 3; i < d.length; i += 4) {
+      if (d[i] < 250) { alpha = true; break }
+    }
+  } catch { /* 跨域画布读不到像素时按不透明处理 */ }
+  const url = alpha ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', 0.92)
+  const next = new Image()
+  next.src = url
+  try {
+    await ensureDrawable(next)
+  } catch {
+    return false
+  }
+  sourceImg.value = next
+  sourceUrl.value = url
+  sourceAspect.value = w / h
+  sourceFromPattern.value = false
+  rebuildSourceGrid = null
+  sourceSnapshot = makeSourceSnapshot(next)
+  cartoonPreviewUrl.value = ''
+  regenerate()
+  return true
 }
 
 /**
@@ -1695,12 +2691,20 @@ export function svgToImage(svg, w = 200, h = 160) {
 
 export async function useImageFile(file) {
   const { img, url } = await fileToImage(file)
+  /* 导入图片属于「图纸转换」这件事。当前如果在自由画布，先把自由画布那份文档收进它的槽位，
+     再切到图纸转换来写这份文档 —— 不管入口是上传 / 拖图 / 素材库 / 首页拖图，
+     导入的图片都不会落进自由画布的文档里（切回自由画布看到的仍是原来那张手绘图）。 */
+  enterConversionWorkspace()
   loadImageSource(img, url, file.name.replace(/\.[^.]+$/, ''))
   autoFitForSource(img)
   /* 手机上成功结果由画布上方的「已生成图纸」卡承担，不再弹长 toast；
      只有抠背景没生效这种需要用户知道的失败才补一条短提示。 */
   const mobile = isMobileViewport()
   const ok = regenerate({ silent: mobile })
+  /* 导入图像后回到拼豆图纸：图纸转换模式进来时停在「原图」（先调原图再生成），
+     换图 / 拖图完成后如果还停在那儿，用户看到的仍是原图，会以为图纸没生成。
+     生成失败就留在原图，让用户看清是哪张图出的问题。 */
+  if (ok) currentView.value = 'pattern'
   /* 生成失败时撤掉提示卡：卡上写的是「已生成图纸」，不能和失败 toast 同时出现。 */
   if (mobile && !ok) fitNotice.value = null
   if (mobile && ok && options.removeBg) {
@@ -1844,6 +2848,8 @@ function autoFitForSource(img) {
 
 export async function useAsset(asset) {
   const { img, url } = await svgToImage(asset.svg)
+  /* 素材库选图同样是「图纸转换」的入口：在自由画布下选素材也要切过去，别污染手绘稿 */
+  enterConversionWorkspace()
   loadImageSource(img, url, asset.name, 'vector')
   /* 素材自带尺寸（asset.boards 是块数，照 29 格整块画的）：换算成格以后再落到最近的
      **整板尺寸**（52 / 78 / 104 / 120 的倍数）—— 素材是矢量，格子多了细节只会更足。
@@ -1858,7 +2864,10 @@ export async function useAsset(asset) {
   options.targetColors = asset.colors || options.targetColors
   /* 手机上不弹「已生成 N 个方案」长提示：它会盖住画布中央，
      而选完素材后图案本身就换好了，不需要再用 toast 确认。 */
-  return regenerate({ silent: isMobileViewport() })
+  const ok = regenerate({ silent: isMobileViewport() })
+  /* 选素材也是导入图像：同样回到拼豆图纸，不停在原图（见 useImageFile 的说明） */
+  if (ok) currentView.value = 'pattern'
+  return ok
 }
 
 /* ------------------------------------------------------------------ 项目存档 */
@@ -2020,7 +3029,106 @@ export function projectLimit() {
   return can('projects.limit', MAX_PROJECTS_PRO) ? MAX_PROJECTS_PRO : MAX_PROJECTS_FREE
 }
 
-export function saveProject(name) {
+/* 手工修改记录进存档：板坐标 + 色号 id，null = 用户擦掉。
+   一格里只多 3 个数，正常「逐颗改过」是几十到几百格；超过上限就不存
+   （那种量级的改动更像整体换色，存下来也只会把存档撑爆）。 */
+const MAX_SAVED_EDITS = 20000
+
+/** 手工修改记录 → 存档用的一维数组 [x, y, id, x, y, id, …] */
+function packEditMap(p) {
+  if (!p || !(p.editMap instanceof Map) || !p.editMap.size) return null
+  if (p.editMap.size > MAX_SAVED_EDITS) return null
+  const out = []
+  for (const [i, e] of p.editMap) {
+    if (i < 0 || i >= p.cells.length) continue
+    out.push(i % p.width, Math.floor(i / p.width), e && e.id ? e.id : null)
+  }
+  return out.length ? out : null
+}
+
+/**
+ * 修改层进存档：[w, h, x, y, id, …]，null = 擦掉。
+ * 只在「层的分辨率与保存时的图纸不同」时存 —— 同分辨率时 editMap 已经能完整复原这一层，
+ * 再存一份只是白占体积（这两份数据在 localStorage 里是按作品各存一次的）。
+ */
+function packEditLayer(p) {
+  const layer = p && p.editLayer
+  if (!layer || !layer.mask) return null
+  const art = artBoxOf(p)
+  if (layer.w === art.w && layer.h === art.h) return null
+  const out = [layer.w, layer.h]
+  let n = 0
+  for (let i = 0; i < layer.mask.length && n < MAX_SAVED_EDITS; i++) {
+    if (!layer.mask[i]) continue
+    const k = layer.cells[i]
+    const color = k >= 0 ? layer.palette[k] : null
+    out.push(i % layer.w, Math.floor(i / layer.w), color ? color.id : null)
+    n++
+  }
+  return n ? out : null
+}
+
+/** 存档里的一维数组 → 修改层（色号 id 在当前图纸的色板里找，找不到就查全局色板） */
+function unpackEditLayer(p, flat) {
+  if (!p || !Array.isArray(flat) || flat.length < 2) return null
+  const w = Number(flat[0])
+  const h = Number(flat[1])
+  if (!(w > 0 && h > 0) || !Number.isFinite(w) || !Number.isFinite(h)) return null
+  if (w * h > 1000000) return null
+  const layer = createEditLayer(w, h)
+  for (let i = 2; i + 2 < flat.length; i += 3) {
+    const x = Number(flat[i])
+    const y = Number(flat[i + 1])
+    if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0 || x >= w || y >= h) continue
+    const at = y * w + x
+    const id = flat[i + 2]
+    layer.mask[at] = 1
+    if (id == null) {
+      layer.cells[at] = EMPTY
+      continue
+    }
+    const color = p.palette.find(c => c.id === id) || getColorById(id)
+    if (!color) {
+      layer.mask[at] = 0
+      continue
+    }
+    let k = layer.palette.findIndex(c => c.id === id)
+    if (k < 0) {
+      k = layer.palette.length
+      layer.palette.push(color)
+    }
+    layer.cells[at] = k
+  }
+  return layer.mask.some(Boolean) ? layer : null
+}
+
+/** 存档里的一维数组 → 手工修改记录（色号 id 在当前图纸的色板里找，找不到就查全局色板） */
+function unpackEditMap(p, flat) {
+  if (!p || !Array.isArray(flat) || !flat.length) return undefined
+  const map = new Map()
+  for (let i = 0; i + 2 < flat.length; i += 3) {
+    const x = Number(flat[i])
+    const y = Number(flat[i + 1])
+    if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0 || x >= p.width || y >= p.height) continue
+    const id = flat[i + 2]
+    const at = y * p.width + x
+    if (id == null) {
+      map.set(at, null)
+      continue
+    }
+    const color = p.palette.find(c => c.id === id) || getColorById(id)
+    if (!color) continue
+    map.set(at, { id: color.id, color })
+  }
+  return map.size ? map : undefined
+}
+
+/**
+ * 存一件作品。
+ * extra：调用方额外塞进存档的字段（例如工作台的创作模式「自由创作 / 图纸转换」，
+ * 个人中心的作品卡要靠它显示类型标签）。老存档没有这些字段，按默认值读。
+ */
+export function saveProject(name, extra) {
   const p = pattern.value
   if (!p) {
     toastWarn('先生成一个图案再保存')
@@ -2055,14 +3163,37 @@ export function saveProject(name) {
        仍走「保留手工修改」那条路（没有这个标记，打开存档就被当成机器画的）。
        老存档没有这个字段，读取端按 false 处理，行为与以前一致。 */
     manualEdited: manualEdited.value,
-    variants: variants.value.map(v => ({
-      key: v.key,
-      label: v.label,
-      tagline: v.tagline,
-      stats: v.stats,
-      recommended: v.recommended,
-      data: packPattern(v.active || v)
-    })),
+    variants: variants.value.map(v => {
+      const t = v.active || v
+      /* 手工修改记录跟着作品走：重新打开后放大缩小才能把手改按比例落回去
+         （没有它，重新取样会把逐颗改过的格子覆盖掉）。
+         修改层也一起存：层比保存时的图纸更细时（在 104 上改、缩到 52 保存），
+         只有它能把「改那一刻的尺寸」带过存档。 */
+      const extra = {}
+      const edits = packEditMap(t)
+      if (edits) extra.edits = edits
+      const layer = packEditLayer(t)
+      if (layer) extra.layer = layer
+      return {
+        key: v.key,
+        label: v.label,
+        tagline: v.tagline,
+        stats: v.stats,
+        recommended: v.recommended,
+        data: packPattern(t, extra)
+      }
+    }),
+    /* 源图快照（最长边 512 px）：重新打开这件作品后「放大尺寸 / 恢复方案」
+       才能按原图重新取样；没有它就只能拿图纸重建一张位图，放大出来是马赛克。
+       图纸自己重建出来的源图不存（存了也是同样分辨率，白白占地方）。
+       aspect 存**当时界面用的比例**：矢量素材按 1:1、位图按（抠图后的）主体包围盒比例 ——
+       存图片自己的比例会让重新打开的作品换一个网格比例（方块图变成 156 × 125）。 */
+    source: (sourceFromPattern.value || !sourceSnapshot)
+      ? null
+      : {
+          url: sourceSnapshot.url,
+          aspect: Math.round((sourceKind.value === 'vector' ? 1 : sourceAspect.value) * 10000) / 10000
+        },
     thumbnail: thumbnailData(),
     /* 拼制进度：新作品也要带上内存里已有的进度。
        旧写法对新作品一律写 null —— 在 Build Mode 里拼了半天再点「保存作品与进度」，
@@ -2079,6 +3210,8 @@ export function saveProject(name) {
     completedBeads: existing ? existing.completedBeads || 0 : 0,
     finishSignature: existing ? existing.finishSignature || '' : ''
   }
+  /* 调用方补的字段放在最后（同名键以此为准） */
+  if (extra && typeof extra === 'object') Object.assign(payload, extra)
 
   const list = projects.value.slice()
   const idx = list.findIndex(x => x.id === payload.id)
@@ -2086,7 +3219,12 @@ export function saveProject(name) {
   else list.unshift(payload)
   /* 体积超预算就只存当前方案（见 trimVariantsToFit）：1000×1000 三个方案 300 万字符，
      直接写会顶爆 localStorage 的 500 万配额，结果是一次都存不下 */
-  const trimmed = trimVariantsToFit(list, payload.id)
+  let trimmed = trimVariantsToFit(list, payload.id)
+  /* 源图快照是「锦上添花」：真撑不下时先丢它，别为了它把另外两个方案裁掉 */
+  if (charsOf(trimmed.list) > LS_SAFE_CHARS) {
+    const withoutSource = list.map(p => (p && p.id === payload.id ? { ...p, source: null } : p))
+    trimmed = trimVariantsToFit(withoutSource, payload.id)
+  }
   const before = projects.value
   projects.value = trimmed.list
   if (!persist()) {
@@ -2160,6 +3298,10 @@ export function openProject(id) {
       if (!p) continue
       list.push({
         ...p,
+        /* 逐颗改过的格子（存档里带的）：换尺寸时按比例落回去，重新取样不会覆盖手改 */
+        editMap: unpackEditMap(p, v.data && v.data.edits),
+        /* 修改层：记着「改那一刻的尺寸」，比存档里的图纸更细时靠它保住精度 */
+        editLayer: unpackEditLayer(p, v.data && v.data.layer),
         key: v.key,
         label: v.label,
         tagline: v.tagline,
@@ -2217,8 +3359,48 @@ export function openProject(id) {
        否则重新打开的作品换尺寸会把手工修改重新生成掉。 */
     manualEdited.value = !!proj.manualEdited
     saveStatus.value = '已打开存档'
-    // 恢复预览：用图案自己画一张，不依赖原图
-    rebuildThumbSource()
+    /* 源图：新存档带着一份（最长边 512 px），直接用它 —— 放大尺寸 / 恢复方案都是
+       按原图重新取样。老存档没带，就按当前图纸重建一张（见 rebuildThumbSource）：
+       插值管几何、落色管颜色，放大是脆边不糊（2026-10-31 两条用户反馈：
+       「放大不能一块一块」「放大之后变模糊了」）。 */
+    if (proj.source && proj.source.url) {
+      const snap = proj.source
+      sourceKind.value = 'raster'
+      sourceAspect.value = Number(snap.aspect) || (active.width / active.height)
+      sourceUrl.value = snap.url
+      sourceFromPattern.value = false
+      sourceSnapshot = snap
+      /* 落色目标 = 当前方案自己的调色板（快照画面就是这一方案渲染出来的）。
+         不能用所有方案的并集：把别的方案的色号混进落色目标，放大后最近邻采样
+         会从那批颜色里投票，长出当前方案没有的色号（2026-10-31 探针实测
+         70×87 放大多出 7 色）。快照是 512px 的位图：不落色的话，放大重新取样时
+         边缘格混出中间色，量化后长出原图没有的邻近色 —— 和老存档发虚是同一个病。
+         落色 + 最近邻（rebuildSourceGrid 让 sourceNearestOpt 生效）让放大同样
+         「颜色一格不错、边界更细」。sourceFromPattern 保持 false：这份快照是真原图，
+         存档照旧带它。 */
+      const snapColors = []
+      for (const c of active.palette || []) {
+        const m = /^#?([0-9a-f]{6})$/i.exec(c && c.hex ? c.hex : '')
+        if (!m) continue
+        snapColors.push([parseInt(m[1].slice(0, 2), 16), parseInt(m[1].slice(2, 4), 16), parseInt(m[1].slice(4, 6), 16)])
+      }
+      const im = new Image()
+      im.onload = () => {
+        /* 快照只有 512 px：成品网格放大超过 512 格之后，采样会退化成最近邻（一块一块）。
+           内存里平滑插值到 REBUILD_SOURCE_SIDE、落色到图纸色号，再当源图；
+           存档里那份 512 快照原样保留（sourceSnapshot 不动，localStorage 的体积不涨）。 */
+        const m = Math.max(im.naturalWidth || im.width, im.naturalHeight || im.height)
+        const up = m < REBUILD_SOURCE_SIDE ? smoothUpscaledUrl(im, REBUILD_SOURCE_SIDE, snapColors.length ? snapColors : null) : null
+        if (!up) { sourceImg.value = im; return }
+        const big = new Image()
+        big.onload = () => { sourceImg.value = big; sourceUrl.value = up.url }
+        big.src = up.url
+      }
+      im.src = snap.url
+      rebuildSourceGrid = { w: artW, h: artH }
+    } else {
+      rebuildThumbSource()
+    }
     return true
   } catch (e) {
     toastErr('打开失败')
@@ -2226,37 +3408,157 @@ export function openProject(id) {
   }
 }
 
+/** 图纸重建源图 / 快照插值的目标分辨率（最长边，px）。
+ *  采样口径见 lib/pattern.js 的 maxUsefulSupersample：源图比成品网格大 ⇒ 每格做面积平均，
+ *  源图比网格小 ⇒ 退化成最近邻，画面一格一块。档位最大 936 格，1024 保证怎么放大
+ *  都落在面积平均那一侧；插值把旧格边界放到 1/k 格的精细位置上，配合落色
+ *  （见 smoothUpscaledUrl 的 snap 参数）输出脆边。 */
+const REBUILD_SOURCE_SIDE = 1024
+
+/** 落色源图对应的**成品网格**（rebuildThumbSource / openProject 的快照落色写入，
+ *  换真原图时清掉）。
+ *  生成时用它判断这次是放大还是缩小：放大走最近邻采样（颜色一格不错，不许混出
+ *  中间色 —— 面积平均混中间色就是「放大发虚」的根源），缩小才用面积平均做块合并。 */
+let rebuildSourceGrid = null
+
+/** 这次生成要不要走「图纸源图最近邻采样」：
+ *  源图被落过色（rebuildSourceGrid 非空 = 老存档重建的、或快照插值落色的），
+ *  且这次成品网格**没有比落色基准网格小**（放大或原尺寸）。
+ *  原尺寸重算也走这条路 —— 最近邻 + 落色能一格不错地还原现在的图纸，
+ *  「恢复方案」因此不会悄悄改颜色。缩小传 false：块合并要靠面积平均。 */
+function sourceNearestOpt(gw, gh) {
+  return !!(rebuildSourceGrid && gw >= rebuildSourceGrid.w && gh >= rebuildSourceGrid.h)
+}
+
 /**
- * 从存档打开时没有源图，但编辑/重新生成需要源图。
- * 这里把当前图案合成一张位图当作"源图"，保证「重新生成」不会报错。
+ * 把已解码的位图平滑插值到最长边 ≥ side，返回可以直接 new Image() 的 data URL。
+ * 已经不小（≥ side）时返回 null，调用方按原样用。
+ * 展示格式优先 WebP（平滑位图存 PNG 又大又慢）；不支持 WebP 编码的浏览器
+ * （iOS Safari 的 canvas.toDataURL）会静默回退成 PNG，行为不变只是文件大一点。
+ */
+function smoothUpscaledUrl(im, side, snap = null) {
+  const iw = im.naturalWidth || im.width
+  const ih = im.naturalHeight || im.height
+  if (!(iw > 0 && ih > 0)) return null
+  if (Math.max(iw, ih) >= side) return null
+  const k = side / Math.max(iw, ih)
+  const c = document.createElement('canvas')
+  c.width = Math.round(iw * k)
+  c.height = Math.round(ih * k)
+  const ctx = c.getContext('2d')
+  ctx.imageSmoothingEnabled = true
+  ctx.imageSmoothingQuality = 'high'
+  ctx.drawImage(im, 0, 0, c.width, c.height)
+  /* 图纸重建的源图要做「落色」：插值出来的过渡色收回到图案本来用的那几种颜色上。
+     不落色的话，放大重新取样时边缘格取到的是插值中间色，量化后长出一堆原图没有
+     的浅中间色 —— 画面整圈发虚（2026-10-31 用户反馈「放大之后变模糊了」）。
+     落色把插值的几何保留下来（边界落在 1/k 格的精细位置上），颜色却回到
+     非黑即白的原色，取样多数投票就能稳定选出真色，边缘是脆的。
+     alpha 也一并二值化：半透明的边缘像素被白底合成后会泛白，最近邻采样
+     采到它就镶一圈白边；硬了之后每个像素要么是纯色、要么完全透明。 */
+  let lossless = false
+  if (snap && snap.length) {
+    lossless = true
+    const lut = snapPaletteLUT(snap)
+    const id = ctx.getImageData(0, 0, c.width, c.height)
+    const d = id.data
+    for (let i = 0; i < d.length; i += 4) {
+      const a = d[i + 3]
+      if (a < 128) { d[i + 3] = 0; continue }
+      d[i + 3] = 255
+      const e = snap[lut[((d[i] >> 3) << 10) | ((d[i + 1] >> 3) << 5) | (d[i + 2] >> 3)]]
+      d[i] = e[0]; d[i + 1] = e[1]; d[i + 2] = e[2]
+    }
+    ctx.putImageData(id, 0, 0)
+  }
+  /* 落过色的源图必须走无损编码：WebP 0.9 是有损的，会把精确的色值扰动几个色阶，
+     重新取样时就被量化到相邻色号上（实测 33 色又长出 9 个邻近色）。
+     平涂像素图 PNG 压得很小，而且这份 URL 只在内存里（saveProject 不存它的快照）。 */
+  let url = ''
+  try { url = lossless ? c.toDataURL('image/png') : c.toDataURL('image/webp', 0.9) } catch { /* 编码抛错就回退 PNG */ }
+  if (!url.startsWith('data:image')) url = c.toDataURL('image/png')
+  return { url }
+}
+
+/** 15-bit 色桶 → 最近落色下标的查找表：850k 像素逐个算 291 色距离太慢，
+ *  先把 32768 个桶各算一次最近色（约 950 万次乘加，一次 <50ms），像素只查表。 */
+function snapPaletteLUT(colors) {
+  const lut = new Uint8Array(32768)
+  for (let i = 0; i < 32768; i++) {
+    const r = ((i >> 10) << 3) | 4
+    const g = (((i >> 5) & 31) << 3) | 4
+    const b = ((i & 31) << 3) | 4
+    let best = 0
+    let bd = Infinity
+    for (let c = 0; c < colors.length; c++) {
+      const dr = r - colors[c][0]
+      const dg = g - colors[c][1]
+      const db = b - colors[c][2]
+      const d = dr * dr + dg * dg + db * db
+      if (d < bd) { bd = d; best = c }
+    }
+    lut[i] = best
+  }
+  return lut
+}
+
+/**
+ * 从存档打开时没有源图，把当前图纸重建一张能重新取样的源图。
+ *
+ * 2026-10-31 之前是把格子按块放大（320 px 或 1 格 1 像素），拿它「放大尺寸 /
+ * 重新生成」出来的画面还是一格一块。当天改成平滑插值后，用户接着反馈
+ * 「放大之后变模糊了」—— 插值在每条色块边界上拉出约一格宽的过渡带，
+ * 重新取样时边缘格取到中间色，量化后长出几十种原图没有的浅中间色
+ * （实测「131」这件作品 33 色放大成 57 色，69% 的边界变成 A→B→C 三级渐变）。
+ *
+ * 现在的口径：插值管**几何**（边界落在 1/k 格的精细位置上），落色管**颜色**
+ * （每个像素收回图案本来用的那几种颜色）。这样放大既有精细的轮廓、
+ * 又是干净的原色，既不是一块一块、也不是一圈虚边。
+ *
+ * 另外底子必须是**透明的**：空格（去背景留空的位置）不能铺 #EFF1F4 灰底 ——
+ * 铺了灰底，重新取样后背景会变成一整片白豆/灰豆（实测 1375 个空格全被吃掉）。
+ * 带 alpha 的源图走「源图自带透明背景」的自动抠图，空格还是空格。
  */
 function rebuildThumbSource() {
   const p = pattern.value
   if (!p) return
-  let c
-  if (Math.max(p.width, p.height) > THUMB_STRAIGHT_MAX) {
-    /* 大画布直接按 1 格 1 像素重建：原来的 320 px 缩略图再拿去「重新生成」，
-       等于先把图纸降采样一遍 —— 1000 格的图会掉到约 1/3 分辨率，
-       用户点「恢复方案」会以为自己把图弄糊了。位图路径下 1:1 与缩略图一样快。 */
-    c = patternBitmap(p)
-  } else {
-    const scale = Math.max(1, Math.round(320 / Math.max(p.width, p.height)))
-    c = document.createElement('canvas')
-    c.width = p.width * scale
-    c.height = p.height * scale
-    const ctx = c.getContext('2d')
-    ctx.fillStyle = '#ffffff'
-    ctx.fillRect(0, 0, c.width, c.height)
-    for (let y = 0; y < p.height; y++) {
-      for (let x = 0; x < p.width; x++) {
-        const col = p.palette[p.cells[y * p.width + x]]
-        if (!col) continue
-        ctx.fillStyle = col.hex
-        ctx.fillRect(x * scale, y * scale, scale, scale)
-      }
+  /* 只取**成品区域**（画布四周的留白不是画面）：源图对应的是「原图」，
+     重新取样时它要铺满新的成品网格 —— 把整块底板当源图的话，放大后画面
+     会缩进中间一小块，四周全是留白的灰。 */
+  const ox = Math.max(0, Math.floor((p.width - p.artW) / 2))
+  const oy = Math.max(0, Math.floor((p.height - p.artH) / 2))
+  const base = document.createElement('canvas')
+  base.width = p.artW
+  base.height = p.artH
+  const bctx = base.getContext('2d')
+  const bimg = bctx.createImageData(p.artW, p.artH)
+  /* 落色的目标 = 这张图案实际用到的颜色（hex → RGB 只解析一次）。
+     顺带收集给插值后的落色步骤用。 */
+  const snap = []
+  const rgbOf = new Map()
+  for (let k = 0; k < p.palette.length; k++) {
+    const m = /^#?([0-9a-f]{6})$/i.exec((p.palette[k] && p.palette[k].hex) || '')
+    const rgb = m
+      ? [parseInt(m[1].slice(0, 2), 16), parseInt(m[1].slice(2, 4), 16), parseInt(m[1].slice(4, 6), 16)]
+      : null
+    rgbOf.set(k, rgb)
+    if (rgb) snap.push(rgb)
+  }
+  for (let y = 0; y < p.artH; y++) {
+    const srcRow = (y + oy) * p.width + ox
+    for (let x = 0; x < p.artW; x++) {
+      const rgb = rgbOf.get(p.cells[srcRow + x])
+      if (!rgb) continue
+      const o = (y * p.artW + x) * 4
+      bimg.data[o] = rgb[0]
+      bimg.data[o + 1] = rgb[1]
+      bimg.data[o + 2] = rgb[2]
+      bimg.data[o + 3] = 255
     }
   }
-  const url = c.toDataURL('image/png')
+  bctx.putImageData(bimg, 0, 0)
+  const up = smoothUpscaledUrl(base, REBUILD_SOURCE_SIDE, snap)
+  const url = up ? up.url : base.toDataURL('image/png')
   const im = new Image()
   im.onload = () => {
     sourceImg.value = im
@@ -2264,7 +3566,13 @@ function rebuildThumbSource() {
     /* 从存档重建出来的源图是**这张图纸自己**的位图：比例、种类都要跟着换，
        否则精细档会拿着「上一张照片」的比例去算格子（跨作品切来切去时必然歪）。 */
     sourceKind.value = 'raster'
-    sourceAspect.value = p.width / p.height
+    sourceAspect.value = p.artW / p.artH
+    /* 标记「源图是图纸重建的」：saveProject 不给它存快照（存了也是同样分辨率）。
+       rebuildSourceGrid 记下重建时的成品网格：生成时用它判断「这次是放大还是缩小」，
+       放大走最近邻采样（颜色一格不错，见 sourceNearestOpt），缩小才用面积平均做块合并。 */
+    sourceFromPattern.value = true
+    rebuildSourceGrid = { w: p.artW, h: p.artH }
+    sourceSnapshot = null
   }
   im.src = url
 }
@@ -2786,10 +4094,18 @@ export function zoomBy(d) {
  * 「已生成 N 个方案」会把提示栏刷满，而实时预览的反馈应该由输入框旁边那行字承担。
  * 失败（生成异常 / 无图）仍然会提示，不吞错误。
  *
- * scaleArt 只给「换钉板（底板变小）」用：底板装不下原图时，手改过的图按比例缩到
- * 新成品区域，而不是把画面裁掉一半（2026-10-29 用户反馈）。
+ * announce：一次性动作（换底板 / 点尺寸快选）传 true，拖滑杆传 false。
+ *
+ * 口径（2026-11-01 用户定稿）：换尺寸分成两部分 ——
+ *   · **原图部分**永远按原图在新尺寸上重新取样（每个尺寸的效果都来自原图，放大长细节、
+ *     缩小块合并），不复制工作区里那张已经缩过的图；
+ *   · **修改过的部分**按**修改那一刻的尺寸**缩放（editLayer）：在 104 上改的一颗，
+ *     缩到 52 再放回 104 仍是那一颗；在 52 上改的一颗，放大到 104 是 2×2 一块。
+ *   · 不弹层、不遮盖手改；没有源图（老存档且没快照）才退回按当前图纸块缩放。
+ *
+ * @returns {{ resampled: boolean, keptEdits: number }|{ scaled: boolean, croppedBeads: number, moved: boolean, boardChanged: boolean }|null}
  */
-export function setCanvasSize(w, h, { silent = false, scaleArt = false } = {}) {
+export function setCanvasSize(w, h, { silent = false, announce = true } = {}) {
   const max = maxCells.value
   /* 画布规格（容量）是这次的上限：成品尺寸只能在容量里缩，不能缩到比容量还大。
      容量由 ②「画布规格」写入（见 setCanvasCapacity），老存档容量 = 画布本身。 */
@@ -2803,26 +4119,38 @@ export function setCanvasSize(w, h, { silent = false, scaleArt = false } = {}) {
       : `当前套餐单边最大 ${max} 格，升级 Pro 可到 ${MAX_CELLS} 格（按规格一块一块加，104 × 9 = 936 这种）`, 'warn')
   }
   if (cw === options.canvasW && ch === options.canvasH) return
+  const prevW = options.canvasW
+  const prevH = options.canvasH
   options.canvasW = cw
   options.canvasH = ch
 
-  /* 这张图纸被逐颗改过：换尺寸**不重新生成** —— regenerate 会按源图重新取样，
-     手工修改全被冲掉（2026-10-28 用户反馈：图纸转换后换钉板尺寸，
-     已经编辑好的图不要重置，只改钉板尺寸）。
-     旧格子 1:1 居中挪进新画布：放大补空格、缩小裁掉放不下的边；
-     想按新尺寸重新转换仍可点「恢复方案」。 */
-  if (manualEdited.value && variants.value.length) {
-    resizeVariantsPreserving(cw, ch, { silent, scaleArt })
-    return
+  /* 有真原图：按新尺寸重新取样整张图，再把修改层按它自己的分辨率落回去。
+     原图部分因此永远跟着原图走，修改部分保留「改那一刻」的精度。
+     老存档的源图是按图纸重建的（sourceFromPattern）—— 那不是原图，放大也只能铺块，
+     走下面的按块缩放更忠实（颜色一颗不变），不去假装重新取样。 */
+  if (sourceUrl.value && !sourceFromPattern.value && variants.value.length) {
+    const layers = collectEditLayers()
+    /* silent 交给调用方：一次重新取样要几百毫秒，提示由下面这一条 / 左栏说明行承担 */
+    const ok = regenerate({ silent: true })
+    if (!ok) {
+      options.canvasW = prevW
+      options.canvasH = prevH
+      return null
+    }
+    const kept = applyEditLayers(layers)
+    if (kept) {
+      manualEdited.value = true
+      saveStatus.value = '未保存'
+    }
+    if (announce) {
+      toastOk(`已按原图重新缩放到 ${cw} × ${ch} 格${kept ? '，手工修改按原尺寸保留' : ''}`)
+    }
+    return { resampled: true, keptEdits: kept }
   }
 
-  /* 改完画布尺寸必须重新生成。
-     图案自己的 width/height 是生成那一刻定下来的，只改 options 的话
-     界面会显示「画布 58 × 58 格」而画布上还是旧的 29 × 29 图案 ——
-     用户点「2 块」看起来就是按钮没反应（实测确实是：改了 options，
-     pattern 仍停在 29×29）。其余参数（颜色数 / 填充方式 / 色板）都走
-     regenerate，这里保持一致。 */
-  if (sourceUrl.value) regenerate({ silent })
+  /* 没有源图（老存档且没带快照）：只能按当前图纸块缩放，手改跟着格子走 */
+  if (variants.value.length) return resizeVariantsPreserving(cw, ch, { silent, announce })
+  return null
 }
 
 /**
@@ -2833,7 +4161,7 @@ export function setCanvasSize(w, h, { silent = false, scaleArt = false } = {}) {
  * 只是换底板（成品区域放得下）时**不重新取样**：把现有方案重新居中贴一遍就行。
  * 没有源图时直接把成品区域也落到画布上：空画布选规格，用户要看到的就是这块板的大小。
  */
-export function setCanvasCapacity(w, h, { silent = false } = {}) {
+export function setCanvasCapacity(w, h, { silent = false, announce = true } = {}) {
   const max = maxCells.value
   const cw = Math.max(1, Math.min(max, Math.round(w) || 1))
   const ch = Math.max(1, Math.min(max, Math.round(h) || 1))
@@ -2843,12 +4171,12 @@ export function setCanvasCapacity(w, h, { silent = false } = {}) {
   const aw = Math.min(options.canvasW, cw)
   const ah = Math.min(options.canvasH, ch)
   if (aw !== options.canvasW || ah !== options.canvasH) {
-    /* 底板换小了，原来的图放不下：手改过的图按比例缩到新的成品区域
-       （scaleArt），没手改过的图照旧按新尺寸重新取样 —— 两边画面大小一致，
+    /* 底板换小了，原来的图放不下：手改过的图按比例缩到新的成品区域，
+       没手改过的图照旧按新尺寸重新取样 —— 两边画面大小一致，
        不会一个缩小一个被裁掉（2026-10-29 用户反馈「切换钉板画面会裁掉」）。 */
-    setCanvasSize(aw, ah, { silent, scaleArt: true })
+    setCanvasSize(aw, ah, { silent, announce })
   } else if (!sourceUrl.value) {
-    setCanvasSize(cw, ch, { silent: true })
+    setCanvasSize(cw, ch, { silent: true, announce })
   } else {
     /* 底板换了，成品区域没变：重新贴一遍。格子下标整体平移了，拼制进度得清掉。 */
     repadVariants(cw, ch)

@@ -221,6 +221,27 @@ export async function login({ account, password }) {
   }
 }
 
+/**
+ * 手机验证码登录：手机号未注册时服务端自动建号。
+ * 服务端未开启（短信凭据没配）时返回明确的错误提示。
+ */
+export async function loginWithSmsCode({ phone, code }) {
+  authLoading.value = true
+  authError.value = ''
+  try {
+    const result = await api.post('/auth/sms/login', { phone, code }, { auth: false })
+    userTokens.write(result.tokens)
+    currentUser.value = result.user
+    if (String(result.user.nickname || '') !== '本机访客') clearDeviceCredential()
+    return { ok: true }
+  } catch (e) {
+    authError.value = e instanceof ApiError ? e.message : '登录失败，请稍后重试'
+    return { ok: false, message: authError.value }
+  } finally {
+    authLoading.value = false
+  }
+}
+
 /** 退出登录 */
 export async function logout() {
   const wasAnonymous = isAnonymousDevice.value

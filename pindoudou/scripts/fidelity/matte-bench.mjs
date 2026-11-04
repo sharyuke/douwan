@@ -14,7 +14,10 @@
      iou         二值化 IoU：alpha>=0.5 vs mask>=128
      pixelAcc    逐像素二值一致率
      boundaryF1  真值边界(1px 轮廓像素)与预测边界的 F1，2 像素容差（欧氏距离变换）
-     alphaMAE    预测 α 与真值 α 的平均绝对误差（只有 cut_soft_edge 有意义 → 只在那张算）
+     alphaMAE    预测 α 与真值 α 的平均绝对误差。**所有带真值的图都算**
+                 （真值是超采样出来的解析式覆盖率）—— 它量的是「边缘软硬」对不对，
+                 比二值 IoU 敏感得多：IoU 只看 α≥0.5 的那一条线，
+                 边缘该软的地方硬了、该硬的地方软了，IoU 看不出来，αMAE 看得出来。
      cellAcc     按 29x29 网格聚合（格子主体覆盖率 = 该格真值 α 均值），
                  用当前档位的 emptyShare 判「放豆/不放豆」，与真值同口径判定的结果比一致率
      fineCellAcc 同上，但按 300x300 网格聚合 —— 也就是**精细档**画布下的判定一致率。
@@ -528,7 +531,10 @@ function main() {
     const bf1 = boundaryF1(truthBin, predBin, w, h)
 
     let alphaMAE = null
-    if (name === 'cut_soft_edge') {
+    {
+      // 所有带真值的图都有解析式覆盖率（超采样出来的 0~1 真值 α），
+      // 所以 αMAE 对每一张都能算 —— 它量的是**边缘软硬**对不对，
+      // 比二值 IoU 敏感得多（IoU 只看 α≥0.5 的那一条线）。
       let s = 0
       for (let i = 0; i < w * h; i++) s += Math.abs(predAlpha[i] - truthAlpha[i])
       alphaMAE = s / (w * h)

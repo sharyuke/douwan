@@ -1057,7 +1057,7 @@ function onPageSizeChange() {
           <p v-if="preview.plan.tagline" class="adm-muted">{{ preview.plan.tagline }}</p>
 
           <div class="adm-row">
-            <span class="adm-strong" style="font-size: 24px">{{ money(preview.plan.price) }}</span>
+            <span class="adm-strong" style="font-size: 18px;line-height:var(--ty-section-lh)">{{ money(preview.plan.price) }}</span>
             <span
               v-if="preview.plan.original_price !== null && preview.plan.original_price !== undefined"
               class="adm-muted"

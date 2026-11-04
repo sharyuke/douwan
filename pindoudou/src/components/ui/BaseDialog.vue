@@ -1,6 +1,6 @@
 <script setup>
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import PixelIcon from './PixelIcon.vue'
+import Icon from './Icon.vue'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -11,7 +11,13 @@ const props = defineProps({
   closeOnBackdrop: { type: Boolean, default: true },
   /* 层级：默认 0（用 global.css 的 .modal z-index 200）。
      工作台的新手指引层是 400，模式切换弹层要压在它上面就传 500。 */
-  layer: { type: Number, default: 0 }
+  layer: { type: Number, default: 0 },
+  /* 不要默认的标题栏（公告弹窗自带版式，标题画在卡片里） */
+  bare: { type: Boolean, default: false },
+  /* 标题左侧的像素图标（命令弹窗按设计稿带图标） */
+  headIcon: { type: String, default: '' },
+  /* 给 .dialog 追加类名（换一套卡片皮肤时用） */
+  dialogClass: { type: String, default: '' }
 })
 const emit = defineEmits(['update:modelValue', 'close'])
 
@@ -72,7 +78,7 @@ onBeforeUnmount(() => {
       @click.self="onBackdrop"
     >
       <div
-        class="dialog" :class="[size ? 'dialog--' + size : '', { 'dialog--sheet': sheet }]"
+        class="dialog" :class="[size ? 'dialog--' + size : '', dialogClass, { 'dialog--sheet': sheet }]"
         role="dialog" aria-modal="true"
         :style="dragY ? { transform: `translateY(${dragY}px)` } : null"
       >
@@ -81,12 +87,16 @@ onBeforeUnmount(() => {
           @touchstart.passive="onGrabStart" @touchmove.passive="onGrabMove" @touchend="onGrabEnd"
           @touchcancel="onGrabEnd"
         ><i></i></div>
-        <div class="dialog__head">
-          <h2>{{ title }}</h2>
-          <button class="iconbtn" aria-label="关闭" @click="close"><PixelIcon name="close" :size="14" /></button>
+        <div v-if="!bare" class="dialog__head">
+          <div class="dialog__title">
+            <Icon v-if="headIcon" :name="headIcon" :size="20" />
+            <h2>{{ title }}</h2>
+            <slot name="headExtra" />
+          </div>
+          <button class="iconbtn" aria-label="关闭" @click="close"><Icon name="x" :size="16" /></button>
         </div>
         <div class="dialog__body">
-          <slot />
+          <slot :close="close" />
         </div>
         <div v-if="$slots.footer" class="dialog__foot">
           <slot name="footer" :close="close" />

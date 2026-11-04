@@ -366,7 +366,7 @@ onMounted(() => {
         <div class="adm-field adm-field--full">
           <label>完整详情</label>
           <div class="adm-card adm-card--flat">
-            <p class="adm-mono" style="padding:12px;white-space:pre-wrap;word-break:break-word;line-height:1.8">
+            <p class="adm-mono" style="padding:12px;white-space:pre-wrap;word-break:break-word;line-height:var(--ty-label-lh)">
               {{ detailRow.details || '这条日志没有详情内容' }}
             </p>
           </div>

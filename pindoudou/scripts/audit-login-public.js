@@ -107,11 +107,17 @@
   )
   const readyOk = expectBlocked || (!out.wechatDisabled && !notice)
 
-  /* 邮箱登录：先用错误密码，确认请求体带的是邮箱、错误提示能显示 */
+  /* 邮箱登录：先用错误密码，确认请求体带的是邮箱、错误提示能显示。
+     服务端配了短信后默认页签是「手机号登录」，先切回邮箱页签。 */
   function type(selector, value) {
     const el = dialog.querySelector(selector)
     el.value = value
     el.dispatchEvent(new Event('input', { bubbles: true }))
+  }
+  const emailTab = dialog.querySelector('[data-audit="tab-email"]')
+  if (emailTab) {
+    emailTab.click()
+    await sleep(100)
   }
   type('[data-audit="login-email"]', 'audit@example.com')
   type('[data-audit="login-password"]', 'wrongpass')

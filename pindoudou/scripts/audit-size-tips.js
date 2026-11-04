@@ -31,9 +31,26 @@
     const S = await d.studio()
     if (!(await waitFor(() => !!S.pattern.value, 8000))) fail('示例作品没有载入（pattern 为空）')
 
-    const mobile = !document.querySelector('[data-size-wide]')
+    /* 全屏工作台（参考版版面）：没有宽屏卡片、也没有手机快捷区，
+       尺寸卡在右侧「成品尺寸」抽屉里 */
+    const consoleChrome = !!document.querySelector('.csTop')
+    const mobile = !consoleChrome && !document.querySelector('[data-size-wide]')
     let card
-    if (mobile) {
+    if (consoleChrome) {
+      const entry = [...document.querySelectorAll('.csSide__row')].find(b => /成品尺寸/.test(b.textContent))
+      if (!entry) fail('右侧没有「成品尺寸」入口')
+      entry.click()
+      await sleep(500)
+      const drawer = document.querySelector('.csDrawer')
+      if (!drawer) fail('成品尺寸抽屉没有打开')
+      card = drawer.querySelector('.card--size')
+      if (!card) fail('抽屉里没有画布与成品尺寸卡片')
+      /* 抽屉是按 focus='size' 打开的，尺寸面板本来就是展开的；
+         行头在 focus 模式下是 display:none，别去点它（点了反而把面板收起来） */
+      if (!(await waitFor(() => visible(card.querySelector('[data-size-panel]')), 3000))) {
+        fail('抽屉里的尺寸面板没有展开')
+      }
+    } else if (mobile) {
       /* 手机端这张卡在底部抽屉里：先点快捷区的「画布」把抽屉打开 */
       const quick = [...document.querySelectorAll('.quickItem')]
       const btn = quick.find(b => /画布/.test(b.textContent))

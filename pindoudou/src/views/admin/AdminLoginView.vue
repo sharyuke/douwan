@@ -91,7 +91,7 @@ async function submit() {
         {{ loading ? '登录中…' : '登录后台' }}
       </button>
 
-      <p class="adm-2xs adm-muted" style="line-height:1.7">
+      <p class="adm-2xs adm-muted" style="line-height:var(--ty-caption-lh)">
         后台不提供注册入口。首个管理员由服务端初始化命令创建：
         <code>DOUWAN_SEED_ADMIN_PASSWORD=… go run ./cmd/seed -admin 你的账号</code>
       </p>

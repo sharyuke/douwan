@@ -41,6 +41,14 @@
   /* 不能读 window.__AUDIT_PRO：那面旗子只存在于 setup 那一轮执行上下文，
      页面真正加载时已经没了。套餐以 useMembership 里的真实状态为准。 */
   const pro = M.isPro.value
+  /* 全屏工作台（参考版版面）：尺寸卡在右侧抽屉里，先点开「成品尺寸」 */
+  if (!document.querySelector('.card--size') && document.querySelector('.csSide__row')) {
+    const sizeEntry = [...document.querySelectorAll('.csSide__row')].find(b => /成品尺寸/.test(b.textContent))
+    if (sizeEntry) {
+      sizeEntry.click()
+      await sleep(600)
+    }
+  }
   const card = document.querySelector('.card--size')
   if (!card) throw new Error('找不到画布大小卡片')
   const row = card.querySelector('[data-size-row]')

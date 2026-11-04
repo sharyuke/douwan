@@ -8,10 +8,6 @@
    用法：
      node scripts/serve-dist.mjs            # 默认 http://127.0.0.1:4319/
      PORT=8080 node scripts/serve-dist.mjs
-
-   给用户看的本地预览不要用这个脚本，也不要换端口另开一台。
-   工作区只有 tools/preview 这一台静态服务器（5180）：构建好 dist 后用
-   tools/preview/deploy.ps1 复制到 tools/preview/www。见工作区 AGENTS.md「本地预览」。
    ========================================================================= */
 
 import http from 'node:http'

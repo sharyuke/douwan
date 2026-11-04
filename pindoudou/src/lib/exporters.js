@@ -1,4 +1,4 @@
-/* =========================================================================
+﻿/* =========================================================================
    导出（PRD §18 / §19 / §49）
    - PNG 图纸：带标尺、网格、色号
    - SVG 矢量：可无损缩放
@@ -11,14 +11,23 @@ import { drawChart, drawBoard, drawPixels, chartGeometry, EMPTY_FILL } from './r
 import { materialList, boardMaterials, boardBeadCounts, boardLayout, toSVG, estimateSvgBytes, toMaterialsCSV, toShoppingText } from './pattern.js'
 /* 分板规格（52 / 78 / 104 / 120 钉画线板，整张画布一种规格）与豆径（2.6mm 小豆 / 5mm 中号豆）的唯一口径 */
 import { normalizeBoardSize, beadOf, boardOf as boardDefOf } from './boardSpec.js'
-/* 统一导出标版（页眉 Logo + 网址 / 图案信息 / 颜色清单 / 页脚 Slogan）：
+/* 统一导出标版（页眉 Logo + 浅绿网址胶囊 + Slogan 与四圆点 / 图案信息 / 颜色清单）：
    新手版第 ③ 步与专业工作台「图纸交付」的整图导出共用同一版式，见 exportTemplate.js */
 import {
   composeExportTemplate, templateExtraHeight,
-  drawTemplateHeader, drawTemplateSlogan, SITE_URL_TEXT, SLOGAN_TEXT
+  drawTemplateHeader, SITE_URL_TEXT, SLOGAN_TEXT,
+  exportRulerPx, exportPageWidth, exportChartTheme
 } from './exportTemplate.js'
-import logoTemplateUrl from '../assets/logo-douwan.webp'
-
+/* Logo 资源：同 exportTemplate.js，用 new URL(..., import.meta.url) 取 ——
+   `import logo from '...webp'` 会让 Node 直接跑的自检脚本崩（不认 .webp 后缀）。
+   包一层 try 是因为自检脚本会把 globalThis.URL 换成只剩 createObjectURL 的桩。 */
+const logoTemplateUrl = (() => {
+  try {
+    return new URL('../assets/logo-douwan.webp', import.meta.url).href
+  } catch (e) {
+    return ''
+  }
+})()
 /* 下面几个小工具是「图纸口径」的唯一入口：分板、成品厘米、1:1 打印毫米数全部走它们，
    老图纸（没有 boardSize / beadKey 字段）自动退到 29 格 + 5mm 中号豆，行为与以前一致。 */
 const boardOf = p => normalizeBoardSize(p && p.boardSize, p && p.width, p && p.height)
@@ -178,14 +187,24 @@ function createExportCanvas() {
  * cell=24 时各 43 px），自己按「格数 × cell」算迟早对不上，并且会算出 4000×4000 这种
  * 事实上超限的假尺寸。
  */
-export function pngExportPlan(pattern, wantedCell = 24, { ruler = true } = {}) {
+export function pngExportPlan(pattern, wantedCell = 24, { ruler = true, includeLegend = false, includeStats = false } = {}) {
   for (let cell = wantedCell; cell >= 1; cell--) {
-    const geometry = chartGeometry(pattern, { cell, ruler })
-    if (geometry.width <= PNG_MAX_SIDE && geometry.height <= PNG_MAX_SIDE && geometry.width * geometry.height <= PNG_MAX_PIXELS) {
-      return { cell, geometry, reduced: cell < wantedCell }
+    const geometry = chartGeometry(pattern, { cell, ruler, rulerPx: exportRulerPx(cell) })
+    /* 标版页面 = 图纸 + 页眉 + 底部双卡，比图纸主体高不少：
+       只按图纸主体算上限的话，成品会超出单边 / 总像素上限，toBlob 直接返回 null。
+       所以这里连标版一起算，必要时继续降 cell。 */
+    const extraH = (includeLegend || includeStats)
+      ? templateExtraHeight(pattern, geometry.width, { includeLegend, includeStats })
+      : 0
+    const pageW = (includeLegend || includeStats)
+      ? exportPageWidth(geometry.width)
+      : geometry.width
+    const pageH = geometry.height + extraH
+    if (pageW <= PNG_MAX_SIDE && pageH <= PNG_MAX_SIDE && pageW * pageH <= PNG_MAX_PIXELS) {
+      return { cell, geometry, reduced: cell < wantedCell, extraH, pageW, pageH }
     }
   }
-  return { cell: 1, geometry: chartGeometry(pattern, { cell: 1, ruler }), reduced: true }
+  return { cell: 1, geometry: chartGeometry(pattern, { cell: 1, ruler, rulerPx: exportRulerPx(1) }), reduced: true }
 }
 
 /**
@@ -206,7 +225,7 @@ function imageMessage(pattern, plan, opts, out) {
   if (opts.ruler) extras.push('行列坐标')
   if (opts.grid) extras.push('网格')
   if (opts.codes) extras.push('每格色号')
-  if (opts.includeLegend || opts.includeStats) extras.push('统一标版（豆玩 Logo + 网址页眉 / 图案信息 / 颜色清单 / 页脚 Slogan）')
+  if (opts.includeLegend || opts.includeStats) extras.push('统一标版（豆玩 Logo + 浅绿网址胶囊页眉 / 图案信息 / 颜色清单）')
   if (extras.length) bits.push('包含 ' + extras.join(' / '))
   if (opts.format === 'jpg' && opts.background === 'transparent') bits.push('JPG 不支持透明，已自动铺白底')
   if ((opts.includeLegend || opts.includeStats) && opts.background === 'transparent') {
@@ -247,7 +266,8 @@ export function buildPatternImageCanvas(pattern, {
   ruler = true,
   grid = true,
   codes = true,
-  /* 统一导出标版（需求 V1.0）：页眉 Logo + 网址、图案信息、颜色清单、页脚 Slogan。
+  /* 统一导出标版（图纸标版 V3）：页眉 Logo + 浅绿网址胶囊 + Slogan 与四圆点、
+     图案信息卡、颜色清单卡。
      新手版 / 专业版 / 作品页 / 素材页的整图导出默认全走这一套版式；
      要「纯图纸主体」的调用方（对照图、纯图案等另有链路）显式传 false。 */
   includeLegend = true,
@@ -255,20 +275,22 @@ export function buildPatternImageCanvas(pattern, {
   background = '#ffffff'
 } = {}) {
   const opts = { format, ruler, grid, codes, includeLegend, includeStats, background }
-  const plan = pngExportPlan(pattern, cell, { ruler })
+  const plan = pngExportPlan(pattern, cell, { ruler, includeLegend, includeStats })
   const g = plan.geometry
   const { canvas, host } = createExportCanvas()
-  /* 标版页面固定白底（页眉 / 页脚 / 材料区都在白纸上）；
-     透明背景只在「不要标版的纯图纸主体」上仍然生效。 */
+  /* 标版页面固定白底（页眉 / 底部双卡都在白纸上）；
+     图纸主体本身画成透明底 —— 浅蓝面板与坐标留白由标版那层铺，
+     这样透明格（不放豆的位置）露出的就是面板色，跟设计稿一致。 */
   const templated = includeLegend || includeStats
-  const bg = (format === 'jpg' || templated)
-    ? '#ffffff'
-    : (background === 'transparent' ? 'rgba(0,0,0,0)' : background)
+  const bg = templated
+    ? 'rgba(0,0,0,0)'
+    : (format === 'jpg' ? '#ffffff' : (background === 'transparent' ? 'rgba(0,0,0,0)' : background))
   // 不把几何对象直传进去：画什么由 opts 里的 codes/grid 决定，让 drawChart 自己算几何，
   // 两边用的是同一个 chartGeometry，算出来必然一致（传 geo 反而要连 opts 一起打包）
   drawChart(host, pattern, {
     cell: plan.cell,
     ruler,
+    rulerPx: exportRulerPx(plan.cell),
     grid,
     codes,
     bold: true,
@@ -276,9 +298,13 @@ export function buildPatternImageCanvas(pattern, {
     /* 导出的图不画板号角标：角标是画在格子上的白色圆角块，会盖住它下面几格的色号。
        分板信息由 PDF 页眉 / 单板图横幅给出，整图这里保持干净。 */
     boardLabels: false,
+    /* 边缘中心红三角是编辑器里的定位标记，导出稿上不要 */
+    centerMarks: false,
     background: bg,
     /* 透明导出时空格也留空，否则空白区会被铺成浅灰、整张图没有 alpha */
-    emptyFill: bg === 'rgba(0,0,0,0)' ? null : undefined
+    emptyFill: bg === 'rgba(0,0,0,0)' ? null : undefined,
+    /* 导出标版的线条 / 坐标配色（编辑器画布照旧） */
+    theme: templated ? exportChartTheme(plan.cell) : undefined
   })
   // host 上挂了 __dpr: 1（prepareCanvas 的 1:1 旁路），所以缓冲尺寸应该精确等于计划好的几何尺寸。
   // 万一这个旁路失效（render.js 不再认 __dpr、或有人把 __dpr 从 host 上删掉），导出的图会被
@@ -691,8 +717,12 @@ export function exportSVG(pattern, { projectName = '豆玩 DOUWAN', cell = 12, c
       note = `色号会把文件撑到约 ${mb(est)} MB，已按上限丢掉色号降到约 ${mb(estPlain)} MB`
     } else {
       // 拒绝也要拒绝得有用：报出实际估算、说清为什么、指向真的能用的那条链路。
-      // PNG 的尺寸在这里现算一次，免得文案里写死「4000×4000」而实际是别的数字（1000 格就是 3026×3026）。
-      const png = pngExportPlan(pattern, 24).geometry
+      // PNG 的尺寸在这里现算一次（**按标版整页算**，因为「图纸 PNG」导出的就是那张带页眉与
+      // 底部双卡的整页图），免得文案里写死「4000×4000」而实际是别的数字
+      //（1000 格在标版下是 2104×3117，不是图纸主体的 3036×3036）。
+      const pngPlan = pngExportPlan(pattern, 24, { includeLegend: true, includeStats: true })
+      const pngW = Math.ceil(pngPlan.pageW || pngPlan.geometry.width)
+      const pngH = Math.ceil(pngPlan.pageH || pngPlan.geometry.height)
       return {
         ok: false,
         bytes: estPlain,
@@ -700,7 +730,7 @@ export function exportSVG(pattern, { projectName = '豆玩 DOUWAN', cell = 12, c
           `超过单文件 ${mb(SVG_SINGLE_BYTES)} MB 的安全线（硬上限 ${mb(SVG_MAX_BYTES)} MB）。` +
           `原因：SVG 一格一个 <rect>，这张图纸要画 ${drawnBeadCount(pattern).toLocaleString()} 个图元（${size}最多 ${(pattern.width * pattern.height).toLocaleString()} 格），` +
           '浏览器光解析这些图元就会长时间卡住，字符串本身在内存里还要翻倍。' +
-          `整张图纸请用「图纸 PNG」（这张画布导出 ${png.width}×${png.height} 像素）；1:1 分页打印请用「分板 PDF」。`
+          `整张图纸请用「图纸 PNG」（这张画布导出 ${pngW}×${pngH} 像素）；1:1 分页打印请用「分板 PDF」。`
       }
     }
   }
@@ -928,27 +958,32 @@ export function dpiExportPlan(pattern, {
     : layout.boards
 
   if (mode === 'full') {
+    /* 这里的几何必须与 buildPatternImageCanvas 完全一致（同一套标尺宽度、
+       同一套页面留白），否则「预检报的尺寸」和「实际导出的文件」会差一截。 */
+    const templated = includeLegend || includeStats
     let cell = wantCell
-    let geo = chartGeometry(pattern, { cell, ruler })
+    let geo = chartGeometry(pattern, { cell, ruler, rulerPx: exportRulerPx(cell) })
     let extraH = legendExtraHeight(pattern, { width: geo.width, includeLegend, includeStats })
-    while (cell > 1 && !fitsCanvas({ width: geo.width, height: geo.height + extraH })) {
+    let pageW = templated ? exportPageWidth(geo.width) : geo.width
+    while (cell > 1 && !fitsCanvas({ width: pageW, height: geo.height + extraH })) {
       cell--
-      geo = chartGeometry(pattern, { cell, ruler })
+      geo = chartGeometry(pattern, { cell, ruler, rulerPx: exportRulerPx(cell) })
       extraH = legendExtraHeight(pattern, { width: geo.width, includeLegend, includeStats })
+      pageW = templated ? exportPageWidth(geo.width) : geo.width
     }
     const height = geo.height + extraH
     const capped = cell < wantCell
     const actual = dpiOf(mm, cell)
     const legendNote = extraH
-      ? `（图纸主体 ${geo.width}×${geo.height} px + 图例/统计 ${extraH} px）`
+      ? `（图纸主体 ${geo.width}×${geo.height} px + 标版 ${extraH} px）`
       : ''
     return {
       ok: true, mode, requestedDpi: dpi, dpi: actual, cell, capped,
-      width: geo.width, height, chartHeight: geo.height, pixels: geo.width * height,
+      width: pageW, height, chartHeight: geo.height, pixels: pageW * height,
       pages: 1, count: 1, total: layout.count, layout, boards: [],
       message: capped
-        ? `图太大，${dpi} DPI 导不出来，已自动降到 ${actual} DPI（${geo.width}×${height} px）。想要 ${dpi} DPI 的清晰度，请改用「分板交付」分块导出。`
-        : `${dpi} DPI · 每格 ${cell} px · ${geo.width}×${height} px${legendNote}`
+        ? `图太大，${dpi} DPI 导不出来，已自动降到 ${actual} DPI（${pageW}×${height} px）。想要 ${dpi} DPI 的清晰度，请改用「分板交付」分块导出。`
+        : `${dpi} DPI · 每格 ${cell} px · ${pageW}×${height} px${legendNote}`
     }
   }
 
@@ -1057,10 +1092,15 @@ export function buildPrintHTML(pattern, {
   h2{font-size:15px;margin:0 0 8px}
   .meta{font-size:11px;color:#8B8B93;margin-bottom:10px}
   .cover{page-break-after:always;text-align:center;padding-top:8mm}
-  .brandBar{display:flex;justify-content:space-between;align-items:center;border:1px solid #F3C4D1;background:#FFF7FA;border-radius:4mm;padding:3mm 5mm;margin-bottom:8mm}
+  .brandBar{display:flex;justify-content:space-between;align-items:center;gap:6mm;margin-bottom:8mm}
   .brandBar img{height:12mm;width:auto;object-fit:contain}
-  .brandBar .url{font-weight:800;font-size:17px;letter-spacing:.2px;background:linear-gradient(90deg,#F59F00,#E64980);-webkit-background-clip:text;background-clip:text;color:transparent}
-  .slogan{text-align:center;color:#F03D2E;font-weight:800;font-size:15px;margin-top:8mm}
+  .urlPill{display:inline-flex;align-items:center;gap:2.4mm;border:1px solid #FBDDE6;background:#FDECF1;border-radius:6mm;padding:1.4mm 4mm 1.4mm 1.4mm;font-weight:800;font-size:16px;color:#F8385A;letter-spacing:.2px}
+  .urlIcon{width:5.4mm;height:5.4mm;border-radius:50%;background:#FB6480;position:relative;display:inline-block;flex:0 0 auto}
+  .urlIcon:after{content:"";position:absolute;right:-1.1mm;bottom:-1.1mm;width:2.1mm;height:2.1mm;border-radius:2mm;background:#FB6480;transform:rotate(45deg)}
+  .sloganRow{display:inline-flex;align-items:center;gap:3mm;margin-left:auto}
+  .slogan{color:#5A6488;font-weight:700;font-size:14px;white-space:nowrap}
+  .blk{width:4.4mm;height:4.4mm;border-radius:1.2mm;display:inline-block}
+  .blk.b1{background:#FDB9C5}.blk.b2{background:#FDD56C}.blk.b3{background:#6BD4B6}.blk.b4{background:#7AB2FE}
   .cover img{max-width:100%;max-height:120mm;image-rendering:pixelated;border:1px solid #E9EAEE;border-radius:6px}
   .previewFallback{font-size:11px;color:#9A9AA2;padding:40mm 0}
   .coverGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;max-width:150mm;margin:14px auto 0;text-align:left}
@@ -1114,7 +1154,11 @@ export function buildPrintHTML(pattern, {
   <section class="cover">
     <div class="brandBar">
       <img src="${logoTemplateUrl}" alt="豆玩 DOUWAN">
-      <span class="url">${SITE_URL_TEXT}</span>
+      <span class="urlPill"><span class="urlIcon"></span>${SITE_URL_TEXT}</span>
+      <span class="sloganRow">
+        <span class="slogan">${SLOGAN_TEXT}</span>
+        <span class="blk b1"></span><span class="blk b2"></span><span class="blk b3"></span><span class="blk b4"></span>
+      </span>
     </div>
     <h1>${escapeHtml(projectName)}</h1>
     <div class="meta">豆玩 DOUWAN · 拼豆分板图纸${brandName ? ' · ' + escapeHtml(brandName) : ''}</div>
@@ -1132,7 +1176,6 @@ export function buildPrintHTML(pattern, {
       <div><b>${formatMin(s.estimatedMinutes)}</b><span>预计拼制时间</span></div>
     </div>
     <p class="tip">打印说明：纸张 A4 ${orientation === 'landscape' ? '横向' : '纵向'}，每块板单独一页，格内为色号，每格在纸上正好 ${bead.mm} mm（${bead.label}）。打印时请选择「实际大小 / 100%」，不要勾选「适合页面」，否则尺寸会缩小。${boards.length < lay.count ? `本 PDF 只包含选中的 ${boards.length} 块板（全图共 ${lay.count} 块，其余板可以分批再打）。` : ''}</p>
-    <p class="slogan">${SLOGAN_TEXT}</p>
   </section>`
     : ''
 
@@ -1566,9 +1609,10 @@ export async function exportBoardPdf(pattern, {
     const artH = pattern.artH || pattern.height
     const cmW = (artW * bead.cm).toFixed(1)
     const cmH = (artH * bead.cm).toFixed(1)
-    /* 封面页眉 / 页脚用与整图导出同一套标版（Logo + 网址 / Slogan） */
-    drawTemplateHeader(ctx, { x: margin, y: margin, width: pageW - margin * 2 })
-    const titleY = margin + 104 + 44
+    /* 封面页眉用与整图导出同一套标版（Logo + 浅绿网址胶囊 + Slogan / 四圆点） */
+    const coverScale = (pageW - margin * 2) / 1085
+    const headerH = drawTemplateHeader(ctx, { x: margin, y: margin, width: pageW - margin * 2, scale: coverScale })
+    const titleY = margin + headerH + 44
     ctx.textBaseline = 'alphabetic'
     ctx.textAlign = 'left'
     ctx.fillStyle = '#1B1B1F'
@@ -1639,7 +1683,6 @@ export async function exportBoardPdf(pattern, {
     ctx.fillStyle = '#9A9AA2'
     ctx.font = `13px ${PDF_FONT}`
     ctx.fillText(`生成日期：${new Date().toLocaleDateString('zh-CN')}`, margin, noteTop + 6 * 24 + 6)
-    drawTemplateSlogan(ctx, { x: margin, y: pageH - margin - 56, width: pageW - margin * 2, height: 44 })
     await addPage({ c, ctx })
   }
 

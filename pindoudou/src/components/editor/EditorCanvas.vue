@@ -2,24 +2,43 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   pattern, hasPattern, width, height, zoom, setZoom, tool, brushColorId,
-  brushSize, BRUSH_MAX, beadKey,
+  BRUSH_MAX, toolSizeOf, setToolSize, beadKey,
   options, currentView, canvasEl, paintAt, fillAt, pickAt, undo, redo,
   canUndo, canRedo, undoDepth, redoDepth, beginEdit, endEdit, cancelEdit, revertEdit,
-  mirrorPattern,
-  stats, sourceUrl, sourceImg, generating, genMs, fitNotice,
+  mirrorPattern, replaceColorEverywhere,
+  stats, sourceUrl, sourceImg, sourceCssFilter, generating, genMs, fitNotice,
   selectedBoard, layout, materials
 } from '../../composables/useStudio.js'
+import { toastOk, toastWarn } from '../../composables/useToast.js'
+import { useShortcutTip } from '../../composables/useShortcutTip.js'
 import { drawChart, drawPixels, drawBoard, hitTest, chartGeometry, chartCellCap, updateChartLayer, markChartLayer, canvasDpr } from '../../lib/render.js'
 import { boardBeadCounts } from '../../lib/pattern.js'
 import { beadOf, boardOf, BOARD_SPEC_LIST_TEXT } from '../../lib/boardSpec.js'
 import { EDIT_TOOLS, EDIT_HISTORY, EDIT_ACTIONS } from '../../data/icons.js'
-import PixelIcon from '../ui/PixelIcon.vue'
+import Icon from '../ui/Icon.vue'
 import BaseDialog from '../ui/BaseDialog.vue'
 import PatternPreview from '../ui/PatternPreview.vue'
 import EditorEmptyGuide from './EditorEmptyGuide.vue'
+import CanvasRuler from './CanvasRuler.vue'
 
 /* 手机端：上传命令直接放在画布空状态里（桌面端仍指向左栏的 ① 创建） */
 const emit = defineEmits(['upload', 'browse', 'resize', 'delivery'])
+
+/* chrome:
+   'default' —— 卡片自带「页签 + 缩放」顶栏与底部两行工具条（手机 / 平板版面）
+   'console' —— 全屏工作台：这两块都由 EditorView 的新命令栏 / 工具栏接管，
+                卡片本身只剩画布，四周描边与底色也交给外层（见 .canvasCard--console） */
+const props = defineProps({
+  chrome: { type: String, default: 'default' },
+  /* 全屏工作台的两种模式：free = 自由画布（从零手绘）/ edit = 图纸转换（上传图片转图纸）。
+     两种模式的空状态不一样，设计稿 1:2445 与 1:593 各画了一种。 */
+  mode: { type: String, default: 'free' }
+})
+const consoleChrome = computed(() => props.chrome === 'console')
+
+/* 图纸转换空状态里的上传卡可以被关掉（设计稿那张卡右上角有个 ×）。
+   关掉后画布留白，命令栏的「更换图片」照常能上传，这里再给一个小的入口。 */
+const uploadDismissed = ref(false)
 
 /** 当前画笔颜色（用于底部提示条） */
 const brush = computed(() => {
@@ -28,14 +47,10 @@ const brush = computed(() => {
   return p.palette.find(c => c.id === brushColorId.value) || p.palette[p.palette.length - 1] || null
 })
 
-/** 画笔 / 橡皮的笔刷大小（格）。滑块和 −/＋ 都走这里，保证范围一致 */
-function setBrushSize(value) {
-  const n = Math.round(Number(value) || 1)
-  brushSize.value = Math.min(BRUSH_MAX, Math.max(1, n))
-}
-function stepBrush(delta) {
-  setBrushSize(brushSize.value + delta)
-}
+/** 画笔 / 橡皮各自的笔刷大小（格）。滑块和 −/＋ 都走这里，保证范围一致 */
+const activeToolSize = computed(() => toolSizeOf())
+function setBrushSize(value) { setToolSize(value) }
+function stepBrush(delta) { setBrushSize(activeToolSize.value + delta) }
 
 /** 每块板真正要放的豆数（空格不算） */
 const boardBeads = computed(() => (pattern.value && layout.value ? boardBeadCounts(pattern.value, layout.value) : []))
@@ -45,6 +60,7 @@ function beadsOfBoard(b) {
 
 const cv = ref(null)
 const stageEl = ref(null)
+const wrapEl = ref(null)
 const cardEl = ref(null)
 const compareCv = ref(null)
 const boardPreviewEls = ref([])
@@ -78,6 +94,15 @@ function actionTitle(a) {
   return hasPattern.value ? a.title : `${a.label}：先生成图纸后才能翻转`
 }
 
+/** 工具的原生 tooltip：带上快捷键（P / E / G / I…），
+    悬停时另有浮动标签写同一份信息，两边口径一致。 */
+function toolTitle(t) {
+  return t.shortcut ? `${t.title}（${t.shortcut}）` : t.title
+}
+
+/* 快捷键浮动标签（悬停工具时浮出来的那张小标签，与全屏工作台共用一份状态） */
+const { onTipOver, hideTip } = useShortcutTip()
+
 /**
  * 撤销/重做的 tooltip。除了快捷键，还把「能不能点 / 攒了几步」写进去：
  * 按钮变灰的时候用户最想知道的就是「为什么不能点」。
@@ -94,11 +119,11 @@ function historyTitle(h) {
 }
 
 const views = [
-  { key: 'pattern', icon: 'fn-pattern', label: '拼豆图纸', short: '图纸' },
-  { key: 'original', icon: 'fn-original', label: '原图', short: '原图' },
-  { key: 'compare', icon: 'fn-compare', label: '对照', short: '对照' },
-  { key: 'split', icon: 'fn-split', label: '分板', short: '分板' },
-  { key: 'materials', icon: 'fn-materials', label: '材料', short: '材料' }
+  { key: 'pattern', icon: 'grid-3x3', label: '拼豆图纸', short: '图纸' },
+  { key: 'original', icon: 'image', label: '原图', short: '原图' },
+  { key: 'compare', icon: 'columns-2', label: '对照', short: '对照' },
+  { key: 'split', icon: 'layout-grid', label: '分板', short: '分板' },
+  { key: 'materials', icon: 'list', label: '材料', short: '材料' }
 ]
 
 /** 基准格子尺寸：zoom=1 时整张图纸大致铺满舞台（契合约「铺满一屏」，不是「一格 20px」） */
@@ -128,7 +153,7 @@ const useLayer = computed(() => {
    实测 cap（口径见 render.js 的 chartCellCap：只接受 dpr ≥ 1 的级别）：
    1000×1000 → 4（桌面 24 Mpx）/ 2（窄屏 8 Mpx），464 → 9，116 → 29。
    大画布很容易碰到这个上限 —— 那时必须提示用户「再放大也只会变糊、去哪儿看细节」。 */
-const cellCap = computed(() => chartCellCap(width.value, height.value, 26))
+const cellCap = computed(() => chartCellCap(width.value, height.value, rulerInChart.value ? 26 : 0))
 
 /* 当前缩放「想要」的格子尺寸（还没被预算夹过） */
 const wantedCellPx = computed(() => (
@@ -274,6 +299,20 @@ const wideQuery = typeof window !== 'undefined' && window.matchMedia
 const wide = ref(wideQuery ? wideQuery.matches : true)
 function onWideChange(e) { wide.value = e.matches }
 
+/* 全屏工作台（≥1100）的标尺是贴在视口上的覆盖层，条宽与 CanvasRuler 一致。
+   图纸的左上角贴在这两条的内沿上，舞台其余部分也是画布，不再缩进一块小卡片。 */
+const RULER_L = 32
+const RULER_T = 28
+const deskQuery = typeof window !== 'undefined' && window.matchMedia
+  ? window.matchMedia('(min-width:1100px)')
+  : null
+const desk = ref(deskQuery ? deskQuery.matches : true)
+function onDeskChange(e) { desk.value = e.matches }
+/* 只有电脑端全屏工作台走「贴标尺的整幅画布」。手机全屏工作台仍用原来的内边距。 */
+const consoleViewport = computed(() =>
+  consoleChrome.value && desk.value && currentView.value === 'pattern' && !showEmpty.value
+)
+
 /* ---------------------------------------------------------------- 手机端工具
    ≤780px：工具改成画布下方常驻的一行（由 EditorView 渲染），
    画布上只留右侧轻量浮控（实际大小 / 放大 / 缩小 / 居中）。
@@ -292,6 +331,17 @@ function fitStage() {
 function centerStage() {
   const stage = stageEl.value
   if (!stage) return
+  if (consoleViewport.value) {
+    ensureGutter(true)
+    const board = boardBox()
+    if (!board) return
+    const br = board.getBoundingClientRect()
+    const visW = stage.clientWidth - RULER_L
+    const visH = stage.clientHeight - RULER_T
+    scrollBoardTo(RULER_L + (visW - br.width) / 2, RULER_T + (visH - br.height) / 2)
+    scheduleRuler()
+    return
+  }
   stage.scrollLeft = Math.max(0, (stage.scrollWidth - stage.clientWidth) / 2)
   stage.scrollTop = Math.max(0, (stage.scrollHeight - stage.clientHeight) / 2)
 }
@@ -324,14 +374,22 @@ watch(fitNotice, v => {
   }, 12000)
 })
 
+/* 标尺画在哪儿：默认版面（手机 / 平板）仍旧画进图纸位图；
+   全屏工作台改成贴边覆盖层（见下面的 CanvasRuler），位图里不再带标尺 ——
+   否则同一张图上会有两条标尺，而且位图里那条会跟着图纸一起缩放、被裁掉。 */
+const rulerInChart = computed(() => !consoleChrome.value)
+
 const chartOpts = computed(() => ({
   cell: cellPx.value,
-  ruler: true,
+  ruler: rulerInChart.value,
   grid: options.showGrid,
   codes: options.numbering,
   bold: true,
   boardLines: options.boardLines,
-  boardLabels: true
+  boardLabels: true,
+  /* 手机全屏工作台（chrome='console'）没有四边留白，边缘中心三角会压在
+     标尺数字上；缩放栏已经给了定位入口，这里不画。 */
+  centerMarks: !(consoleChrome.value && !wide.value)
 }))
 
 /* 图案层缓存：1 格 1 像素的离屏位图 + 主画布一次 drawImage。
@@ -388,6 +446,15 @@ function draw() {
     lastDpr = canvasDpr(cv.value, g.width, g.height)
   } else {
     invalidateLayer()
+  }
+  /* 画布尺寸刚变过：贴边标尺的格子像素、成品标注都要跟着重算 */
+  scheduleRuler()
+  /* 换钉板 / 换图后画布有了新尺寸：手动缩放过（autoFit 关着，没有「适应」
+     那一轮收尾）就把视野摆回标尺内侧正中，别停在左上角。
+     自动适配那条路由 settleAfterFit 在适配结束后处理，这里不抢。 */
+  if (recenterPending && !autoFit) {
+    recenterPending = false
+    centerStage()
   }
 }
 
@@ -447,10 +514,19 @@ watch(pattern, () => nextTick(redrawCells))
 /* 缩放只换格子尺寸：图案层还能用，重铺一遍装饰层即可。
    cellPx 是四舍五入过的，这里盯的是真正参与绘制的 hitCell ——
    顺手作废脏矩形的基准几何，免得落笔时拿旧尺寸的换算去刷新的画布 */
-watch(hitCell, () => { invalidateLayer(); nextTick(draw) })
+watch(hitCell, () => {
+  invalidateLayer()
+  nextTick(() => {
+    draw()
+    /* 格子变大之后补够四周空白，移动工具才能继续把图纸拖出视口。
+       适应窗口那一轮自己会贴回标尺，这里不要抢滚动位置。 */
+    if (consoleViewport.value && !fitting) ensureGutter(true)
+  })
+})
 /* 网格 / 色号 / 底板虚线也只影响装饰层 */
 watch([() => options.numbering, () => options.showGrid, () => options.boardLines], () => nextTick(draw))
 watch([width, height], () => {
+  if (pattern.value) recenterPending = true
   resetPan()
   redrawAll()
   /* 上传 / 换图会把画布换成新的宽高比：不重新适配的话，
@@ -460,20 +536,30 @@ watch([width, height], () => {
 /* 只换画布（底板）时成品区域不变、width/height 也不变，但图纸本身从 52 变成 104 格：
    沿用旧缩放会让新底板顶出舞台，看不到四周留空，所以同样重新适配一次。 */
 watch(() => [pattern.value && pattern.value.width, pattern.value && pattern.value.height], () => {
+  recenterPending = true
   if (autoFit) nextTick(() => setTimeout(fitToStage, 60))
 })
 /* 画布尺寸没变、只是从空状态变成有图纸（素材默认就是 52×52 这类情况）时，
    width/height 不会触发，图纸会停在 100% 被裁掉一半。第一次出现图纸也适配一次。 */
 watch(hasPattern, v => {
   if (!v) return
+  recenterPending = true
   nextTick(() => setTimeout(() => { if (autoFit) fitToStage() }, 80))
 })
 watch(currentView, () => redrawAll())
 watch(generating, v => { if (!v) redrawAll() })
+/* 从原图 / 对照回到拼豆图纸，或从窄屏跨进全屏工作台：
+   舞台的内边距与可用区变了，画布直接摆回标尺内侧正中，别停在旧位置。 */
+watch(consoleViewport, v => {
+  if (!v) return
+  nextTick(() => setTimeout(centerStage, 40))
+})
 
 /* ---------------------------------------------------------------- 缩放平移 */
 
 const dragging = ref(false)
+/* 中键拖动中：光标要变成「抓取」，否则画布上的 crosshair 会盖住舞台的 grab */
+const midPan = ref(false)
 let moved = false
 let startX = 0
 let startY = 0
@@ -490,6 +576,8 @@ let twoFingerPan = false
 let panOrigin = null
 /** 捏合缩放：记下手势开始时的两指距离与缩放级别，移动时按比例换算 */
 let pinch = null
+/** 全屏工作台双指缩放的锚：手势开始时，中点在图纸上的位置与图纸尺寸。 */
+let pinchAnchor = null
 /* 两根手指的 pointermove 是分开到达的：如果每来一根就按当前距离算缩放，
    平移时两指一前一后会先算成「捏小」再算成「捏大」，画布跟着抖。
    等两根都动过再结算一次缩放，平移本身仍然每个事件都跟手。 */
@@ -531,6 +619,14 @@ function startTwoFingerPan(stage) {
   }
   pinch = { dist: info.dist, zoom: zoom.value }
   pinchMoved = new Set()
+  pinchAnchor = null
+  if (consoleViewport.value) {
+    const board = boardBox()
+    if (board) {
+      const br = board.getBoundingClientRect()
+      pinchAnchor = { ox: info.mx - br.left, oy: info.my - br.top, w: br.width, h: br.height }
+    }
+  }
 }
 
 /* 指针捕获只是「拖出画布也别丢事件」的加分项：浏览器在指针已经失效时会抛
@@ -573,16 +669,36 @@ function onPointerDown(e) {
     applyPaint(e)
     return
   }
+  /* 中键拖动 = 直接平移画布：与当前工具无关，画笔状态下也能拖走视野。
+     浏览器默认把中键当「自动滚动」（按下后光标变滚动十字、页面自己滚），
+     pointerdown 与 mousedown 上都要 preventDefault 掉。 */
+  if (e.button === 1) {
+    e.preventDefault()
+    midPan.value = true
+    startPanDrag(e, stage)
+    capturePointer(stage, e.pointerId)
+    return
+  }
   if (e.button !== 0) return
   /* 触屏单指只编辑：填充 / 吸色这类工具也不能顺手把画布拖走。
      要平移画布请用「移动」工具，或双指手势。 */
   if (e.pointerType === 'touch' && tool.value !== 'pan') return
+  startPanDrag(e, stage)
+}
+
+/** 开始拖动平移：记下鼠标起点与这一刻的滚动量 */
+function startPanDrag(e, stage) {
   dragging.value = true
   moved = false
   startX = e.clientX
   startY = e.clientY
   startLeft = stage.scrollLeft
   startTop = stage.scrollTop
+}
+
+/** 中键按下：拦掉浏览器默认的自动滚动 */
+function onStageMouseDown(e) {
+  if (e.button === 1) e.preventDefault()
 }
 
 function applyPaint(e) {
@@ -624,10 +740,17 @@ function onPointerMove(e) {
       }
       const left = (panOrigin.left + (panOrigin.x - rect.left)) * ratio - px
       const top = (panOrigin.top + (panOrigin.y - rect.top)) * ratio - py
-      stage.scrollLeft = left
-      stage.scrollTop = top
-      /* 画布尺寸在下一帧才更新，滚动上限也跟着变；再落一次保证不被夹回去 */
-      if (ratio !== 1) nextTick(() => { stage.scrollLeft = left; stage.scrollTop = top })
+      if (consoleViewport.value && pinchAnchor) {
+        /* 四周空白不在图纸的缩放里：锚点按图纸矩形算，不能按滚动原点乘比例。 */
+        const apply = () => anchorBoardPoint(pinchAnchor.ox, pinchAnchor.oy, pinchAnchor.w, pinchAnchor.h, px, py)
+        if (ratio !== 1) nextTick(() => { draw(); apply() })
+        else apply()
+      } else {
+        stage.scrollLeft = left
+        stage.scrollTop = top
+        /* 画布尺寸在下一帧才更新，滚动上限也跟着变；再落一次保证不被夹回去 */
+        if (ratio !== 1) nextTick(() => { stage.scrollLeft = left; stage.scrollTop = top })
+      }
     }
     return
   }
@@ -649,6 +772,7 @@ function onPointerUp(e) {
   if (painting) endEdit()
   painting = false
   dragging.value = false
+  midPan.value = false
   const stage = stageEl.value
   if (stage && e && e.pointerId != null) releasePointer(stage, e.pointerId)
   /* 双指平移时先抬起一根手指：停止平移，剩下的那根不要接着画，
@@ -657,6 +781,7 @@ function onPointerUp(e) {
     twoFingerPan = false
     panOrigin = null
     pinch = null
+    pinchAnchor = null
     pinchMoved.clear()
   }
   setTimeout(() => { moved = false }, 0)
@@ -668,10 +793,12 @@ function onPointerCancel(e) {
   if (painting) cancelEdit()
   painting = false
   dragging.value = false
+  midPan.value = false
   if (touchPoints.size < 2) {
     twoFingerPan = false
     panOrigin = null
     pinch = null
+    pinchAnchor = null
     pinchMoved.clear()
   }
 }
@@ -690,14 +817,58 @@ function onClick(e) {
   if (tool.value === 'fill') {
     const hit = hitTest(cv.value, pattern.value, e, hitOpts.value)
     if (hit) fillAt(hit.x, hit.y)
+    return
+  }
+  /* 换色：点一格，把整张图里和它同色的豆全部换成当前画笔色。
+     按色号 id 换（不是调色板下标）—— 换色过程中色板可能重排。 */
+  if (tool.value === 'swap') {
+    const hit = hitTest(cv.value, pattern.value, e, hitOpts.value)
+    if (!hit) return
+    const p = pattern.value
+    const from = p.palette[p.cells[hit.y * p.width + hit.x]]
+    if (!from) return
+    const to = brush.value
+    if (!to) return
+    if (to.id === from.id) { toastWarn('这一格已经是当前画笔色了'); return }
+    const n = replaceColorEverywhere(from.id, to)
+    if (n) toastOk(`已把 ${from.code} 全部换成 ${to.code}，共 ${n} 颗`)
+    else toastWarn('没找到可以替换的豆')
   }
 }
 
 function onWheel(e) {
   e.preventDefault()
-  exitActualSize({ restore: false })
+  /* 滚轮同样属于「用户手动缩放」，必须走 onUserZoom 把 autoFit 关掉。
+     只调 setZoom 的话 autoFit 仍是 true —— 画布一放大就撑出滚动条，
+     舞台的内容盒跟着变窄（实测 680 → 670），ResizeObserver 以为容器变了、
+     60ms 后再适配一次，刚放大的画布被打回「适应窗口」
+     （实测 0.82 → 1.02 → 0.78，看着就是「放大又跳回」）。
+     真实浏览器有滚动条才复现；无头自检带 --hide-scrollbars 时滚动条不占位，
+     所以老的自检一直没抓到这个。 */
   const dir = e.deltaY < 0 ? 1 : -1
-  setZoom(zoom.value + dir * (zoom.value < 2 ? 0.2 : 0.4))
+  const next = clampZoom(zoom.value + dir * (zoom.value < 2 ? 0.2 : 0.4))
+  /* 全屏工作台以光标下的那一格为锚缩放，图纸可以放大到超出视口再拖回来。 */
+  if (consoleViewport.value && stageEl.value && boardBox()) {
+    const stage = stageEl.value
+    const board = boardBox()
+    const sr = stage.getBoundingClientRect()
+    const br = board.getBoundingClientRect()
+    const ox = e.clientX - br.left
+    const oy = e.clientY - br.top
+    const vx = e.clientX - sr.left
+    const vy = e.clientY - sr.top
+    const w0 = br.width
+    const h0 = br.height
+    onUserZoom(next)
+    /* draw 在 hitCell 的 nextTick 里，和这里的回调谁先跑不一定。
+       先把位图画到新尺寸，再按光标锚滚动，后到的 ensureGutter 发现边距没变就不动滚动。 */
+    nextTick(() => {
+      draw()
+      anchorBoardPoint(ox, oy, w0, h0, vx, vy)
+    })
+    return
+  }
+  onUserZoom(next)
 }
 
 /* 舞台内边距直接读计算样式：手机上右侧要给工具窄栏留出位置，
@@ -708,6 +879,79 @@ function stagePad(el) {
     x: (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0),
     y: (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0)
   }
+}
+/** 适应窗口时要躲开的固定边：全屏工作台只让开标尺，浮动工具压在画布上。 */
+function viewAvail(stage) {
+  const p = stagePad(stage)
+  const inset = consoleViewport.value ? { x: RULER_L, y: RULER_T } : { x: 0, y: 0 }
+  return {
+    w: stage.clientWidth - p.x - inset.x,
+    h: stage.clientHeight - p.y - inset.y
+  }
+}
+function boardBox() {
+  const el = cv.value
+  return el ? (el.closest('.board') || el) : null
+}
+/* 图纸比视口小的时候，原生滚动范围是 0，移动工具拖不动。
+   四周留出至少一屏的空白，scrollLeft 才能把图纸拖到视口里的任意位置。
+   舞台是 overflow:hidden，这条滚动不出现滚动条，也不会把适应窗口打回去。 */
+function ensureGutter(preserve = true) {
+  if (!consoleViewport.value) return
+  const stage = stageEl.value
+  const board = boardBox()
+  if (!stage || !board) return
+  const need = Math.ceil(Math.max(
+    stage.clientWidth, stage.clientHeight, board.offsetWidth, board.offsetHeight
+  ))
+  const cur = parseFloat(board.style.marginTop) || 0
+  if (Math.abs(cur - need) < 2) return
+  const sr = stage.getBoundingClientRect()
+  const br = board.getBoundingClientRect()
+  const visX = br.left - sr.left
+  const visY = br.top - sr.top
+  board.style.margin = need + 'px'
+  if (!preserve) return
+  const br2 = board.getBoundingClientRect()
+  stage.scrollLeft = br2.left - sr.left + stage.scrollLeft - visX
+  stage.scrollTop = br2.top - sr.top + stage.scrollTop - visY
+}
+/**
+ * 缩放后把图纸上的同一点留在视口里。
+ * ox/oy、w0/h0 是缩放前「点在图纸上的偏移」和图纸尺寸；vx/vy 是视口坐标（相对舞台左上角）。
+ */
+function anchorBoardPoint(ox, oy, w0, h0, vx, vy) {
+  const stage = stageEl.value
+  const board = boardBox()
+  if (!stage || !board) return
+  ensureGutter(true)
+  const sr = stage.getBoundingClientRect()
+  const br2 = board.getBoundingClientRect()
+  const sx = w0 ? br2.width / w0 : 1
+  const sy = h0 ? br2.height / h0 : 1
+  const contentX = br2.left - sr.left + stage.scrollLeft
+  const contentY = br2.top - sr.top + stage.scrollTop
+  stage.scrollLeft = contentX + ox * sx - vx
+  stage.scrollTop = contentY + oy * sy - vy
+  scheduleRuler()
+}
+/** 把图纸上的某一点挪到视口坐标 (viewX, viewY)。 */
+function scrollBoardTo(viewX, viewY) {
+  const stage = stageEl.value
+  const board = boardBox()
+  if (!stage || !board) return
+  const sr = stage.getBoundingClientRect()
+  const br = board.getBoundingClientRect()
+  stage.scrollLeft = br.left - sr.left + stage.scrollLeft - viewX
+  stage.scrollTop = br.top - sr.top + stage.scrollTop - viewY
+}
+/* 适应 / 换钉板 / 换图 / 改尺寸之后，图纸一律落在标尺内侧的正中央：
+   贴左上角会让方图纸在宽屏上缩在左边、右边空一大条，看着像「跳走了」。
+   画布永久居中，缩放只改大小不改位置。 */
+let recenterPending = false
+function settleAfterFit() {
+  recenterPending = false
+  if (consoleViewport.value) centerStage()
 }
 /**
  * 适配窗口：把图纸缩放到舞台里放得下。
@@ -736,12 +980,11 @@ function fitRatio(stage) {
   const box = el.closest('.board') || el
   const rect = box.getBoundingClientRect()
   if (!rect.width || !rect.height) return null
-  // 内边距按实际计算值留出来（手机上右侧还多一条工具窄栏）
-  const p = stagePad(stage)
-  const availW = stage.clientWidth - p.x
-  const availH = stage.clientHeight - p.y
-  if (availW <= 0 || availH <= 0) return null
-  const fit = Math.min(availW / rect.width, availH / rect.height)
+  // 内边距按实际计算值留出来（手机上右侧还多一条工具窄栏）。
+  // 全屏工作台再减掉标尺条，图纸贴着标尺内沿铺，不再为浮动面板缩进。
+  const avail = viewAvail(stage)
+  if (avail.w <= 0 || avail.h <= 0) return null
+  const fit = Math.min(avail.w / rect.width, avail.h / rect.height)
   return Number.isFinite(fit) ? fit : null
 }
 function fitToStage() {
@@ -751,9 +994,9 @@ function fitToStage() {
   if (!autoFit) return
   const stage = stageEl.value
   if (!stage || !pattern.value) return
-  const pad = stagePad(stage)
-  const availW = stage.clientWidth - pad.x
-  const availH = stage.clientHeight - pad.y
+  const avail = viewAvail(stage)
+  const availW = avail.w
+  const availH = avail.h
   if (availW <= 0 || availH <= 0) return
 
   /* 画布已经画出来：直接量真实尺寸，允许放大也允许缩小。
@@ -763,7 +1006,9 @@ function fitToStage() {
   if (first) {
     fitting = true
     const before = cv.value.getBoundingClientRect().width
-    if (Math.abs(first - 1) > 0.01) setZoom(clampZoom(zoom.value * first * 0.99))
+    /* 全屏工作台按标尺内侧的真实空位铺满，不再留 1% 的缝（那条缝就是图纸离标尺的空隙）。 */
+    const slack = consoleViewport.value ? 1 : 0.99
+    if (Math.abs(first - 1) > 0.01) setZoom(clampZoom(zoom.value * first * slack))
     /* 第二轮只在画布真的重画过之后量：同一帧里重复套用同一个比例会连乘，
        实测把 320 宽的初始 10% 一路放大到 30%，右边压到工具窄栏下面。 */
     nextTick(() => setTimeout(() => {
@@ -773,7 +1018,10 @@ function fitToStage() {
            再放大一次就正好顶进右侧工具窄栏。 */
         if (second && second < 0.995) setZoom(clampZoom(zoom.value * second))
       }
-      setTimeout(() => { fitting = false }, 60)
+      setTimeout(() => {
+        fitting = false
+        if (autoFit) settleAfterFit()
+      }, 60)
     }, 80))
     return
   }
@@ -782,11 +1030,17 @@ function fitToStage() {
   const probe = chartGeometry(pattern.value, hitOpts.value)
   const need = Math.max(probe.width / zoom.value, probe.height / zoom.value)
   setZoom(clampZoom((Math.min(availW, availH) / need) * 0.9))
+  nextTick(() => setTimeout(() => { if (autoFit) settleAfterFit() }, 80))
 }
 
 function resetPan() {
   const stage = stageEl.value
   if (!stage) return
+  if (consoleViewport.value) {
+    /* 全屏工作台不贴回左上角：等这一轮重画完由 draw() 摆回标尺内侧正中
+       （画布的新尺寸要画完才量得准），这里什么都不用做。 */
+    return
+  }
   stage.scrollLeft = 0
   stage.scrollTop = 0
 }
@@ -805,10 +1059,90 @@ function onUserZoom(v) {
   autoFit = false
   setZoom(v)
 }
+/** 缩放按钮：全屏工作台以标尺内侧可见区的中心为锚，放大缩小都不把图纸甩到一边。
+    滚轮仍按光标锚（那是用户点着哪里看哪里），按钮没有光标位置，用中心最稳。 */
+function zoomStep(delta) {
+  const next = clampZoom(zoom.value + delta)
+  if (!consoleViewport.value || !stageEl.value || !boardBox()) { onUserZoom(next); return }
+  const stage = stageEl.value
+  const board = boardBox()
+  const sr = stage.getBoundingClientRect()
+  const br = board.getBoundingClientRect()
+  const vx = RULER_L + (stage.clientWidth - RULER_L) / 2
+  const vy = RULER_T + (stage.clientHeight - RULER_T) / 2
+  const ox = sr.left + vx - br.left
+  const oy = sr.top + vy - br.top
+  const w0 = br.width
+  const h0 = br.height
+  onUserZoom(next)
+  nextTick(() => {
+    draw()
+    anchorBoardPoint(ox, oy, w0, h0, vx, vy)
+  })
+}
+
+/* ---------------------------------------------------------------- 标尺（永久贴边）
+
+   全屏工作台的标尺是贴在画布视口顶边 / 左边的覆盖层（CanvasRuler）：
+   位置固定，读数按「当前一格多少屏幕像素 + 图纸滚到哪儿」实时重算。
+   所以要量的就是画布位图相对视口的矩形 —— 滚动、缩放、换成品尺寸都会变。
+
+   量的是 .stageWrap（覆盖层就挂在它上面、inset:0），
+   不是 .stage：后者带 20/274/112/144 的内边距，跟覆盖层的坐标原点差一层。 */
+const rulerOn = computed(() => consoleChrome.value && wide.value &&
+  currentView.value === 'pattern' && !showEmpty.value)
+const rulerGeom = ref(null)
+let rulerRaf = 0
+let rulerRo = null
+
+function measureRuler() {
+  const wrap = wrapEl.value
+  const el = cv.value
+  const p = pattern.value
+  if (!rulerOn.value || !wrap || !el || !p || !(p.width > 0)) { rulerGeom.value = null; return }
+  const wr = wrap.getBoundingClientRect()
+  const cr = el.getBoundingClientRect()
+  if (!(wr.width > 1) || !(wr.height > 1) || !(cr.width > 1)) { rulerGeom.value = null; return }
+  const cell = cr.width / p.width
+  if (!(cell > 0)) { rulerGeom.value = null; return }
+  /* 成品区域可能只占底板中间一块：W/H 标注要贴成品，不是贴底板 */
+  const s = stats.value
+  const aw = Math.max(1, Math.min(p.width, s && s.artW ? s.artW : p.width))
+  const ah = Math.max(1, Math.min(p.height, s && s.artH ? s.artH : p.height))
+  const ox = Math.max(0, Math.floor((p.width - aw) / 2))
+  const oy = Math.max(0, Math.floor((p.height - ah) / 2))
+  const left = cr.left - wr.left
+  const top = cr.top - wr.top
+  rulerGeom.value = {
+    viewW: wr.width,
+    viewH: wr.height,
+    left,
+    top,
+    cell,
+    cols: p.width,
+    rows: p.height,
+    artLeft: left + ox * cell,
+    artTop: top + oy * cell,
+    artW: aw * cell,
+    artH: ah * cell,
+    cmW: aw * beadCm.value,
+    cmH: ah * beadCm.value
+  }
+}
+/* 滚动 / 缩放 / 换尺寸都往这一帧里并：一次 requestAnimationFrame 只量一次 */
+function scheduleRuler() {
+  if (!rulerOn.value || rulerRaf) return
+  rulerRaf = requestAnimationFrame(() => {
+    rulerRaf = 0
+    measureRuler()
+  })
+}
+watch([rulerOn, cellPx, width, height, actualMode], scheduleRuler, { flush: 'post' })
 
 onMounted(() => {
   redrawAll()
   if (wideQuery) wideQuery.addEventListener('change', onWideChange)
+  if (deskQuery) deskQuery.addEventListener('change', onDeskChange)
   setTimeout(fitToStage, 60)
   /* 第一次适配按「当前缩放」反推图纸尺寸，缩放很低时标尺/留白的固定开销
      会被放大，结果偏保守（手机上 33% 明明还能到 42%）。布局稳定后再适配
@@ -816,6 +1150,7 @@ onMounted(() => {
   setTimeout(() => { if (autoFit) fitToStage() }, 420)
   if (typeof ResizeObserver !== 'undefined' && stageEl.value) {
     ro = new ResizeObserver(() => {
+      if (consoleViewport.value && !fitting) ensureGutter(true)
       if (!autoFit || fitting) return
       // 防抖：resize 期间会连续触发，逐帧重算没有意义
       clearTimeout(ro._t)
@@ -830,12 +1165,22 @@ onMounted(() => {
     })
     stageIo.observe(stageEl.value)
   }
+  /* 贴边标尺：滚动（图纸在视口里挪）与视口尺寸变化都要重算读数 */
+  if (stageEl.value) stageEl.value.addEventListener('scroll', scheduleRuler, { passive: true })
+  if (typeof ResizeObserver !== 'undefined' && wrapEl.value) {
+    rulerRo = new ResizeObserver(scheduleRuler)
+    rulerRo.observe(wrapEl.value)
+  }
 })
 onBeforeUnmount(() => {
   clearTimeout(noticeTimer)
   if (wideQuery) wideQuery.removeEventListener('change', onWideChange)
+  if (deskQuery) deskQuery.removeEventListener('change', onDeskChange)
   if (ro) { clearTimeout(ro._t); ro.disconnect(); ro = null }
   if (stageIo) { stageIo.disconnect(); stageIo = null }
+  if (rulerRo) { rulerRo.disconnect(); rulerRo = null }
+  if (rulerRaf) { cancelAnimationFrame(rulerRaf); rulerRaf = 0 }
+  if (stageEl.value) stageEl.value.removeEventListener('scroll', scheduleRuler)
   if (painting) cancelEdit()
   painting = false
   dragging.value = false
@@ -919,15 +1264,22 @@ function jumpToBoard(i) {
     boardGridEl.value?.querySelector('.boardTile.on')?.scrollIntoView({ block: 'nearest' })
   })
 }
+
+/* 全屏工作台的画布状态栏要驱动缩放 / 适应 / 实际大小：这几个入口原本都在
+   卡片自带的顶栏里（chrome='console' 时被隐藏），所以显式暴露给 EditorView。 */
+defineExpose({
+  fitStage, centerStage, toggleActualSize, onUserZoom, zoomStep,
+  actualMode, actualCapped, finishCmText, zoomCapped
+})
 </script>
 
 <template>
-  <section ref="cardEl" class="canvasCard">
+  <section ref="cardEl" class="canvasCard" :class="{ 'canvasCard--console': consoleChrome }">
     <!-- 作品名这一行由 EditorView 从外面传进来（参考版的画布块只有
          「页签 + 缩放」一条顶栏，作品名属于卡片上方的信息条） -->
     <slot name="above" />
 
-    <div class="canvasCard__toolbar">
+    <div v-if="!consoleChrome" class="canvasCard__toolbar">
       <div class="viewtabs" role="tablist">
         <button
           v-for="v in views" :key="v.key"
@@ -935,20 +1287,20 @@ function jumpToBoard(i) {
           role="tab"
           :aria-selected="currentView === v.key"
           @click="currentView = v.key"
-        ><PixelIcon :name="v.icon" :size="18" /><span class="tabLong">{{ v.label }}</span><span class="tabShort">{{ v.short }}</span></button>
+        ><Icon :name="v.icon" :size="20" /><span class="tabLong">{{ v.label }}</span><span class="tabShort">{{ v.short }}</span></button>
       </div>
 
       <!-- 平移模式要有可见状态：工具按钮高亮之外，顶栏再给一条明确提示，
            避免用户以为单指拖动会改图 -->
-      <span v-if="currentView === 'pattern' && !showEmpty && tool === 'pan'" class="panState"><PixelIcon name="pan" :size="12" />移动画布模式</span>
+      <span v-if="currentView === 'pattern' && !showEmpty && tool === 'pan'" class="panState"><Icon name="hand" :size="16" />移动画布模式</span>
 
       <!-- 缩放：参考版是「− 100% ＋」一组。本站多一个「适应」，
            因为大画布（最多 1000×1000 格 = 100 万格）不一键回中很容易在画布外找不到图 -->
       <div class="zoomBar">
         <template v-if="currentView === 'pattern'">
-          <button class="btn btn-secondary icon sm" title="缩小" aria-label="缩小" @click="onUserZoom(zoom - 0.25)"><PixelIcon name="zoomOut" :size="14" /></button>
-          <span class="zoomPill"><PixelIcon class="zoomIco" name="zoomIn" :size="12" /><span class="zoomText">{{ Math.round(zoom * 100) }}%</span></span>
-          <button class="btn btn-secondary icon sm" title="放大" aria-label="放大" @click="onUserZoom(zoom + 0.25)"><PixelIcon name="zoomIn" :size="14" /></button>
+          <button class="btn btn-secondary icon sm" title="缩小" aria-label="缩小" @click="zoomStep(-0.25)"><Icon name="zoom-out" :size="16" /></button>
+          <span class="zoomPill"><Icon class="zoomIco" name="zoom-in" :size="16" /><span class="zoomText">{{ Math.round(zoom * 100) }}%</span></span>
+          <button class="btn btn-secondary icon sm" title="放大" aria-label="放大" @click="zoomStep(0.25)"><Icon name="zoom-in" :size="16" /></button>
           <button class="btn btn-secondary sm" title="适应窗口" @click="fitStage">适应</button>
           <!-- 成品实际大小：一格 = 一颗豆的实物尺寸，按屏幕像素铺开；
                不用再自己想象 13.5cm 到底多大。 -->
@@ -967,7 +1319,7 @@ function jumpToBoard(i) {
       <!-- 手机端：顶栏最右一颗「适应窗口」。缩放的加减在画布右侧浮控上，
            这样顶栏只占一行，画布能多留一条高度。 -->
       <button type="button" class="fitTop" title="适应窗口" aria-label="适应窗口" @click="fitStage">
-        <PixelIcon name="fit" :size="16" />
+        <Icon name="scan" :size="16" />
       </button>
     </div>
 
@@ -982,9 +1334,9 @@ function jumpToBoard(i) {
       class="genNotice no-print" role="status"
     >
       <div class="genNotice__head">
-        <span class="genNotice__badge"><PixelIcon name="check" :size="10" /></span>
+        <span class="genNotice__badge"><Icon name="check" :size="16" /></span>
         <b>已生成图纸</b>
-        <button class="genNotice__close" type="button" aria-label="关闭提示" @click="dismissNotice"><PixelIcon name="close" :size="11" /></button>
+        <button class="genNotice__close" type="button" aria-label="关闭提示" @click="dismissNotice"><Icon name="x" :size="16" /></button>
       </div>
       <div class="genNotice__body">
         <img v-if="sourceUrl" class="genNotice__thumb" :src="sourceUrl" alt="">
@@ -996,7 +1348,7 @@ function jumpToBoard(i) {
           <div class="genNotice__actions">
             <button type="button" class="genNotice__link" @click="emit('resize')">调整尺寸</button>
             <button type="button" class="genNotice__link" :aria-expanded="noticeDetail" @click="openNoticeDetails">
-              详情{{ noticeDetail ? '▴' : '▾' }}
+              详情<Icon class="icoInline" :name="noticeDetail ? 'chevron-up' : 'chevron-down'" :size="16" />
             </button>
           </div>
         </div>
@@ -1011,10 +1363,10 @@ function jumpToBoard(i) {
     </div>
 
     <!-- 手机端画布框：右侧工具窄栏 + 更多抽屉；桌面端仍是画布下方的两行工具条。 -->
-    <div class="stageWrap">
+    <div ref="wrapEl" class="stageWrap">
       <!-- 实际大小的状态条：贴在画布左上角，直接写成品厘米；
            屏幕像素预算不够时如实说「只能显示到实际的百分之多少」。 -->
-      <div v-if="actualMode && !showEmpty && currentView === 'pattern'" class="actualBadge no-print" role="status" data-actual-badge>
+      <div v-if="actualMode && !showEmpty && currentView === 'pattern'" class="actualBadge no-print" :class="{ 'actualBadge--console': consoleChrome }" role="status" data-actual-badge>
         <span class="actualBadge__dot" aria-hidden="true"></span>
         <b>{{ actualCapped ? `约实际大小 ${actualShownPct}%` : '实际大小' }}</b>
         <span class="actualBadge__cm" data-actual-cm>成品 {{ finishCmText }}</span>
@@ -1023,31 +1375,64 @@ function jumpToBoard(i) {
 
       <div
         ref="stageEl" class="stage"
-        :class="{ 'stage--edit': currentView === 'pattern' && !showEmpty, pannable: currentView === 'pattern' && !showEmpty && (dragging || tool === 'pan'), panning: dragging, 'stage--empty': showEmpty }"
+        :class="{ 'stage--edit': currentView === 'pattern' && !showEmpty, pannable: currentView === 'pattern' && !showEmpty && (dragging || tool === 'pan'), panning: dragging, 'mid-pan': midPan, 'stage--empty': showEmpty }"
         @pointerdown="onPointerDown"
         @pointermove="onPointerMove"
         @pointerup="onPointerUp"
         @pointerleave="onPointerUp"
         @pointercancel="onPointerCancel"
+        @mousedown="onStageMouseDown"
         @wheel="onWheel"
       >
-        <!-- 空状态：桌面 / 平板走交付包里的三步引导；手机保持原来的紧凑提示，
-             上传入口仍然只在左栏 ① 创建里（手机上就是画布上方那张卡）。 -->
+        <!-- 空状态：
+             · 全屏工作台（console）：按设计稿分两种模式 ——
+               自由画布只有一句「从零开始，手动绘制拼豆图纸。」；
+               图纸转换是画布中央一张上传卡（拖拽区 + 选择本地图片）。
+             · 手机 / 平板：沿用原来的紧凑提示与三步引导。 -->
         <div v-if="showEmpty" class="empty empty--guide">
-          <EditorEmptyGuide v-if="wide" />
+          <template v-if="consoleChrome">
+            <!-- 图纸转换：画布中央的上传卡（设计稿 1:593） -->
+            <div v-if="mode === 'edit' && !uploadDismissed && !sourceUrl" class="upCard" data-empty-upload>
+              <header class="upCard__head">
+                <b>上传图片</b>
+                <button
+                  type="button" class="upCard__x" aria-label="暂不上传"
+                  data-empty-upload-close @click="uploadDismissed = true"
+                ><Icon name="x" :size="16" /></button>
+              </header>
+              <div class="upCard__drop">
+                <span class="upCard__icon"><Icon name="image-up" :size="20" /></span>
+                <b class="upCard__title">点击或拖拽图片至此处上传</b>
+                <span class="upCard__hint">支持 JPG、PNG、WEBP 格式，接近正方形图片效果最佳</span>
+              </div>
+              <button type="button" class="upCard__btn" data-empty-upload-btn @click="emit('upload')">
+                选择本地图片
+              </button>
+            </div>
+            <div v-else-if="mode === 'edit'" class="upCard upCard--min" data-empty-upload-min>
+              <button type="button" class="upCard__btn" @click="uploadDismissed = false">
+                <Icon name="image-up" :size="16" />上传图片
+              </button>
+            </div>            <!-- 自由画布：从零开始手绘 -->
+            <div v-else class="freeEmpty" data-empty-free>
+              <span class="freeEmpty__ico"><Icon name="pencil" :size="20" /></span>
+              <p class="freeEmpty__text">从零开始，手动绘制拼豆图纸。</p>
+            </div>
+          </template>
+          <EditorEmptyGuide v-else-if="wide" />
           <div v-else class="emptyLegacy">
-            <div class="empty__icon"><PixelIcon name="layout" :size="24" /></div>
+            <div class="empty__icon"><Icon name="layout-grid" :size="24" /></div>
             <strong>先选一张图，这里就出图纸</strong>
             <p>
-              先<b>上传照片</b>，或者直接从 <b>免费素材库</b> 挑一个；<b>AI 生成素材</b> 正在对接中，接入后可以用一句话出图。
+              先<b>上传照片</b>，或者直接从 <b>素材库</b> 挑一个；<b>AI 生成素材</b> 正在对接中，接入后可以用一句话出图。
             </p>
             <p class="only-lg">
               画布按真实画线板拼装：{{ BOARD_SPEC_LIST_TEXT }} 钉，一钉 = 一格，
               当前 {{ options.boardCols }} × {{ options.boardRows }} 块 = {{ width }} × {{ height }} 格。
             </p>
             <div class="emptyActions only-sm">
-              <button type="button" class="btn primary" @click="emit('upload')"><PixelIcon name="fn-upload" :size="16" />上传图片</button>
-              <button type="button" class="btn btn-secondary" @click="emit('browse')"><PixelIcon name="fn-library" :size="16" />免费素材库</button>
+              <button type="button" class="btn primary" @click="emit('upload')"><Icon name="image-up" :size="16" />上传图片</button>
+              <button type="button" class="btn btn-secondary" @click="emit('browse')"><Icon name="images" :size="16" />素材库</button>
             </div>
           </div>
         </div>
@@ -1061,9 +1446,9 @@ function jumpToBoard(i) {
         </div>
 
         <!-- 原图 -->
-        <div v-if="!showEmpty && currentView === 'original'" class="compareWrap">
+        <div v-if="!showEmpty && currentView === 'original'" class="compareWrap compareWrap--single">
           <figure class="compareBox">
-            <img :src="sourceUrl" alt="原图">
+            <img :src="sourceUrl" :style="{ filter: sourceCssFilter }" alt="原图">
             <figcaption>原图（{{ sourceImg ? '已载入' : '无源图' }}）</figcaption>
           </figure>
         </div>
@@ -1071,7 +1456,7 @@ function jumpToBoard(i) {
         <!-- 对照 -->
         <div v-if="!showEmpty && currentView === 'compare'" class="compareWrap">
           <figure class="compareBox">
-            <img :src="sourceUrl" alt="原图">
+            <img :src="sourceUrl" :style="{ filter: sourceCssFilter }" alt="原图">
             <figcaption>原图</figcaption>
           </figure>
           <figure class="compareBox">
@@ -1233,13 +1618,13 @@ function jumpToBoard(i) {
           type="button" class="stageTools__btn" title="撤销" aria-label="撤销"
           :disabled="!canUndo" @click="undo()"
         >
-          <PixelIcon name="undo" :size="16" />
+          <Icon name="undo-2" :size="16" />
         </button>
         <button
           type="button" class="stageTools__btn" title="重做" aria-label="重做"
           :disabled="!canRedo" @click="redo()"
         >
-          <PixelIcon name="redo" :size="16" />
+          <Icon name="redo-2" :size="16" />
         </button>
         <button
           type="button" class="stageTools__btn" :class="{ on: actualMode }"
@@ -1250,28 +1635,30 @@ function jumpToBoard(i) {
           :aria-pressed="actualMode"
           @click="toggleActualSize"
         ><span class="stageTools__ratio">1:1</span></button>
-        <button type="button" class="stageTools__btn" title="放大" aria-label="放大" @click="onUserZoom(zoom + 0.25)">
-          <PixelIcon name="plus" :size="16" />
+        <button type="button" class="stageTools__btn" title="放大" aria-label="放大" @click="zoomStep(0.25)">
+          <Icon name="plus" :size="16" />
         </button>
-        <button type="button" class="stageTools__btn" title="缩小" aria-label="缩小" @click="onUserZoom(zoom - 0.25)">
-          <PixelIcon name="minus" :size="16" />
+        <button type="button" class="stageTools__btn" title="缩小" aria-label="缩小" @click="zoomStep(-0.25)">
+          <Icon name="minus" :size="16" />
         </button>
         <button type="button" class="stageTools__btn" title="定位到图纸中心" aria-label="定位到图纸中心" @click="centerStage">
-          <PixelIcon name="target" :size="16" />
+          <Icon name="maximize" :size="16" />
         </button>
       </div>
 
-      <!-- 桌面 / 平板：画布下方原来的两行工具条（手机上整块隐藏） -->
-      <div class="editPanel">
+      <!-- 桌面 / 平板：画布下方原来的两行工具条（手机上整块隐藏；
+           全屏工作台由 EditorView 左侧浮动工具栏接管） -->
+      <div v-if="!consoleChrome" class="editPanel">
         <div class="canvasCard__foot">
-          <div class="toolgroup" role="toolbar" aria-label="编辑工具">
+          <div class="toolgroup" role="toolbar" aria-label="编辑工具" @mouseover="onTipOver" @mouseleave="hideTip">
             <button
               v-for="t in tools" :key="t.key"
               class="tool" :class="{ on: tool === t.key }"
-              :title="t.title" :aria-label="t.title" :aria-pressed="tool === t.key"
+              :title="toolTitle(t)" :aria-label="t.title" :aria-pressed="tool === t.key"
+              :data-tip="t.label" :data-tip-desc="t.desc || ''" :data-tip-key="t.shortcut || ''"
               @click="pickTool(t.key)"
             >
-              <PixelIcon :name="t.icon" :size="15" />
+              <Icon :name="t.icon" :size="16" />
               <span class="toolLabel">{{ t.label }}</span>
             </button>
             <span class="toolSep" aria-hidden="true"></span>
@@ -1286,7 +1673,7 @@ function jumpToBoard(i) {
                 :disabled="h.key === 'undo' ? !canUndo : !canRedo"
                 @click="h.key === 'undo' ? undo() : redo()"
               >
-                <PixelIcon :name="h.icon" :size="15" />
+                <Icon :name="h.icon" :size="16" />
                 <span class="toolLabel">{{ h.label }}</span>
               </button>
             </span>
@@ -1301,9 +1688,10 @@ function jumpToBoard(i) {
                 <button
                   class="tool" :aria-label="actionTitle(a)"
                   :disabled="!hasPattern"
+                  :data-tip="a.label" :data-tip-desc="a.desc || ''" :data-tip-key="a.shortcut || ''"
                   @click="mirrorPattern('h')"
                 >
-                  <PixelIcon :name="a.icon" :size="15" />
+                  <Icon :name="a.icon" :size="16" />
                   <span class="toolLabel">
                     <span class="actLong">{{ a.label }}</span><span class="actShort">{{ a.short }}</span>
                   </span>
@@ -1322,25 +1710,28 @@ function jumpToBoard(i) {
           <template v-if="tool === 'paint' || tool === 'erase'">
             <span class="brushDivider" aria-hidden="true"></span>
             <div class="brushSize">
-              <span class="muted">笔刷</span>
+              <span class="muted">{{ tool === 'erase' ? '橡皮' : '画笔' }}</span>
               <button
                 class="brushStep" type="button" aria-label="缩小笔刷"
-                :disabled="brushSize <= 1" @click="stepBrush(-1)"
-              ><PixelIcon name="minus" :size="12" /></button>
+                :disabled="activeToolSize <= 1" @click="stepBrush(-1)"
+              ><Icon name="minus" :size="16" /></button>
               <input
                 class="brushRange" type="range" min="1" :max="BRUSH_MAX" step="1"
-                :value="brushSize" aria-label="笔刷大小（格）"
+                :value="activeToolSize" aria-label="笔刷大小（格）"
                 @input="setBrushSize($event.target.value)"
               >
               <button
                 class="brushStep" type="button" aria-label="放大笔刷"
-                :disabled="brushSize >= BRUSH_MAX" @click="stepBrush(1)"
-              ><PixelIcon name="plus" :size="12" /></button>
-              <b class="brushSizeVal">{{ brushSize }} 格</b>
+                :disabled="activeToolSize >= BRUSH_MAX" @click="stepBrush(1)"
+              ><Icon name="plus" :size="16" /></button>
+              <b class="brushSizeVal">{{ activeToolSize }} 格</b>
             </div>
           </template>
         </div>
       </div>
+
+      <!-- 贴边标尺：贴在画布视口顶边 / 左边的覆盖层，不跟图纸缩放平移 -->
+      <CanvasRuler v-if="rulerOn" :geom="rulerGeom" :show-size="options.sizeMarks !== false" />
     </div><!-- /.stageWrap -->
 
     <!-- 手机专属：图纸滑出屏幕后浮在右下角（底部标签栏之上），点一下滚回图纸 -->
@@ -1400,9 +1791,11 @@ function jumpToBoard(i) {
 <style scoped>
 .splitWrap,.materialsWrap,.compareWrap{width:min(940px,100%)}
 .compareWrap{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+/* 原图只有一张卡：不分两列，否则它只占左半栏、看着像偏到一边 */
+.compareWrap--single{grid-template-columns:minmax(0,1fr);max-width:720px}
 .compareBox{margin:0;background:#fff;border:1px solid var(--line);border-radius:var(--r-md);padding:10px}
 .compareBox img,.compareBox canvas{width:100%;display:block;border-radius:var(--r-xs);image-rendering:pixelated}
-.compareBox figcaption{font-size:var(--fs-2xs);color:var(--muted);margin-top:7px;font-weight:700}
+.compareBox figcaption{font-size:var(--fs-2xs);color:var(--muted);margin-top:7px;font-weight:700;line-height:var(--ty-caption-lh)}
 .splitHead{margin-bottom:12px}
 /* 分板列表被截断时的说明 + 跳板输入：用和 .codesHint 同一套珊瑚色语义
    （都是「这里不完整，告诉你完整的去哪儿看」），但它是列表的一部分，
@@ -1411,12 +1804,12 @@ function jumpToBoard(i) {
   display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;
   margin:0 0 10px;font-size:var(--fs-2xs);font-weight:700;color:#625800;
   background:rgba(255,218,53,.20);border:1px solid rgba(23,23,23,.22);
-  border-radius:var(--r-sm);padding:7px 10px;
+  border-radius:var(--r-sm);padding:7px 10px;line-height:var(--ty-caption-lh)
 }
-.boardListNote p{margin:0;line-height:1.5}
+.boardListNote p{margin:0;line-height:var(--ty-caption-lh)}
 .boardJump{display:flex;align-items:center;gap:6px;white-space:nowrap}
 .boardJump input{
-  width:74px;padding:4px 6px;font:inherit;font-weight:800;color:var(--ink);
+  width:74px;padding:4px 6px;font:inherit;font-weight:700;color:var(--ink);
   border:1px solid transparent;border-radius:var(--r-xs);background:var(--surface-3);
 }
 .boardJump input:focus{background:var(--surface);border-color:var(--pink);box-shadow:0 0 0 3px rgba(255,142,199,.18);outline:0}
@@ -1428,7 +1821,7 @@ function jumpToBoard(i) {
 .codesHint{
   margin:8px 0 0;font-size:var(--fs-2xs);font-weight:700;color:#625800;
   background:rgba(255,218,53,.20);border:1px solid rgba(23,23,23,.22);
-  border-radius:var(--r-sm);padding:7px 10px;
+  border-radius:var(--r-sm);padding:7px 10px;line-height:var(--ty-caption-lh)
 }
 /* 舞台和它下面的说明 / 工具条 / 笔刷条同属一块，舞台 flex:1 吃掉剩余高度。
    右侧工具窄栏与抽屉都相对这块定位，所以它必须是定位上下文。 */
@@ -1451,20 +1844,22 @@ function jumpToBoard(i) {
   display:flex;align-items:center;gap:7px;flex-wrap:wrap;
   padding:6px 9px;border-radius:999px;border:1px solid var(--line);
   background:rgba(255,255,255,.97);box-shadow:0 4px 14px rgba(24,24,28,.12);
-  font-size:var(--fs-2xs);font-weight:800;color:var(--ink-2);
+  font-size:var(--fs-2xs);font-weight:700;color:var(--ink-2);line-height:var(--ty-caption-lh)
 }
 .actualBadge__dot{width:7px;height:7px;border-radius:50%;background:var(--green-deep);flex:0 0 auto}
-.actualBadge b{color:var(--ink);font-weight:900;white-space:nowrap}
+/* 全屏工作台左上角是贴边标尺，状态条往下让开一格，不压刻度 */
+.actualBadge--console{left:40px;top:36px}
+.actualBadge b{color:var(--ink);font-weight:700;white-space:nowrap}
 .actualBadge__cm{white-space:nowrap;font-variant-numeric:tabular-nums}
 .actualBadge__link{
   padding:0;border:0;background:transparent;color:var(--coral-deep);
-  font:inherit;font-weight:850;text-decoration:underline;white-space:nowrap;
+  font:inherit;font-weight:700;text-decoration:underline;white-space:nowrap;
 }
-.stageTools__ratio{font-size:11px;font-weight:900;line-height:1;letter-spacing:-.03em}
+.stageTools__ratio{font-size:12px;font-weight:700;line-height:var(--ty-caption-lh);letter-spacing:0}
 .stageTools__btn.on{background:var(--primary-soft);color:var(--primary-ink);border-color:var(--primary)}
 .stageTools__btn:disabled{opacity:.4}
 /* 校准弹窗：尺子按 CSS 像素画，滑杆改比例，标签跟着尺子走 */
-.calib__hint{margin:0 0 12px;font-size:var(--fs-2xs);line-height:1.7;color:var(--ink-2)}
+.calib__hint{margin:0 0 12px;font-size:var(--fs-2xs);line-height:var(--ty-caption-lh);color:var(--ink-2)}
 .calib__rulerBox{
   overflow-x:auto;padding:16px 12px 6px;background:var(--surface-2);
   border:1px solid var(--line);border-radius:var(--r-sm);
@@ -1475,18 +1870,18 @@ function jumpToBoard(i) {
 .calib__tick.major{height:16px;width:1.5px;background:var(--ink)}
 .calib__num{
   position:absolute;bottom:19px;transform:translateX(-50%);
-  font-size:10px;font-weight:800;color:var(--ink-2);
+  font-size:12px;font-weight:700;color:var(--ink-2);line-height:var(--ty-caption-lh)
 }
 .calib__range{
   display:flex;align-items:center;gap:8px;margin-top:14px;
-  font-size:var(--fs-2xs);font-weight:800;color:var(--ink-2);
+  font-size:var(--fs-2xs);font-weight:700;color:var(--ink-2);line-height:var(--ty-caption-lh)
 }
 .calib__range input{flex:1;accent-color:var(--primary)}
 .calib__range b{min-width:42px;text-align:right;font-variant-numeric:tabular-nums}
-.calib__note{margin:12px 0 0;font-size:10px;line-height:1.6;color:var(--muted)}
+.calib__note{margin:12px 0 0;font-size:12px;line-height:var(--ty-caption-lh);color:var(--muted)}
 .hintLink{
   margin-left:6px;padding:0;border:0;background:transparent;color:var(--coral-deep);
-  font:inherit;font-weight:850;text-decoration:underline;
+  font:inherit;font-weight:700;text-decoration:underline;
 }
 /* 分隔线不跟着按钮拉伸：手机上工具组会换成两行，拉满高度会变成一条很长的竖线 */
 .toolSep{width:1px;height:26px;align-self:center;background:var(--line-strong);margin:0 3px}
@@ -1548,13 +1943,13 @@ function jumpToBoard(i) {
 .brushSize{display:flex;align-items:center;gap:6px}
 .brushStep{
   width:30px;height:30px;flex:0 0 auto;border:1px solid var(--line);border-radius:8px;
-  background:var(--surface);color:var(--ink-2);font-size:15px;font-weight:900;line-height:1;
+  background:var(--surface);color:var(--ink-2);font-size:15px;font-weight:700;line-height:var(--ty-card-lh);
   display:grid;place-items:center;
 }
 .brushStep:hover:not(:disabled){background:var(--surface-3)}
 .brushStep:disabled{opacity:.4;cursor:not-allowed}
 .brushRange{width:104px;accent-color:var(--primary);cursor:pointer}
-.brushSizeVal{min-width:38px;text-align:center;font-size:var(--fs-2xs);color:var(--ink-2);white-space:nowrap}
+.brushSizeVal{min-width:38px;text-align:center;font-size:var(--fs-2xs);color:var(--ink-2);white-space:nowrap;line-height:var(--ty-caption-lh)}
 /* 手机专属的浮动图纸缩略图：桌面端画布一直看得见，直接不显示 */
 .miniPreview{
   display:none;position:fixed;right:10px;bottom:78px;z-index:45;
@@ -1563,7 +1958,7 @@ function jumpToBoard(i) {
   background:rgba(255,255,255,.97);box-shadow:0 10px 28px rgba(24,24,28,.2);
 }
 .miniPreview canvas{display:block;width:auto;height:auto;max-width:62px;max-height:62px;image-rendering:pixelated}
-.miniPreview span{font-size:var(--fs-2xs);font-weight:800;color:var(--muted);white-space:nowrap}
+.miniPreview span{font-size:var(--fs-2xs);font-weight:700;color:var(--muted);white-space:nowrap;line-height:var(--ty-caption-lh)}
 canvas{display:block}
 @media(max-width:780px){
   .compareWrap{grid-template-columns:1fr}
@@ -1580,8 +1975,8 @@ canvas{display:block}
     border:1px solid var(--line);border-radius:12px;background:var(--surface);
     box-shadow:var(--sh-1);
   }
-  .genNotice__head{display:flex;align-items:center;gap:6px;font-size:var(--fs-2xs)}
-  .genNotice__head b{font-size:var(--fs-xs);font-weight:850;color:var(--ink)}
+  .genNotice__head{display:flex;align-items:center;gap:6px;font-size:var(--fs-2xs);line-height:var(--ty-caption-lh)}
+  .genNotice__head b{font-size:var(--fs-xs);font-weight:700;color:var(--ink);line-height:var(--ty-label-lh)}
   .genNotice__badge{
     width:16px;height:16px;flex:0 0 auto;border-radius:50%;display:grid;place-items:center;
     background:var(--green-soft);color:var(--green-deep);
@@ -1597,17 +1992,17 @@ canvas{display:block}
     background:var(--surface-2);border:1px solid var(--line);
   }
   .genNotice__meta{min-width:0;flex:1}
-  .genNotice__meta p{display:flex;align-items:baseline;gap:6px;margin:0;font-size:var(--fs-2xs);color:var(--muted)}
-  .genNotice__meta p b{font-size:var(--fs-2xs);font-weight:850;color:var(--ink)}
+  .genNotice__meta p{display:flex;align-items:baseline;gap:6px;margin:0;font-size:var(--fs-2xs);color:var(--muted);line-height:var(--ty-caption-lh)}
+  .genNotice__meta p b{font-size:var(--fs-2xs);font-weight:700;color:var(--ink);line-height:var(--ty-caption-lh)}
   .genNotice__suggest b{color:var(--primary-ink)}
   .genNotice__actions{display:flex;align-items:center;gap:12px;margin-top:4px}
   .genNotice__link{
     padding:0;border:0;background:transparent;color:var(--coral-deep);
-    font:inherit;font-size:var(--fs-2xs);font-weight:850;text-decoration:underline;
+    font:inherit;font-size:var(--fs-2xs);font-weight:700;text-decoration:underline;line-height:var(--ty-caption-lh)
   }
   .genNotice__detail{
     margin:6px 0 0;padding-top:6px;border-top:1px dashed var(--line);
-    font-size:9px;line-height:1.5;color:var(--muted);
+    font-size:12px;line-height:var(--ty-caption-lh);color:var(--muted);
   }
 
   /* 画布右侧浮控：四颗方形按钮贴在画布右上角，不随图纸滚动。
@@ -1636,7 +2031,7 @@ canvas{display:block}
   .zoomIco{display:block;color:var(--muted)}
   .canvasCard__toolbar{position:relative;flex-direction:row;align-items:center;gap:5px;padding-bottom:6px;flex-wrap:nowrap}
   .viewtabs{flex:1;min-width:0;border-bottom:0}
-  .viewtabs button{flex:1;padding:6px 2px;font-size:var(--fs-2xs)}
+  .viewtabs button{flex:1;padding:6px 2px;font-size:var(--fs-2xs);line-height:var(--ty-caption-lh)}
   .viewtabs button .icon{display:none}
   /* 手机顶栏只留 图纸 / 原图 / 对照：分板与材料从「编辑 ▾ → 分板视图」、
      分析/用量卡片进入，顶栏不再挤五个页签。 */
@@ -1646,14 +2041,14 @@ canvas{display:block}
   /* 缩放只留实时百分比：加减 / 适应移到画布右侧浮控上 */
   .zoomBar{gap:0;flex:0 0 auto}
   .zoomBar .btn{display:none}
-  .zoomBar .zoomText{min-width:34px;font-size:var(--fs-2xs);text-align:right}
+  .zoomBar .zoomText{min-width:34px;font-size:var(--fs-2xs);text-align:right;line-height:var(--ty-caption-lh)}
   @media (max-width:360px){
     .canvasCard__toolbar{gap:3px}
-    .viewtabs button{padding:6px 1px;font-size:10px}
+    .viewtabs button{padding:6px 1px;font-size:12px;line-height:var(--ty-caption-lh)}
     /* 320 宽：三个页签 + 实时缩放 + 两颗命令按钮会挤掉「对照」，
        这一档去掉页签图标，文字完整可点。 */
     .viewtabs button .pixelIcon{display:none}
-    .zoomBar .zoomText{min-width:30px;font-size:10px}
+    .zoomBar .zoomText{min-width:30px;font-size:11px}
   }
   .panState{display:none}
   .stage{flex:1;height:auto;min-height:0;padding:8px}
@@ -1665,11 +2060,11 @@ canvas{display:block}
   .chartNote{display:none}
   .canvasCard__foot{flex-direction:row;align-items:center;padding-top:6px;flex-wrap:nowrap;gap:4px}
   .tool{padding:4px 2px;min-height:38px;gap:2px}
-  .toolLabel{font-size:9px}
-  .brushBar{padding-top:4px;font-size:var(--fs-2xs);gap:6px}
+  .toolLabel{font-size:12px;line-height:var(--ty-caption-lh)}
+  .brushBar{padding-top:4px;font-size:var(--fs-2xs);gap:6px;line-height:var(--ty-caption-lh)}
   .brushRange{width:78px}
   .brushSize{gap:4px}
-  .brushSizeVal{min-width:34px;font-size:9px}
+  .brushSizeVal{min-width:34px;font-size:12px;line-height:var(--ty-caption-lh)}
   .miniPreview{display:flex}
 }
 /* 小屏手机（360×640 之类）：命令栏和标签栏的高度不变，
@@ -1678,8 +2073,8 @@ canvas{display:block}
 @media(max-width:780px) and (max-height:700px){
   .chartNote{display:none}
   .tool{min-height:32px;gap:2px}
-  .toolLabel{font-size:9px}
-  .brushBar{padding-top:2px;font-size:9px}
+  .toolLabel{font-size:12px;line-height:var(--ty-caption-lh)}
+  .brushBar{padding-top:2px;font-size:12px;line-height:var(--ty-caption-lh)}
 }
 /* 320px 级窄屏：笔刷条一行放不下会折行，把画布压到出现内部滚动。
    去掉「当前画笔」四个字（色块还在），滑块和按钮各收一点。 */
@@ -1688,5 +2083,91 @@ canvas{display:block}
   .brushRange{width:64px}
   .brushStep{width:28px;height:28px}
   .brushSizeVal{min-width:30px}
+}
+
+/* ============================ 全屏工作台（chrome='console'） ============================
+   卡片不再是一个「白底圆角盒子」，而是铺满中间那块画布区的透明容器：
+   底色 / 网格 / 标尺由外层 .consoleBody 与画布自己负责，卡片只留画布与浮层。 */
+.canvasCard--console{
+  background:transparent;border:0;border-radius:0;box-shadow:none;padding:0;
+  height:100%;min-height:0;
+}
+.canvasCard--console .stageWrap{flex:1 1 auto;min-height:0}
+.canvasCard--console .stage{
+  min-height:0;padding:0;background:transparent;border:0;border-radius:0;
+}
+/* 电脑端：标尺内侧整块都是画布。图纸左上角贴住标尺内沿，
+   浮动工具、色板、右侧面板压在画布上，不再把图纸缩成中间一块。
+   平移靠四周空白 + scroll（舞台 overflow:hidden，不出现滚动条）。 */
+@media(min-width:1100px){
+  .canvasCard--console .stage--edit{
+    overflow:hidden;padding:0;display:block;background:#fff;
+  }
+  .canvasCard--console .stage--edit > .board{
+    margin:0;padding:0;border:0;border-radius:0;box-shadow:none;background:transparent;
+    width:max-content;justify-self:start;align-self:start;
+  }
+}
+/* 手势说明与「当前工具」提示都收进底部状态栏（那里有固定的位置），
+   画布中间只留图纸本身 */
+.canvasCard--console .chartNote{display:none}
+
+/* ---------------- 全屏工作台的两种空状态（设计稿 1:593 / 1:2445） ----------------
+   自由画布：画布中央一句「从零开始，手动绘制拼豆图纸。」；
+   图纸转换：画布中央一张上传卡（拖拽区 + 选择本地图片）。
+   字号字重按 Figma「豆玩 · 文字与字体规范」1:2：
+   卡片标题 15/700/24 · 正文 14/400/22 · 辅助 12/400/18。 */
+.freeEmpty{
+  display:flex;flex-direction:column;align-items:center;gap:10px;
+  color:#2A3C30;
+}
+.freeEmpty__ico{
+  width:40px;height:40px;border-radius:50%;display:grid;place-items:center;
+  background:#F0F5EC;color:#52685A;
+}
+.freeEmpty__text{
+  margin:0;font-family:var(--font-sans);font-size:14px;font-weight:400;
+  line-height:var(--ty-body-lh);letter-spacing:0;color:#52685A;
+}
+.upCard{
+  width:min(340px,86%);padding:16px;border-radius:16px;background:#fff;
+  border:1px solid #DDE5D8;box-shadow:0 6px 20px rgba(26,45,34,.08);
+  display:flex;flex-direction:column;gap:12px;color:#2A3C30;
+}
+.upCard--min{width:auto;padding:0;border:0;background:none;box-shadow:none}
+.upCard__head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.upCard__head b{
+  font-family:var(--font-sans);font-size:15px;font-weight:700;line-height:var(--ty-card-lh);letter-spacing:0;color:#1A2D22;
+}
+.upCard__x{
+  width:28px;height:28px;border:0;border-radius:8px;background:#F0F5EC;color:#52685A;
+  display:grid;place-items:center;cursor:pointer;
+}
+.upCard__x:hover{background:#E6EDE1}
+.upCard__drop{
+  border:1.5px dashed #C8E63C;border-radius:12px;background:#FBFDF6;
+  padding:22px 14px;display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;
+}
+.upCard__icon{
+  width:36px;height:36px;border-radius:50%;display:grid;place-items:center;
+  background:#F2F8D9;color:#6F8117;
+}
+.upCard__title{
+  font-family:var(--font-sans);font-size:14px;font-weight:700;line-height:var(--ty-body-lh);letter-spacing:0;color:#1A2D22;
+}
+.upCard__hint{
+  font-family:var(--font-sans);font-size:12px;font-weight:400;line-height:var(--ty-caption-lh);letter-spacing:0;color:#7A9080;
+}
+.upCard__btn{
+  height:42px;border:0;border-radius:999px;background:#1A2D22;color:#fff;cursor:pointer;
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  font-family:var(--font-sans);font-size:15px;font-weight:700;line-height:var(--ty-card-lh);letter-spacing:0;
+}
+.upCard__btn:hover{background:#25402F}
+
+/* 空状态在画布正中间：全屏工作台的画布就是一整块方格纸，
+   提示与上传卡都要落在正中间（不是顶部对齐）。 */
+.canvasCard--console .stage--empty .empty--guide{
+  height:100%;min-height:100%;justify-content:center;gap:0;
 }
 </style>

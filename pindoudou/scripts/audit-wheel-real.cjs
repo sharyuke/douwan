@@ -122,7 +122,10 @@ async function main() {
   const chrome = spawn(chromePath, [
     '--headless=new', '--disable-gpu', '--no-sandbox', '--no-first-run',
     '--disable-default-browser-check', '--disable-crashpad', '--disable-breakpad',
-    '--hide-scrollbars', `--user-data-dir=${profile}`, `--remote-debugging-port=${debugPort}`, 'about:blank'
+    /* 不能加 --hide-scrollbars：真实浏览器里滚动条是占位的，画布一放大就撑出滚动条，
+       舞台的内容盒跟着变窄，ResizeObserver 会再适配一次 ——「滚轮放大后跳回」这个 bug
+       只在滚动条占位时出现。加了这条标志等于把要测的场景抹掉（踩过）。 */
+    `--user-data-dir=${profile}`, `--remote-debugging-port=${debugPort}`, 'about:blank'
   ], { stdio: ['ignore', 'pipe', 'pipe'] })
   let chromeErr = ''
   chrome.stderr.on('data', d => { chromeErr += d.toString() })
@@ -221,6 +224,13 @@ async function main() {
   await sleep(400)
   const afterUp = await readZoom()
 
+  /* 放大之后必须「站得住」：画布一放大就撑出滚动条，舞台内容盒变窄会触发
+     ResizeObserver —— 只要滚轮缩放没把 autoFit 关掉，60ms 后就会被重新适配回
+     「适应窗口」（实测 0.82 → 1.02 → 0.78，用户看到的就是「放大又跳回」）。
+     这条等 1.5 秒再读一次，专门盯这个回跳。 */
+  await sleep(1500)
+  const afterUpLater = await readZoom()
+
   /* 再向下（缩小） */
   await send('Input.dispatchMouseEvent', {
     type: 'mouseWheel', x: Math.round(rect.x), y: Math.round(rect.y),
@@ -292,8 +302,10 @@ async function main() {
   }
 
   const result = {
-    before, afterUp, afterDown,
+    before, afterUp, afterUpLater, afterDown,
     zoomedIn: afterUp.zoom > before.zoom,
+    /* 放大 1.5 秒后仍是放大后的那一档（不被打回适应窗口） */
+    zoomSticks: afterUpLater.zoom === afterUp.zoom,
     zoomedOut: afterDown.zoom < afterUp.zoom,
     slider: { before: slider, after: sliderAfter }
   }
@@ -310,7 +322,7 @@ async function main() {
   chrome.kill()
   server && server.close()
   await sleep(200)
-  process.exit(result.zoomedIn && result.zoomedOut && sliderOk ? 0 : 2)
+  process.exit(result.zoomedIn && result.zoomSticks && result.zoomedOut && sliderOk ? 0 : 2)
 }
 
 main().catch(e => { console.error(e); process.exit(1) })

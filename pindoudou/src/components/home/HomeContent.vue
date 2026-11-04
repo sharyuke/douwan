@@ -14,7 +14,7 @@ import { computed, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { api } from '../../lib/api.js'
 import { HOME_PAGE } from '../../data/seo.js'
-import PixelIcon from '../ui/PixelIcon.vue'
+import Icon from '../ui/Icon.vue'
 
 /* 分类从后台拉：slug、名称、真实素材数、真实简介 */
 const categories = ref([])
@@ -80,7 +80,7 @@ onMounted(loadCategories)
         <h2 class="hcH2">豆玩支持哪些制作功能</h2>
         <ul class="hcFeatures">
           <li v-for="f in features" :key="f.title" class="hcFeature">
-            <span class="hcFeature__icon"><PixelIcon :name="f.icon || 'sparkles'" :size="20" /></span>
+            <span class="hcFeature__icon"><Icon :name="f.icon || 'sparkles'" :size="20" /></span>
             <b>{{ f.title }}</b>
             <p>{{ f.body }}</p>
           </li>
@@ -97,9 +97,9 @@ onMounted(loadCategories)
           <p v-for="(p, i) in howToGet.p" :key="i">{{ p }}</p>
         </div>
         <RouterLink to="/materials/" class="hcMore">
-          <PixelIcon name="folder" :size="16" />
+          <Icon name="folder-open" :size="16" />
           打开免费拼豆素材库
-          <PixelIcon name="arrowRight" :size="14" />
+          <Icon name="arrow-right" :size="16" />
         </RouterLink>
       </div>
 
@@ -113,9 +113,9 @@ onMounted(loadCategories)
           </div>
         </dl>
         <RouterLink to="/help/" class="hcMore">
-          <PixelIcon name="info" :size="16" />
+          <Icon name="info" :size="16" />
           查看完整拼豆教程
-          <PixelIcon name="arrowRight" :size="14" />
+          <Icon name="arrow-right" :size="16" />
         </RouterLink>
       </div>
 
@@ -166,14 +166,14 @@ onMounted(loadCategories)
 
 .hcH2{
   margin:0 0 10px;
-  font-size:var(--fs-h2);line-height:1.35;font-weight:900;letter-spacing:-.02em;
+  font-size:var(--fs-h2);line-height:var(--ty-section-lh);font-weight:700;letter-spacing:0;
   color:var(--ink);
 }
 .hcLead{
   margin:0 0 18px;max-width:70ch;
-  font-size:var(--fs-sm);line-height:1.8;color:var(--muted);
+  font-size:var(--fs-sm);line-height:var(--ty-body-lh);color:var(--muted);
 }
-.hcHint{margin:10px 0 0;font-size:var(--fs-2xs);color:var(--muted-2)}
+.hcHint{margin:10px 0 0;font-size:var(--fs-2xs);color:var(--muted-2);line-height:var(--ty-caption-lh)}
 .hcHint a{color:var(--ink-2);text-decoration:underline;text-underline-offset:3px}
 
 /* ---- 四步流程 ---- */
@@ -190,10 +190,10 @@ onMounted(loadCategories)
   flex:0 0 auto;width:24px;height:24px;border-radius:8px;
   display:grid;place-items:center;
   background:var(--primary-soft);color:var(--primary-deep);
-  font-size:var(--fs-2xs);font-weight:900;
+  font-size:var(--fs-2xs);font-weight:700;line-height:var(--ty-caption-lh)
 }
-.hcStep b{display:block;font-size:var(--fs-sm);line-height:1.5;font-weight:850;color:var(--ink)}
-.hcStep p{margin:3px 0 0;font-size:var(--fs-2xs);line-height:1.7;color:var(--muted)}
+.hcStep b{display:block;font-size:var(--fs-sm);line-height:var(--ty-body-lh);font-weight:700;color:var(--ink)}
+.hcStep p{margin:3px 0 0;font-size:var(--fs-2xs);line-height:var(--ty-caption-lh);color:var(--muted)}
 
 /* ---- 功能列表 ---- */
 .hcFeatures{
@@ -208,14 +208,14 @@ onMounted(loadCategories)
   display:grid;place-items:center;width:34px;height:34px;
   border-radius:10px;background:var(--primary-soft);margin-bottom:8px;
 }
-.hcFeature b{display:block;font-size:var(--fs-sm);font-weight:850;color:var(--ink)}
-.hcFeature p{margin:4px 0 0;font-size:var(--fs-2xs);line-height:1.7;color:var(--muted)}
+.hcFeature b{display:block;font-size:var(--fs-sm);font-weight:700;color:var(--ink);line-height:var(--ty-body-lh)}
+.hcFeature p{margin:4px 0 0;font-size:var(--fs-2xs);line-height:var(--ty-caption-lh);color:var(--muted)}
 
 /* ---- 正文段落 ---- */
 .hcProse{max-width:74ch}
 .hcProse p{
   margin:0 0 10px;
-  font-size:var(--fs-sm);line-height:1.9;color:var(--ink-2);
+  font-size:var(--fs-sm);line-height:var(--ty-body-lh);color:var(--ink-2);
 }
 .hcProse p:last-child{margin-bottom:0}
 
@@ -224,7 +224,7 @@ onMounted(loadCategories)
   display:inline-flex;align-items:center;gap:6px;
   margin-top:14px;padding:9px 14px;border-radius:var(--r-sm);
   background:var(--surface);border:1px solid var(--line);
-  font-size:var(--fs-xs);font-weight:800;color:var(--ink);
+  font-size:var(--fs-xs);font-weight:700;color:var(--ink);line-height:var(--ty-label-lh)
 }
 .hcMore:hover{border-color:var(--primary);color:var(--primary-deep)}
 
@@ -234,8 +234,8 @@ onMounted(loadCategories)
   padding:14px 16px;border-radius:var(--r-lg);
   background:var(--surface);border:1px solid var(--line);
 }
-.hcFaq dt{margin:0;font-size:var(--fs-sm);font-weight:850;color:var(--ink)}
-.hcFaq dd{margin:6px 0 0;font-size:var(--fs-2xs);line-height:1.8;color:var(--muted)}
+.hcFaq dt{margin:0;font-size:var(--fs-sm);font-weight:700;color:var(--ink);line-height:var(--ty-body-lh)}
+.hcFaq dd{margin:6px 0 0;font-size:var(--fs-2xs);line-height:var(--ty-caption-lh);color:var(--muted)}
 
 /* ---- 分类入口 ---- */
 .hcCats{
@@ -250,10 +250,10 @@ onMounted(loadCategories)
   transition:border-color var(--t),transform var(--t);
 }
 .hcCat__link:hover{border-color:var(--primary);transform:translateY(-2px)}
-.hcCat__name{display:block;font-size:var(--fs-sm);font-weight:850;color:var(--ink)}
-.hcCat__count{display:block;margin-top:2px;font-size:var(--fs-2xs);color:var(--primary-deep);font-weight:800}
+.hcCat__name{display:block;font-size:var(--fs-sm);font-weight:700;color:var(--ink);line-height:var(--ty-body-lh)}
+.hcCat__count{display:block;margin-top:2px;font-size:var(--fs-2xs);color:var(--primary-deep);font-weight:700;line-height:var(--ty-caption-lh)}
 .hcCat__desc{
-  display:block;margin-top:6px;font-size:var(--fs-2xs);line-height:1.7;color:var(--muted);
+  display:block;margin-top:6px;font-size:var(--fs-2xs);line-height:var(--ty-caption-lh);color:var(--muted);
   overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
 }
 
@@ -262,7 +262,7 @@ onMounted(loadCategories)
   margin:0;padding:0;list-style:none;
   display:flex;flex-wrap:wrap;gap:8px 18px;
 }
-.hcLinks a{font-size:var(--fs-2xs);font-weight:750;color:var(--ink-2)}
+.hcLinks a{font-size:var(--fs-2xs);font-weight:700;color:var(--ink-2);line-height:var(--ty-caption-lh)}
 .hcLinks a:hover{color:var(--ink);text-decoration:underline;text-underline-offset:3px}
 
 @media(max-width:900px){

@@ -36,7 +36,7 @@ export const PLANS = [
       { text: '上传图片 · 本地生成图纸', on: true },
       { text: '抠图去背景 · 只留主体（背景与投影一起去掉 · 三档力度）', on: true },
       { text: '基础编辑（画笔 / 橡皮 / 撤销）', on: true },
-      { text: '免费素材库', on: true },
+      { text: '素材库', on: true },
       { text: 'PNG 图纸导出', on: true },
       { text: '标记作品完成 · 计入成长记录', on: true },
       { text: '3 个作品本地存档', on: true },

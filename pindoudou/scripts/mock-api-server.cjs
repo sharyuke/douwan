@@ -167,6 +167,10 @@ function readJSON(raw) {
   }
 }
 
+/* 自检用的固定验证码。smsState.phone 记录最近发码的手机号，仅用于调试观察。 */
+const SMS_CODE = '638264'
+const smsState = { phone: '' }
+
 function api(req, res, pathname, raw = '') {
   const authed = String(req.headers.authorization || '').startsWith('Bearer ')
   /* 邮箱注册 / 登录：自检只看前端是否把邮箱、密码和派生用户名送到接口 */
@@ -191,6 +195,40 @@ function api(req, res, pathname, raw = '') {
       return json(res, { code: 20004, message: '密码错误', data: null })
     }
     return json(res, { code: 0, message: 'ok', data: { user, tokens } })
+  }
+  /* 手机验证码登录（自检用）：验证码固定 638264；MOCK_SMS_DISABLED=1 模拟未配置 */
+  if (pathname === '/api/v1/auth/sms/status') {
+    return json(res, {
+      code: 0,
+      message: 'ok',
+      data: { configured: process.env.MOCK_SMS_DISABLED !== '1' }
+    })
+  }
+  if (pathname === '/api/v1/auth/sms/send') {
+    if (process.env.MOCK_SMS_DISABLED === '1') {
+      return json(res, { code: 20009, message: '手机号登录暂未开启', data: null }, 503)
+    }
+    const body = readJSON(raw)
+    if (!/^1[3-9]\d{9}$/.test(String(body.phone || ''))) {
+      return json(res, { code: 10001, message: '请输入正确的手机号', data: null }, 400)
+    }
+    smsState.phone = String(body.phone)
+    return json(res, { code: 0, message: 'ok', data: { sent: true } })
+  }
+  if (pathname === '/api/v1/auth/sms/login') {
+    const body = readJSON(raw)
+    if (String(body.code || '') !== SMS_CODE) {
+      return json(res, { code: 20006, message: '验证码不正确或已过期，请重新获取', data: null })
+    }
+    smsState.smsLoggedIn = true
+    return json(res, {
+      code: 0,
+      message: 'ok',
+      data: {
+        user: { ...user, phone: String(body.phone || ''), nickname: '手机用户' + String(body.phone || '').slice(-4) },
+        tokens
+      }
+    })
   }
   if (pathname === '/api/v1/auth/oauth/wechat/status') {
     return json(res, {
@@ -273,11 +311,15 @@ function api(req, res, pathname, raw = '') {
   }
   if (pathname === '/api/v1/users/me') {
     if (!authed) return json(res, { code: 20001, message: '未登录', data: null }, 401)
+    /* 最近一次是验证码登录时，带上手机号（模拟真后端按令牌返回本人资料） */
+    const meUser = smsState.phone && smsState.smsLoggedIn
+      ? { ...user, phone: smsState.phone, nickname: '手机用户' + smsState.phone.slice(-4) }
+      : user
     return json(res, {
       code: 0,
       message: 'ok',
       data: {
-        user,
+        user: meUser,
         membership: { plan: 'free', is_pro: false, expire_at: null, auto_renew: false },
         credits: { balance: 0 },
         usage: { generated: 3, exported: 1, ai_calls: 0 },

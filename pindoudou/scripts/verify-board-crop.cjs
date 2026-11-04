@@ -101,7 +101,6 @@ const SETUP = `(async () => {
   const sleep = ms => new Promise(r => setTimeout(r, ms))
   M.applyServerMembership({ plan: 'pro', is_pro: true, expire_at: null })
   S.options.removeBg = false
-  S.options.smartColors = false
   const asset = A.ASSETS.find(a => a.featured) || A.ASSETS[0]
   await S.useAsset(asset)
   await sleep(200)
@@ -162,11 +161,18 @@ const SETUP = `(async () => {
 /** 真点 UI：展开左栏卡片 → 在「底板尺寸」下拉里选 52 钉板 */
 const PICK_BOARD = `(async () => {
   const sleep = ms => new Promise(r => setTimeout(r, ms))
+  /* 全屏创作工作台把「底板尺寸」收进了右侧抽屉：先点「成品尺寸」把抽屉打开 */
+  if (!document.querySelector('[data-size-spec]')) {
+    const entry = [...document.querySelectorAll('.csSide__row')].find(el => /成品尺寸/.test(el.textContent))
+    if (entry) entry.click()
+    await sleep(700)
+  }
   const head = document.querySelector('.sizeWideHead')
   const panel = document.querySelector('[data-size-panel]')
   if (head && panel && !panel.offsetParent) head.click()
   await sleep(200)
-  const sel = document.querySelector('[data-size-spec]')
+  /* 抽屉里用的是窄版卡片，底板下拉的标记是 data-size-board-spec */
+  const sel = document.querySelector('[data-size-spec]') || document.querySelector('[data-size-board-spec]')
   if (!sel) return { ok: false, err: '找不到底板下拉' }
   const opt = [...sel.options].find(o => /^52x/.test(o.value))
   if (!opt) return { ok: false, err: '下拉里没有 52 钉板', options: [...sel.options].map(o => o.value) }

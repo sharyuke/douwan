@@ -168,13 +168,18 @@ export async function request(path, opts = {}) {
     throw new ApiError('网络连接失败，请检查网络后重试', { code: -1 })
   }
 
-  // 访问令牌过期：刷新一次再重放
+  // 访问令牌过期：刷新一次再重放。
+  // 只有服务端明确说刷新令牌无效时才清空本地登录态；
+  // 网关 502 / 网络抖动这类临时故障要保留令牌——
+  // 否则每次发版重启的几秒钟里打开网站，都会把人踢回登录页。
   if (response.status === 401 && !noRefresh && tokens.refresh) {
     const refreshed = await refreshTokens(tokens)
-    if (refreshed) {
+    if (refreshed === REFRESH_OK) {
       return request(path, { ...opts, noRefresh: true })
     }
-    tokens.clear()
+    if (refreshed === REFRESH_REJECTED) {
+      tokens.clear()
+    }
   }
 
   if (raw) {
@@ -261,11 +266,19 @@ export async function download(path, body, { tokens = adminTokens } = {}) {
 
 /* ------------------------------------------------------------------ 刷新令牌 */
 
+/** 刷新请求的三种结果：ok=换到新令牌；rejected=服务端明确说令牌无效；retry=临时故障 */
+const REFRESH_OK = 'ok'
+const REFRESH_REJECTED = 'rejected'
+const REFRESH_RETRY = 'retry'
+
+/** 这些业务码代表「这个刷新令牌确实失效了」，此时才允许清空本地登录态 */
+const REFRESH_REJECT_CODES = [CODE.UNAUTHORIZED, CODE.TOKEN_EXPIRED, CODE.TOKEN_INVALID, CODE.ACCOUNT_DISABLED]
+
 /** 用 refresh_token 换新令牌。多并发只发一次请求。 */
 async function refreshTokens(tokens) {
   if (refreshInFlight) return refreshInFlight
   const refreshToken = tokens.refresh
-  if (!refreshToken) return false
+  if (!refreshToken) return REFRESH_REJECTED
 
   const isAdmin = tokens === adminTokens
   const path = isAdmin ? '/admin/auth/refresh' : '/auth/refresh'
@@ -278,13 +291,23 @@ async function refreshTokens(tokens) {
         body: JSON.stringify({ refresh_token: refreshToken })
       })
       const text = await res.text()
-      const envelope = text ? JSON.parse(text) : {}
-      if (!res.ok || envelope.code !== CODE.OK || !envelope.data) return false
-      const payload = envelope.data
-      tokens.write(payload.tokens || payload)
-      return true
+      let envelope
+      try {
+        envelope = text ? JSON.parse(text) : {}
+      } catch {
+        /* 网关故障时可能返回 HTML（502 页面）：临时问题，保留令牌 */
+        return REFRESH_RETRY
+      }
+      if (res.ok && envelope.code === CODE.OK && envelope.data) {
+        const payload = envelope.data
+        tokens.write(payload.tokens || payload)
+        return REFRESH_OK
+      }
+      if (REFRESH_REJECT_CODES.includes(envelope.code)) return REFRESH_REJECTED
+      return REFRESH_RETRY
     } catch {
-      return false
+      /* 网络不通：临时问题，保留令牌 */
+      return REFRESH_RETRY
     } finally {
       refreshInFlight = null
     }

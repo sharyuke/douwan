@@ -34,6 +34,6 @@ const { canvasRef } = usePatternCanvas(() => props.pattern, {
 canvas{display:block;image-rendering:pixelated;max-width:100%}
 .previewEmpty{
   display:grid;place-items:center;width:100%;height:100%;min-height:90px;
-  color:var(--muted-2);font-size:var(--fs-2xs);background:var(--surface-2);border-radius:var(--r-sm);
+  color:var(--muted-2);font-size:var(--fs-2xs);background:var(--surface-2);border-radius:var(--r-sm);line-height:var(--ty-caption-lh)
 }
 </style>

@@ -34,14 +34,72 @@
       return { ok: steps.every(s => s.pass), steps, width: innerWidth }
     }
 
+    /* ---------- 全屏创作工作台（≥1100px，设计稿 5:3721）---------- */
+    if (q('.csTop')) {
+      const cmd = qa('.csCmd__btn')
+      const ai = btnByText(cmd, 'AI 生成')
+      ai.click()
+      await sleep(450)
+      const aiDlg = q('.modal .dialog')
+      step('点「AI 生成」打开说明弹窗', !!aiDlg && /AI 生成素材/.test(txt(aiDlg)), txt(aiDlg).slice(0, 24))
+      const closeAi = q('.modal .dialog__head .iconbtn')
+      if (closeAi) { closeAi.click(); await sleep(350) }
+      step('说明弹窗能关掉', !q('.modal .dialog'))
+
+      btnByText(cmd, '素材库').click()
+      await sleep(900)
+      step('点「素材库」列出素材', qa('.csLib__item').length > 0, `item=${qa('.csLib__item').length}`)
+      const closeLib = q('.modal .dialog__head .iconbtn')
+      if (closeLib) { closeLib.click(); await sleep(350) }
+      step('素材弹窗能关掉', !q('.modal .dialog'))
+
+      const views = qa('.viewtabs button')
+      views[1].click()
+      await sleep(450)
+      step('点「原图」页签切过去', txt(q('.viewtabs button.on')).includes('原图'), txt(q('.viewtabs button.on')))
+      views[0].click()
+      await sleep(400)
+      step('点回「拼豆图纸」', txt(q('.viewtabs button.on')).includes('图纸'), txt(q('.viewtabs button.on')))
+
+      const seg = qa('.csSeg button')
+      seg[1].click()
+      await sleep(900)
+      step('智能抠图点「保守」选中', seg[1].classList.contains('on'), txt(seg[1]))
+      seg[0].click()
+      await sleep(900)
+      step('智能抠图点「关」选中', seg[0].classList.contains('on'), txt(seg[0]))
+
+      const cartoon = btnByText(cmd, '卡通风格')
+      step('「卡通风格」仍是待接入态',
+        !!cartoon && cartoon.disabled && cartoon.classList.contains('is-soon'), cartoon ? 'disabled' : '没找到')
+
+      /* 右栏四行：点开就是右侧滑出面板，面板里是同一套控件 */
+      const rows = qa('.csSide__row')
+      const sizeRow = btnByText(rows, '成品尺寸')
+      sizeRow.click()
+      await sleep(700)
+      step('点「成品尺寸」打开右侧面板', !!q('.csDrawer') && /成品尺寸/.test(txt(q('.csDrawer__head'))), txt(q('.csDrawer__head')).slice(0, 20))
+      step('面板里能看到尺寸滑杆', !!q('.csDrawer [data-size-range]'))
+      const closeDr = q('.csDrawer__head .iconbtn, .csDrawer__head button')
+      if (closeDr) { closeDr.click(); await sleep(500) }
+      step('右侧面板能关掉', !q('.csDrawer'))
+
+      const analysisRow = btnByText(qa('.csSide__row'), '作品分析')
+      analysisRow.click()
+      await sleep(600)
+      step('点「作品分析」打开右侧面板', !!q('.csDrawer .card--analysis'), !!q('.csDrawer .card--analysis'))
+
+      return { ok: steps.every(s => s.pass), steps, width: innerWidth }
+    }
+
     /* ---------- 桌面 / 平板 ---------- */
     const sources = qa('.sourceTabs button')
     btnByText(sources, 'AI生成素材').click()
     await sleep(350)
     step('点「AI生成素材」出现占位面板', !!q('[data-audit="ai-pending"]'))
-    btnByText(sources, '免费素材库').click()
+    btnByText(sources, '素材库').click()
     await sleep(400)
-    step('点「免费素材库」列出素材', qa('.srcAsset').length > 0, `srcAsset=${qa('.srcAsset').length}`)
+    step('点「素材库」列出素材', qa('.srcAsset').length > 0, `srcAsset=${qa('.srcAsset').length}`)
     btnByText(sources, '上传图片').click()
     await sleep(300)
     /* 这个示例作品已经带图：上传页签显示的是缩略图，不是空的上传框 */

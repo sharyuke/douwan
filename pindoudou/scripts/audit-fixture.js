@@ -10,6 +10,19 @@
      把页面截图和点击落点都改掉。指引本身由 scripts/audit-guide.js 单独验。 */
   try { localStorage.setItem('douwan.guide.v1', '1') } catch { /* 忽略 */ }
 
+  /* 升级公告（2026-11-01 上线）首次进入会盖一层弹窗：自检里先关掉，
+     否则点击落在遮罩下、断言「没有弹窗」也会被它顶掉。 */
+  try {
+    const sleep = ms => new Promise(r => setTimeout(r, ms))
+    for (let i = 0; i < 12 && !document.querySelector('.modal.show'); i++) await sleep(100)
+    const notice = document.querySelector('.modal.show')
+    if (notice && /升级/.test(notice.textContent || '')) {
+      const ack = [...notice.querySelectorAll('button')].find(b => /我知道了|继续使用/.test(b.textContent || ''))
+      if (ack) ack.click()
+      await sleep(500)
+    }
+  } catch { /* 没有公告就跳过 */ }
+
   const d = window.__douzao
   if (!d) return { ok: false, err: '调试桥未就绪' }
 
@@ -41,7 +54,10 @@
     return { ok: false, err: '生成失败' }
   }
 
-  const pid = S.saveProject('审计用示例作品')
+  /* 存档带上创作模式：自检大多按「自由画布」的版面验收（默认入口 2026-11-03 起是图纸转换，
+     但探针要验工具轨 / 空白网格，所以显式存成自由画布），
+     没有这个字段的老存档会按图纸转换打开（见 EditorView 的 projectModeOf） */
+  const pid = S.saveProject('审计用示例作品', { createMode: 'free' })
   if (!pid) return { ok: false, err: '存档失败' }
 
   // 造一点拼制进度，验证建造模式 / 进度条 / 剩余颜色（空格不用拼，跳过）
