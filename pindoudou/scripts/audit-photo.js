@@ -252,7 +252,7 @@
   /* ---------- ④ 色号上限：滑块与引擎都要能到色板长度（漫德 221），不再是 90 ----------
      上限原来由存档格式倒推（一格一字符、91 字符集 → 90 色），存档字符集扩到 256 之后
      这条天花板跟着拆掉。这里同时断言"界面滑块"和"引擎常量"两处，防的是一处改了另一处没跟。 */
-  /* 全屏工作台把色号滑块收进「图片调整」抽屉（「颜色用量」抽屉里只有用量表）；
+  /* 全屏工作台把色号滑块收进「图纸调整」抽屉（「颜色用量」抽屉里只有用量表）；
      手机 / 平板可能在侧栏卡片或底部弹层里。先找现成的，没有就开抽屉再找。 */
   let drawerOpened = false
   const readColorRange = () => document.querySelector('input[type=range][data-audit="target-colors"]')
@@ -260,7 +260,7 @@
     || document.querySelector('.iap__field input[type=range][aria-label="用色上限"]')
   if (!readColorRange()) {
     const adjustBtn = [...document.querySelectorAll('button')]
-      .find(b => /图片调整/.test(b.textContent || '') && !b.disabled)
+      .find(b => /图纸调整/.test(b.textContent || '') && !b.disabled)
     if (adjustBtn) {
       adjustBtn.click()
       drawerOpened = true

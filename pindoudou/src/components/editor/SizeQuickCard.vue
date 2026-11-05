@@ -2,7 +2,7 @@
 /**
  * 全屏工作台右侧「成品尺寸」卡（设计稿 151:587「功能菜单 · 成品尺寸已展开」）。
  *
- * 图纸转换模式把这张卡并进了右侧「图片调整」面板：传 embedded 时只渲染面板本身
+ * 图纸转换模式把这张卡并进了右侧「图纸调整」面板：传 embedded 时只渲染面板本身
  * （没有卡头，始终展开），作为合并面板里的「成品尺寸」一段。
  *
  * 卡头点一下就地展开 / 收起，面板里是一条**等比例**滑杆：
@@ -25,7 +25,7 @@ import Icon from '../ui/Icon.vue'
 
 const props = defineProps({
   open: { type: Boolean, default: true },
-  /** 只渲染面板（合并进「图片调整」时用），没有卡头、不收起 */
+  /** 只渲染面板（合并进「图纸调整」时用），没有卡头、不收起 */
   embedded: { type: Boolean, default: false }
 })
 const emit = defineEmits(['update:open'])

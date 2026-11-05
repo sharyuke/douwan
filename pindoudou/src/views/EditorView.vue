@@ -129,7 +129,7 @@ function toggleMatte() {
   void setRemoveBg(!options.removeBg)
 }
 
-/* 图片调整面板应用后回到图纸视图（图纸转换里调的，不要顺手切到自由画布） */
+/* 图纸调整面板应用后回到图纸视图（图纸转换里调的，不要顺手切到自由画布） */
 function onAdjustApplied() {
   closeDrawer()
   closeMsSheet()
@@ -182,7 +182,7 @@ const narrowQuery = window.matchMedia('(max-width: 780px)')
 const mobileConsole = ref(narrowQuery.matches)
 function onNarrowChange() { mobileConsole.value = narrowQuery.matches }
 const msSheet = ref('')
-const MS_SHEET_TITLES = { color: '颜色', more: '更多工具', menu: '更多', adjust: '图片调整', crop: '裁切图片' }
+const MS_SHEET_TITLES = { color: '颜色', more: '更多工具', menu: '更多', adjust: '图纸调整', crop: '裁切图片' }
 const msSheetTitle = computed(() => MS_SHEET_TITLES[msSheet.value] || '')
 function openMsSheet(key) {
   if (key === 'crop' && !sourceUrl.value) return
@@ -200,7 +200,7 @@ const DRAWER_TITLES = {
   analysis: '作品分析',
   colors: '颜色用量',
   stock: '我的库存',
-  adjust: '图片调整'
+  adjust: '图纸调整'
 }
 const drawerKey = ref('')
 /* 右侧「成品尺寸」卡默认收起（设计稿 1:1193 / 1:2445 都是收起态：
@@ -1189,7 +1189,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
         <p class="msEditBar__hint">{{ editViewLabel }} · 生成图纸后可用画笔修正</p>
         <div class="msEditBar__pills">
           <button type="button" @click="openMsSheet('adjust')">
-            <Icon name="sliders-horizontal" :size="16" />图片调整
+            <Icon name="sliders-horizontal" :size="16" />图纸调整
           </button>
           <button type="button" :disabled="!sourceUrl" @click="openCrop">
             <Icon name="scissors" :size="16" />裁切
@@ -1438,7 +1438,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
       <!-- 底部横向色板条撤掉了：主选色方式改成右栏的「色板」卡
            （系列 → 色系 → 搜索 → 多行网格），画布底部留给图纸。 -->
 
-      <!-- 右侧入口：图纸转换把「图片调整 + 成品尺寸」合并成一行（点开是同一块面板）；
+      <!-- 右侧入口：图纸转换把「图纸调整 + 成品尺寸」合并成一行（点开是同一块面板）；
            自由画布没有图片可调，仍保留可就地展开的成品尺寸卡。 -->
       <aside v-if="consoleMode && !drawerKey" class="csSide no-print">
         <SizeQuickCard v-if="createMode === 'free'" :open="sizeOpen" @update:open="sizeOpen = $event" />
@@ -1448,7 +1448,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
           @click="openDrawer('adjust')"
         >
           <span class="csSide__ico csSide__ico--lime"><Icon name="sliders-horizontal" :size="16" /></span>
-          <span>图片调整</span>
+          <span>图纸调整</span>
           <span class="csRot csSide__chev"><Icon name="chevron-down" :size="16" /></span>
         </button>
         <button type="button" class="csSide__row" :class="{ 'is-off': createMode === 'edit' && !hasPattern }" @click="analysisOpen = true">
@@ -1778,7 +1778,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
         </div>
       </div>
 
-      <!-- 图片调整 -->
+      <!-- 图纸调整 -->
       <div v-else-if="msSheet === 'adjust'" class="msSheet__body msSheet__body--adjust">
         <ImageAdjustPanel @cancel="closeMsSheet" @applied="onAdjustApplied" />
       </div>
@@ -2754,7 +2754,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
   .msBtn--primary{background:var(--ms-accent)}
 
   /* 滑杆：浅灰轨道 + 青柠圆钮（原生外观在手机上轨道是深灰，和设计稿差得远）。
-     子组件（图片调整 / 裁切）里的滑杆也要吃到，所以走 :deep。 */
+     子组件（图纸调整 / 裁切）里的滑杆也要吃到，所以走 :deep。 */
   .studio--mobile :deep(input[type="range"]){
     -webkit-appearance:none;appearance:none;height:16px;background:transparent;
   }
