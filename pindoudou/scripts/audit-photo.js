@@ -8,7 +8,8 @@
         顺带断言抠图掩膜的分辨率**跟着源图走**（matteMaxSide ≥ 384），不再是固定 384；
      ② 按**图案复杂度**推荐钉板（2026-11-04 用户口径）：越复杂越大、越简单越小，
         钉板数量默认 1 块。简单平涂图 → 52 板（原图再大也不跟着变大），
-        照片级复杂度 → 120 板；
+        普通照片 → 104 板；只有细节极密的照片才到 120（2026-11-05 用户口径：
+        104 就够的不要给 120）；
      ③ 成品区域要按原图比例算，不能把竖图放进方画布、让 40% 的格子空着；
      ④ 色号上限要到色板长度（221）而不是 90 —— 界面滑块与引擎常量两处都要跟；
         顺带把 cartoon 的工作分辨率钉在 768（这一轮试过放大又撤回来，见 README）；
@@ -92,9 +93,10 @@
 
   /**
    * 照片级复杂度的合成图：渐变底 + 260 个带结构的小色块 + 逐像素噪点。
-   * 复杂度推荐应该把它推到最大的一块板（120）——这是「越复杂越大」的判据。
+   * 默认参数（半径 2~16）代表**普通照片**：按 2026-11-05 的口径落在 104，
+   * 「104 就够的不要给 120」。传更大的半径 / 噪点代表细节极密的照片，才会到 120。
    */
-  async function uploadPhoto(w, h, name) {
+  async function uploadPhoto(w, h, name, { rMin = 2, rMax = 16, noise = 26 } = {}) {
     const cv = document.createElement('canvas')
     cv.width = w
     cv.height = h
@@ -108,12 +110,12 @@
     for (let i = 0; i < 260; i++) {
       cx.fillStyle = `hsl(${Math.floor(Math.random() * 360)} 60% ${20 + Math.random() * 60}%)`
       cx.beginPath()
-      cx.arc(Math.random() * w, Math.random() * h, 2 + Math.random() * 16, 0, Math.PI * 2)
+      cx.arc(Math.random() * w, Math.random() * h, rMin + Math.random() * (rMax - rMin), 0, Math.PI * 2)
       cx.fill()
     }
     const img = cx.getImageData(0, 0, w, h)
     for (let i = 0; i < img.data.length; i += 4) {
-      const n = (Math.random() - 0.5) * 26
+      const n = (Math.random() - 0.5) * noise
       img.data[i] += n
       img.data[i + 1] += n
       img.data[i + 2] += n
@@ -234,19 +236,28 @@
 
   /* ---------- ②a 界面上的推荐标记：钉板下拉里推荐的那一档要挂「推荐」 ----------
      推荐值只写进 store 不算数，用户要能在下拉里看见它。手机 / 平板没有这个下拉，跳过。 */
-  const boardBtn = document.querySelector('.csBoard__btn')
-  if (boardBtn) {
+  async function readBoardBadge() {
+    const boardBtn = document.querySelector('.csBoard__btn')
+    if (!boardBtn) return null
     boardBtn.click()
     await sleep(250)
     const recBadge = document.querySelector('.csBoard__rec')
-    out.boardBadge = {
+    const item = recBadge ? recBadge.closest('.csBoard__item') : null
+    const data = {
       seen: !!recBadge,
       text: recBadge ? recBadge.textContent.trim() : '',
-      onItem: recBadge ? !!recBadge.closest('.csBoard__item') : false
+      onItem: !!item,
+      itemText: item ? item.textContent.replace(/\s+/g, ' ').trim() : ''
     }
-    out.boardBadge.ok = out.boardBadge.seen && out.boardBadge.onItem && /推荐/.test(out.boardBadge.text)
     boardBtn.click()
     await sleep(150)
+    return data
+  }
+
+  const simpleBadge = await readBoardBadge()
+  if (simpleBadge) {
+    out.boardBadge = simpleBadge
+    out.boardBadge.ok = simpleBadge.seen && simpleBadge.onItem && /推荐/.test(simpleBadge.text)
   }
 
   /* ---------- ④ 色号上限：滑块与引擎都要能到色板长度（漫德 221），不再是 90 ----------
@@ -397,30 +408,69 @@
     out.fine.ok = false
   }
 
-  /* ---------- ②c 照片级复杂度：推荐最大的一块 120 钉板 ----------
-     渐变 + 大量小色块 + 噪点 → 复杂度「复杂」→ 1 块 120 板；
-     成品区域按 3:4 摆在板内（90 × 120），四周是空格。 */
-  await uploadPhoto(600, 800, 'photo-complex.png')
-  const complex = pat()
-  if (!complex) return { ok: false, err: '复杂照片没有生成图案' }
-  const cRec = S.sourceRecommend.value
-  out.photoComplex = {
+  /* ---------- ②c 普通照片：推荐 1 块 104 钉板（104 就够的不要给 120） ----------
+     渐变 + 小色块 + 噪点 → 复杂度「较复杂」→ 1 块 104 板；
+     成品区域按 3:4 摆在板内（78 × 104），四周是空格。 */
+  await uploadPhoto(600, 800, 'photo-normal.png')
+  const normal = pat()
+  if (!normal) return { ok: false, err: '普通照片没有生成图案' }
+  const nRec = S.sourceRecommend.value
+  out.photoNormal = {
     canvas: `${S.options.canvasW}×${S.options.canvasH}`,
     board: `${S.options.canvasMaxW}×${S.options.canvasMaxH}`,
-    recommend: cRec ? { spec: cRec.spec, score: cRec.score, name: cRec.name } : null,
+    recommend: nRec ? { spec: nRec.spec, score: nRec.score, name: nRec.name } : null,
     targetColors: S.options.targetColors,
-    usedColors: complex.palette.length,
-    specOk: !!cRec && cRec.spec === 120,
-    boardOk: S.options.canvasMaxW === 120 && S.options.canvasMaxH === 120,
+    usedColors: normal.palette.length,
+    specOk: !!nRec && nRec.spec === 104,
+    boardOk: S.options.canvasMaxW === 104 && S.options.canvasMaxH === 104,
     aspectOk: Math.abs(S.options.canvasW / S.options.canvasH - 0.75) < 0.06,
-    /* 90 × 120 = 10800 格 → 色号下限 48 色这一档 */
+    /* 78 × 104 = 8112 格 → 色号下限 48 色这一档 */
     colorsOk: S.options.targetColors >= 48
   }
-  out.photoComplex.ok = out.photoComplex.specOk && out.photoComplex.boardOk &&
-    out.photoComplex.aspectOk && out.photoComplex.colorsOk
+  /* 下拉里的「推荐」必须挂在 104 那一项，不能还停在 120（用户反馈的就是这个） */
+  const normalBadge = await readBoardBadge()
+  out.photoNormal.badge = normalBadge
+  out.photoNormal.badgeOk = !normalBadge || /104/.test(normalBadge.itemText)
+  /* 手机上「已生成图纸」卡里的推荐文案也要跟着是 104 */
+  const normalNotice = S.fitNotice.value
+  out.photoNormal.notice = normalNotice ? { boardSpec: normalNotice.boardSpec, levelName: normalNotice.levelName } : null
+  out.photoNormal.noticeOk = window.innerWidth > 780 ||
+    (!!normalNotice && normalNotice.boardSpec === 104)
+  out.photoNormal.ok = out.photoNormal.specOk && out.photoNormal.boardOk &&
+    out.photoNormal.aspectOk && out.photoNormal.colorsOk && out.photoNormal.badgeOk &&
+    out.photoNormal.noticeOk
 
-  out.ok = !!(out.sticker.ok && out.photo.ok && out.big.ok && out.photoComplex.ok && out.colors.ok &&
-    out.colors.cartoonPinned && out.matteMask.ok && (!out.fine || out.fine.ok) &&
+  /* ---------- ②d 细节极密的照片：才推荐最大的一块 120 钉板 ----------
+     大半径高对比色块 + 更强噪点 → 复杂度「极复杂」→ 1 块 120 板；
+     成品区域按 3:4 摆在板内（90 × 120），四周是空格。 */
+  await uploadPhoto(600, 800, 'photo-extreme.png', { rMin: 8, rMax: 50, noise: 30 })
+  const extreme = pat()
+  if (!extreme) return { ok: false, err: '极密照片没有生成图案' }
+  const eRec = S.sourceRecommend.value
+  out.photoExtreme = {
+    canvas: `${S.options.canvasW}×${S.options.canvasH}`,
+    board: `${S.options.canvasMaxW}×${S.options.canvasMaxH}`,
+    recommend: eRec ? { spec: eRec.spec, score: eRec.score, name: eRec.name } : null,
+    targetColors: S.options.targetColors,
+    usedColors: extreme.palette.length,
+    specOk: !!eRec && eRec.spec === 120,
+    boardOk: S.options.canvasMaxW === 120 && S.options.canvasMaxH === 120,
+    aspectOk: Math.abs(S.options.canvasW / S.options.canvasH - 0.75) < 0.06,
+    colorsOk: S.options.targetColors >= 48
+  }
+  const extremeBadge = await readBoardBadge()
+  out.photoExtreme.badge = extremeBadge
+  out.photoExtreme.badgeOk = !extremeBadge || /120/.test(extremeBadge.itemText)
+  const extremeNotice = S.fitNotice.value
+  out.photoExtreme.notice = extremeNotice ? { boardSpec: extremeNotice.boardSpec, levelName: extremeNotice.levelName } : null
+  out.photoExtreme.noticeOk = window.innerWidth > 780 ||
+    (!!extremeNotice && extremeNotice.boardSpec === 120)
+  out.photoExtreme.ok = out.photoExtreme.specOk && out.photoExtreme.boardOk &&
+    out.photoExtreme.aspectOk && out.photoExtreme.colorsOk && out.photoExtreme.badgeOk &&
+    out.photoExtreme.noticeOk
+
+  out.ok = !!(out.sticker.ok && out.photo.ok && out.big.ok && out.photoNormal.ok && out.photoExtreme.ok &&
+    out.colors.ok && out.colors.cartoonPinned && out.matteMask.ok && (!out.fine || out.fine.ok) &&
     (!out.boardBadge || out.boardBadge.ok))
   return out
 })()

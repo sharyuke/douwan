@@ -3,6 +3,8 @@
 
    用户口径（2026-11-04）：图纸模式导入图片后，按图案复杂度推荐一块钉板 ——
    越复杂越大、越简单越小，钉板数量默认 1 块。
+   2026-11-05 追加口径：104 就够的不要给 120，52 就够的不要给更大的板 ——
+   普通照片落在 104，120 只留给细节密度确实压不住的图。
 
    校准锚点用仓库里已有的 fidelity 样例（scripts/fidelity/fixtures/，都是 8bit
    truecolor PNG，自带的极简解码器直接读，不引依赖）：
@@ -13,7 +15,7 @@
      synth_fruit         渐变球体 + 投影            → 78
      synth_sky           天空渐变                   → 78
      synth_forest        多层半透明色块（细节多）    → 104
-     photo_pumpkin       真实照片                   → 120
+     photo_pumpkin       真实照片（普通照片）        → 104
 
    另有合成图锁两头：纯色 Logo → 52，逐像素噪点 + 渐变的照片 → 120。
    断言除了档位，还要求分数离档位边界有余量（≥ 0.03），
@@ -200,7 +202,7 @@ const fixtures = [
   ['synth_fruit.png', 78],
   ['synth_sky.png', 78],
   ['synth_forest.png', 104],
-  ['photo_pumpkin.png', 120]
+  ['photo_pumpkin.png', 104]
 ]
 for (const [file, spec] of fixtures) {
   const p = decodePng(path.join(FIXTURES, file))
