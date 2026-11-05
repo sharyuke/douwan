@@ -64,14 +64,18 @@
       export: txt(document.querySelector('.msPill--dark')),
       more: !!document.querySelector('.msTop .msIcon')
     }
-    /* 模式栏：自由画布 / 图纸转换 / 素材库（自由画布没有上传入口） */
+    /* 命令栏：只剩换图 / 图纸调整 / 素材库（自由画布与视图页签都去掉了） */
     const cmdBtns = [...document.querySelectorAll('.msCmd > button')]
     out.cmd = {
       labels: cmdBtns.map(txt),
       upload: txt(document.querySelector('.msCmd__upload')),
+      adjust: txt(cmdBtns.find(b => /图纸调整/.test(txt(b)))),
       materials: txt(document.querySelector('.msCmd__materials')),
-      uploadHiddenInFree: !document.querySelector('.msCmd__upload')
+      modeButtonsGone: !cmdBtns.some(b => /自由画布|图纸转换/.test(txt(b))),
+      viewTabsGone: !document.querySelector('.msViews')
     }
+    out.cmd.ok = out.cmd.modeButtonsGone && out.cmd.viewTabsGone &&
+      out.cmd.labels.join(',') === '换图,图纸调整,素材库' && out.cmd.materials === '素材库'
     /* 画布 + 缩放栏 + 工具轨 */
     out.zoom = {
       shown: visible(document.querySelector('.msZoom')),
@@ -150,8 +154,7 @@
     }
 
     out.ok = out.top.logo && out.top.save === '保存' && out.top.export === '导出' && out.top.more &&
-      out.cmd.labels.slice(0, 2).join(',') === '自由画布,图纸转换' &&
-      out.cmd.uploadHiddenInFree && out.cmd.materials === '素材库' &&
+      !!out.cmd.ok &&
       out.zoom.shown && out.zoom.undo && out.zoom.redo && out.zoom.fit &&
       out.tools.count === 5 && out.tools.labels.join(',') === '画笔,橡皮,填充,颜色,更多工具' && out.tools.sameRow &&
       out.noPageScroll && out.toolsAtBottom && out.legacyGone && !!out.menuSheet.ok &&

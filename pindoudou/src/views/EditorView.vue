@@ -27,8 +27,7 @@ import {
   tool, brushSize, eraserSize, BRUSH_MAX, toolSizeOf, setToolSize, brushColorId,
   mirrorPattern, removeSpecks, options, currentView,
   zoom, setZoom, layout, availableColors, maxCells, brand,
-  setCanvasCapacity, setRemoveBg, setBrand,
-  cropSource,
+  setCanvasCapacity, setBrand,
   undo, redo, canUndo, canRedo,
   openColorReplace, ensureBlankCanvas,
   createMode, workspaceMode, switchCreateMode, activateCreateMode, stashCurrentWorkspace,
@@ -122,12 +121,6 @@ function onReplaceColor(id) {
   if (!openColorReplace(id)) toastWarn('没有在当前图纸上找到这个颜色')
 }
 
-/* 智能抠图：桌面已并进「图纸调整」面板；手机编辑条上仍留一颗快捷开关 */
-function toggleMatte() {
-  if (!sourceUrl.value) return
-  void setRemoveBg(!options.removeBg)
-}
-
 /* 图纸转换的视图名：进来先看原图（先调原图再生成），导入图像后停在拼豆图纸 */
 const editViewLabel = computed(() => {
   if (currentView.value === 'original') return '原图预览'
@@ -192,15 +185,18 @@ const lockBrowserWindow = computed(() => tabletMode.value || coarsePointer.value
 const lockCanvas = computed(() => tabletMode.value || (coarsePointer.value && !mobileConsole.value))
 
 /* 全屏 / 平板版面不再提供视图页签：画布固定停在拼豆图纸，
-   分板改由右栏卡片展示。手机仍保留自己的图纸 / 原图 / 对照页签。 */
+   分板改由右栏卡片展示。手机也没有视图页签，停在原图 / 对照时回到拼豆图纸。 */
 watch([consoleMode, mobileConsole, currentView], () => {
-  if (!mobileConsole.value && currentView.value !== 'pattern') currentView.value = 'pattern'
+  if (mobileConsole.value) {
+    if (currentView.value === 'original' || currentView.value === 'compare') currentView.value = 'pattern'
+    return
+  }
+  if (currentView.value !== 'pattern') currentView.value = 'pattern'
 }, { immediate: true })
 const msSheet = ref('')
-const MS_SHEET_TITLES = { color: '颜色', more: '更多工具', menu: '更多', adjust: '图纸调整', crop: '裁切图片' }
+const MS_SHEET_TITLES = { color: '颜色', more: '更多工具', menu: '更多', adjust: '图纸调整' }
 const msSheetTitle = computed(() => MS_SHEET_TITLES[msSheet.value] || '')
 function openMsSheet(key) {
-  if (key === 'crop' && !sourceUrl.value) return
   msSheet.value = msSheet.value === key ? '' : key
 }
 function closeMsSheet() { msSheet.value = '' }
@@ -263,15 +259,6 @@ function pickBoard(o) {
   if (o.current) return
   setCanvasCapacity(o.w, o.h)
 }
-
-/* 视图页签与画布组件里的那一组完全一致（chrome='console' 时组件自己那条被隐藏） */
-const views = [
-  { key: 'pattern', icon: 'grid-3x3', label: '拼豆图纸' },
-  { key: 'original', icon: 'image', label: '原图' },
-  { key: 'compare', icon: 'columns-2', label: '对照' },
-  { key: 'split', icon: 'layout-grid', label: '分板' },
-  { key: 'materials', icon: 'list', label: '材料' }
-]
 
 const canvasRef = ref(null)
 const insightsRef = ref(null)
@@ -457,30 +444,6 @@ const msColorList = computed(() => {
 })
 function pickMsColor(id) {
   brushColorId.value = id
-}
-
-/* 手机端裁切：四边各收多少（%），预览框上直接画出来。
-   应用时把原图裁成这块再重新生成图纸，作品关联不变。 */
-const cropInset = ref({ l: 0, r: 0, t: 0, b: 0 })
-function openCrop() {
-  if (!sourceUrl.value) return
-  cropInset.value = { l: 0, r: 0, t: 0, b: 0 }
-  openMsSheet('crop')
-}
-const cropBox = computed(() => ({
-  left: cropInset.value.l,
-  top: cropInset.value.t,
-  width: Math.max(2, 100 - cropInset.value.l - cropInset.value.r),
-  height: Math.max(2, 100 - cropInset.value.t - cropInset.value.b)
-}))
-const cropActive = computed(() => cropInset.value.l + cropInset.value.r + cropInset.value.t + cropInset.value.b > 0)
-async function applyCrop() {
-  if (!cropActive.value) { closeMsSheet(); return }
-  const b = cropBox.value
-  const ok = await cropSource({ x: b.left / 100, y: b.top / 100, w: b.width / 100, h: b.height / 100 })
-  if (!ok) { toastWarn('裁切失败，请换一张图再试'); return }
-  closeMsSheet()
-  toastOk('已按裁切范围重新生成图纸')
 }
 
 /* 作品改名：设计稿里作品名旁边就是一支笔，就地改，不再跳到作品页 */
@@ -822,9 +785,10 @@ onMounted(() => {
   const id = route.params.projectId
   if (id) {
     if (!openWorkspaceProject(id)) toastErr('该作品打不开，可能已被删除')
-  } else if (hasPattern.value) {
+  } else if (hasPattern.value && !mobileConsole.value) {
     /* 已经有文档：素材页 / 工具页点「用这个素材生成图纸」会先把图导进来再跳过来，
-       这份文档属于哪个模式就停在哪个模式，别用默认的自由画布把它顶掉。 */
+       这份文档属于哪个模式就停在哪个模式，别用默认的自由画布把它顶掉。
+       手机端没有自由画布入口，一律按图纸转换打开。 */
     createMode.value = workspaceMode.value
   } else {
     /* 用户 2026-11-03：打开工作台默认进「图纸转换」（上传图片出图纸），
@@ -1158,36 +1122,20 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
       </button>
     </header>
 
+    <!-- 手机端只保留图纸转换：换图 / 图纸调整 / 素材库 -->
     <div v-if="mobileConsole" class="msCmd no-print">
-      <button type="button" :class="{ on: createMode === 'free' }" @click="setCreateMode('free')">
-        <Icon name="pencil" :size="16" />自由画布
-      </button>
-      <button type="button" :class="{ on: createMode === 'edit' }" @click="setCreateMode('edit')">
-        <Icon name="image" :size="16" />图纸转换
-      </button>
-      <span class="msSpacer"></span>
-      <!-- 自由画布从零开始手绘，不给上传入口（设计稿 1:2445）；
-           图纸转换可以换图，两种模式都有「素材库」。 -->
       <button
-        v-if="createMode === 'edit'" type="button" class="msCmd__upload"
+        type="button" class="msCmd__upload"
         :disabled="mobileBusy" @click="pickImage"
       >
         <Icon name="image-up" :size="16" />换图
       </button>
+      <button type="button" @click="openMsSheet('adjust')">
+        <Icon name="sliders-horizontal" :size="16" />图纸调整
+      </button>
+      <span class="msSpacer"></span>
       <button type="button" class="msCmd__materials" @click="materialsOpen = true">
         <Icon name="images" :size="16" />素材库
-      </button>
-    </div>
-
-    <div v-if="mobileConsole && createMode === 'edit'" class="msViews no-print" role="tablist" aria-label="视图">
-      <button
-        v-for="v in views.filter(x => ['original', 'pattern', 'compare'].includes(x.key))" :key="v.key" type="button"
-        :class="{ on: currentView === v.key }"
-        role="tab" :aria-selected="currentView === v.key"
-        :disabled="v.key !== 'original' && !hasPattern"
-        @click="currentView = v.key"
-      ><Icon :name="v.icon" :size="16" /><span>{{ v.label }}</span>
-        <em v-if="v.key === 'pattern' && !hasPattern">待生成</em>
       </button>
     </div>
 
@@ -1251,20 +1199,8 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
         </template>
       </EditorCanvas>
 
-      <!-- 手机端图片编辑：提示行 + 三个处理入口 + 状态行（设计稿 124:340） -->
+      <!-- 手机端图片编辑：只剩一行状态（处理入口都收进上方的命令栏） -->
       <div v-if="mobileConsole && createMode === 'edit'" class="msEditBar no-print">
-        <p class="msEditBar__hint">{{ editViewLabel }} · 生成图纸后可用画笔修正</p>
-        <div class="msEditBar__pills">
-          <button type="button" @click="openMsSheet('adjust')">
-            <Icon name="sliders-horizontal" :size="16" />图纸调整
-          </button>
-          <button type="button" :disabled="!sourceUrl" @click="openCrop">
-            <Icon name="scissors" :size="16" />裁切
-          </button>
-          <button type="button" :class="{ on: options.removeBg }" :disabled="!sourceUrl" @click="toggleMatte">
-            <Icon name="wand-sparkles" :size="16" />抠图
-          </button>
-        </div>
         <p class="msEditBar__status">{{ msEditStatus }}</p>
       </div>
 
@@ -1851,34 +1787,6 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
       <!-- 图纸调整 -->
       <div v-else-if="msSheet === 'adjust'" class="msSheet__body msSheet__body--adjust">
         <ImageAdjustPanel />
-      </div>
-
-      <!-- 裁切图片 -->
-      <div v-else-if="msSheet === 'crop'" class="msSheet__body">
-        <div class="msCrop">
-          <div class="msCrop__stage">
-            <img v-if="sourceUrl" :src="sourceUrl" alt="待裁切的图片">
-            <span
-              class="msCrop__box" aria-hidden="true"
-              :style="{ left: cropBox.left + '%', top: cropBox.top + '%', width: cropBox.width + '%', height: cropBox.height + '%' }"
-            ></span>
-          </div>
-          <label v-for="f in [
-            { key: 'l', label: '左' }, { key: 'r', label: '右' }, { key: 't', label: '上' }, { key: 'b', label: '下' }
-          ]" :key="f.key" class="msCrop__field">
-            <span>{{ f.label }}</span>
-            <input
-              type="range" min="0" max="45" step="1" :value="cropInset[f.key]"
-              :aria-label="'从' + f.label + '侧裁掉'"
-              @input="cropInset[f.key] = Math.round(Number($event.target.value) || 0)"
-            >
-            <b>{{ cropInset[f.key] }}%</b>
-          </label>
-        </div>
-        <div class="msSheet__foot">
-          <button type="button" class="msBtn" @click="closeMsSheet">取消</button>
-          <button type="button" class="msBtn msBtn--primary" @click="applyCrop">应用裁切</button>
-        </div>
       </div>
     </section>
 
@@ -2586,22 +2494,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
   .msCmd__upload:disabled{opacity:.45}
   .msCmd__materials{border:1px solid var(--ms-line);color:var(--ms-ink)}
 
-  /* ---------------- 图纸转换：视图页签 ---------------- */
-  .msViews{
-    display:flex;align-items:center;gap:4px;flex:0 0 auto;
-    height:46px;padding:0 16px;background:#fff;border-bottom:1px solid var(--ms-line);
-    overflow-x:auto;scrollbar-width:none;
-  }
-  .msViews::-webkit-scrollbar{display:none}
-  .msViews button{
-    display:inline-flex;align-items:center;gap:4px;height:30px;padding:0 12px;
-    border-radius:999px;background:transparent;
-    font-family:var(--font-sans);font-size:13px;font-weight:500;line-height:var(--ty-label-lh);letter-spacing:0;
-    color:var(--ms-ink-2);white-space:nowrap;
-  }
-  .msViews button.on{background:var(--ms-accent);color:var(--ms-ink);font-weight:700}
-  .msViews button:disabled{color:var(--ms-disabled)}
-  .msViews em{font-style:normal;font-family:var(--font-sans);font-size:12px;font-weight:400;line-height:var(--ty-caption-lh);letter-spacing:0;color:var(--ms-muted)}
+  /* ---------------- 图纸转换：视图页签已去掉 ---------------- */
 
   .msEditName{
     display:flex;align-items:center;justify-content:center;gap:6px;flex:0 0 auto;
@@ -2611,22 +2504,8 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
   .msEditName b{font-weight:700;color:var(--ms-ink)}
   .msEditName span{font-family:var(--font-sans);font-size:12px;font-weight:400;line-height:var(--ty-caption-lh);letter-spacing:0;color:var(--ms-muted)}
 
-  /* ---------------- 图纸转换：提示 + 三个入口 + 状态 ---------------- */
+  /* ---------------- 图纸转换：状态行 ---------------- */
   .msEditBar{flex:0 0 auto;padding:6px 12px 2px;display:flex;flex-direction:column;gap:6px}
-  .msEditBar__hint{
-    margin:0;text-align:center;
-    font-family:var(--font-sans);font-size:12px;font-weight:400;line-height:var(--ty-caption-lh);letter-spacing:0;color:var(--ms-muted);
-  }
-  .msEditBar__pills{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
-  .msEditBar__pills button{
-    display:inline-flex;align-items:center;justify-content:center;gap:5px;height:38px;
-    border:1px solid var(--ms-line);border-radius:999px;background:#fff;color:var(--ms-ink);
-    font-family:var(--font-sans);font-size:13px;font-weight:500;line-height:var(--ty-label-lh);letter-spacing:0;
-    white-space:nowrap;
-  }
-  .msEditBar__pills button:first-child{background:#FBF3F6;border-color:#FBE4EC}
-  .msEditBar__pills button.on{background:var(--ms-accent);border-color:var(--ms-accent);font-weight:700}
-  .msEditBar__pills button:disabled{opacity:.45}
   .msEditBar__status{
     margin:0;text-align:center;
     font-family:var(--font-sans);font-size:12px;font-weight:400;line-height:var(--ty-caption-lh);letter-spacing:0;color:var(--ms-muted);
@@ -2788,27 +2667,8 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
   .msMenu button em{font-style:normal;font-family:var(--font-sans);font-size:12px;font-weight:700;line-height:var(--ty-caption-lh);letter-spacing:0;color:var(--ms-muted)}
   .msMenu button:disabled{opacity:.4}
 
-  /* 裁切 */
-  .msCrop{display:flex;flex-direction:column;gap:8px}
-  .msCrop__stage{
-    position:relative;height:180px;border-radius:12px;overflow:hidden;
-    background:#F4F5EE;display:grid;place-items:center;
-  }
-  .msCrop__stage img{max-width:100%;max-height:100%;object-fit:contain}
-  .msCrop__box{
-    position:absolute;border:2px solid var(--ms-ink);
-    box-shadow:0 0 0 999px rgba(31,31,29,.42);pointer-events:none;
-  }
-  .msCrop__field{display:flex;align-items:center;gap:8px;font-family:var(--font-sans);font-size:13px;font-weight:500;line-height:var(--ty-label-lh);letter-spacing:0;color:var(--ms-muted)}
-  .msCrop__field span{width:14px;flex:0 0 auto}
-  .msCrop__field input{flex:1;min-width:0;accent-color:var(--ms-accent)}
-  .msCrop__field b{width:34px;flex:0 0 auto;text-align:right;font-family:var(--font-numeric);font-size:13px;font-weight:500;line-height:var(--ty-label-lh);letter-spacing:0;color:var(--ms-ink)}
-  .msSheet__foot{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
-  .msBtn{height:42px;border-radius:999px;background:#F4F5EE;font-family:var(--font-sans);font-size:15px;font-weight:700;line-height:var(--ty-card-lh);letter-spacing:0;color:var(--ms-ink)}
-  .msBtn--primary{background:var(--ms-accent)}
-
   /* 滑杆：浅灰轨道 + 青柠圆钮（原生外观在手机上轨道是深灰，和设计稿差得远）。
-     子组件（图纸调整 / 裁切）里的滑杆也要吃到，所以走 :deep。 */
+     子组件（图纸调整）里的滑杆也要吃到，所以走 :deep。 */
   .studio--mobile :deep(input[type="range"]){
     -webkit-appearance:none;appearance:none;height:16px;background:transparent;
   }
