@@ -165,7 +165,7 @@ export const HELP_PAGE = {
   features: [
     { icon: 'list', title: '教程', body: '分步骤讲：怎么选豆、怎么分板、怎么熨烫、怎么记录完成。' },
     { icon: 'columns-2', title: '尺寸速查表', body: '52 / 78 / 104 / 120 钉画线板规格、外框尺寸与成品尺寸。' },
-    { icon: 'sparkles', title: '编辑器快捷键', body: '少点几下鼠标的操作。' },
+    { icon: 'sparkles', title: '编辑器快捷键', body: '电脑端少点几下鼠标。平板和手机长按一格吸色，两指同时点一下撤回。' },
     { icon: 'list', title: '常见问题', body: '图纸不清晰、颜色太多、熨烫起皱怎么办。' }
   ],
   steps: [

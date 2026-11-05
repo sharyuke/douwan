@@ -1068,7 +1068,7 @@ input[type=checkbox]:focus-visible,input[type=radio]:focus-visible{outline:2.5px
 /* 触屏 / 笔在图纸上逐格编辑时，画布必须固定：
    浏览器默认会把单指拖动解释成滚动，画布会跟着手指跑、笔下的格子也断掉。
    这里在图纸视图关掉原生手势，平移改由 EditorCanvas 的双指逻辑处理。 */
-.stage--edit{touch-action:none}
+.stage--edit{touch-action:none;-webkit-touch-callout:none}
 .stage.pannable{cursor:grab;touch-action:none;user-select:none}
 .stage.panning{cursor:grabbing}
 /* 中键拖动平移：画布自己是 crosshair，会盖住舞台的 grab 光标，这里补一条 */
@@ -1097,8 +1097,7 @@ input[type=checkbox]:focus-visible,input[type=radio]:focus-visible{outline:2.5px
 .tool.on .icon,.tool.on .pixelIcon{color:var(--primary-ink)}
 .exportgroup{display:flex;gap:6px;flex-wrap:wrap}
 .chartNote{font-size:var(--fs-2xs);color:var(--muted-2);text-align:center;padding-top:8px;line-height:var(--ty-caption-lh)}
-/* 平板和手机都有触摸屏：提示改成捏合 / 双指，而不是滚轮。
-   桌面（≥1320）保持鼠标文案，宽屏触屏笔记本也按桌面算。 */
+/* 手指设备看触摸文案。宽屏 iPad（≥1320）也是手指，不能按宽度留着滚轮那句。 */
 .hintTouch{display:none}
 /* 长说明只给宽屏：手机上它会把本来就不高的画布再压掉一大截 */
 .hintShort{display:none}
@@ -1107,6 +1106,10 @@ input[type=checkbox]:focus-visible,input[type=radio]:focus-visible{outline:2.5px
   .hintTouch{display:inline}
   .hintLong{display:none}
   .hintShort{display:inline}
+}
+@media(pointer:coarse),(hover:none){
+  .hintWheel{display:none}
+  .hintTouch{display:inline}
 }
 
 /* 上传区。侧栏只有 306px 宽，高度全靠内容撑：

@@ -94,12 +94,6 @@ function actionTitle(a) {
   return hasPattern.value ? a.title : `${a.label}：先生成图纸后才能翻转`
 }
 
-/** 工具的原生 tooltip：带上快捷键（P / E / G / I…），
-    悬停时另有浮动标签写同一份信息，两边口径一致。 */
-function toolTitle(t) {
-  return t.shortcut ? `${t.title}（${t.shortcut}）` : t.title
-}
-
 /* 快捷键浮动标签（悬停工具时浮出来的那张小标签，与全屏工作台共用一份状态） */
 const { onTipOver, hideTip } = useShortcutTip()
 
@@ -110,12 +104,14 @@ const { onTipOver, hideTip } = useShortcutTip()
 function historyTitle(h) {
   const isUndo = h.key === 'undo'
   const n = isUndo ? undoDepth.value : redoDepth.value
+  /* 平板上撤销 / 重做按钮不写 Ctrl+Z / Ctrl+Y */
+  const base = desk.value ? h.title : h.title.replace(/\s*\([^)]*\)\s*$/, '')
   if (!n) {
     return isUndo
-      ? `${h.title} · 现在没有可撤销的操作：在图纸上点几格、拖一笔试试`
-      : `${h.title} · 现在没有可重做的操作：撤销之后才有`
+      ? `${base} · 现在没有可撤销的操作：在图纸上点几格、拖一笔试试`
+      : `${base} · 现在没有可重做的操作：撤销之后才有`
   }
-  return `${h.title} · 可${isUndo ? '撤销' : '重做'} ${n} 步`
+  return `${base} · 可${isUndo ? '撤销' : '重做'} ${n} 步`
 }
 
 const views = [
@@ -308,6 +304,12 @@ const deskQuery = typeof window !== 'undefined' && window.matchMedia
   : null
 const desk = ref(deskQuery ? deskQuery.matches : true)
 function onDeskChange(e) { desk.value = e.matches }
+/** 工具的原生 tooltip。电脑端带上快捷键（P / E / G / I…），
+    悬停时另有浮动标签写同一份信息。平板 / 手机没有这套键，标题里不写键名。 */
+function toolTitle(t) {
+  if (!desk.value) return t.title
+  return t.shortcut ? `${t.title}（${t.shortcut}）` : t.title
+}
 /* 只有电脑端全屏工作台走「贴标尺的整幅画布」。手机全屏工作台仍用原来的内边距。 */
 const consoleViewport = computed(() =>
   consoleChrome.value && desk.value && currentView.value === 'pattern' && !showEmpty.value
@@ -567,12 +569,17 @@ let startLeft = 0
 let startTop = 0
 let painting = false
 
-/* 触屏上的分工：单指 / 笔只编辑，画布固定；要缩放 / 平移用两根手指。
+/* 触屏上的分工：单指 / 笔只编辑，画布固定。
    浏览器默认会把单指拖动解释成滚动（画布跟着手指跑），
-   所以舞台在图纸视图下关掉了原生手势（见 global.css 的 .stage--edit），
-   双指手势由这里自己算：中点位移换滚动量，两指距离换缩放比例。 */
+   所以舞台在图纸视图下关掉了原生手势（见 global.css 的 .stage--edit）。
+   手指两根一起按下去是撤回，不看窗口宽度：iPad 横过来往往 ≥1100。
+   手指设备上全屏工作台不启用「overflow + 滚动平移」（见本文件末尾的媒体查询），
+   手指移动时再 preventDefault 一次，挡住浏览器自己改 scrollLeft。
+   鼠标滚轮缩放、中键拖动平移不受影响。 */
 const touchPoints = new Map()
 let twoFingerPan = false
+/** 这一下双指已经当成撤回处理过：松手时不要再当成平移结束去补一笔 */
+let twoFingerUndo = false
 let panOrigin = null
 /** 捏合缩放：记下手势开始时的两指距离与缩放级别，移动时按比例换算 */
 let pinch = null
@@ -582,6 +589,89 @@ let pinchAnchor = null
    平移时两指一前一后会先算成「捏小」再算成「捏大」，画布跟着抖。
    等两根都动过再结算一次缩放，平移本身仍然每个事件都跟手。 */
 let pinchMoved = new Set()
+
+/* 手指按住一格约半秒就吸这一格的颜色，然后切回画笔。
+   不看窗口宽度：iPad 横过来往往 ≥1100，按宽度会把平板当成电脑、长按完全不生效。
+   只认 touch。鼠标、触控笔长按仍按当前工具画，免得和拖动画笔打架。
+   手指按住时会有十几像素的抖动，小于一颗豆的移动不算「开始拖」。 */
+const LONG_PRESS_MS = 420
+const FINGER_PICK_SLOP = 28
+const fingerPick = ref(false)
+const fingerPickX = ref(0)
+const fingerPickY = ref(0)
+let fingerPickTimer = 0
+let fingerPickHideTimer = 0
+let fingerPickPointer = null
+let fingerPickDownX = 0
+let fingerPickDownY = 0
+/** 这次长按已经吸过色：松手时不要再当成单击（否则会用刚吸到的颜色盖住那一格） */
+let fingerPicked = false
+
+function stopFingerPickTimer() {
+  if (fingerPickTimer) {
+    clearTimeout(fingerPickTimer)
+    fingerPickTimer = 0
+  }
+  fingerPickPointer = null
+}
+
+function clearFingerPick() {
+  stopFingerPickTimer()
+  if (fingerPickHideTimer) {
+    clearTimeout(fingerPickHideTimer)
+    fingerPickHideTimer = 0
+  }
+  fingerPick.value = false
+}
+
+/** 手指按下：开始计时长按吸色。宽度不参与，横屏平板也算。 */
+function armFingerPick(e) {
+  clearFingerPick()
+  if (e.pointerType !== 'touch' || e.button !== 0) return
+  if (currentView.value !== 'pattern' || showEmpty.value) return
+  if (tool.value === 'pan') return
+  fingerPickPointer = e.pointerId
+  fingerPickDownX = e.clientX
+  fingerPickDownY = e.clientY
+  fingerPickX.value = e.clientX
+  fingerPickY.value = e.clientY
+  fingerPickTimer = window.setTimeout(() => {
+    fingerPickTimer = 0
+    if (fingerPickPointer !== e.pointerId) return
+    if (twoFingerPan || touchPoints.size >= 2) return
+    /* 用按下时的位置，不跟手指抖动走，避免吸到旁边那一格 */
+    runFingerPick(fingerPickDownX, fingerPickDownY)
+  }, LONG_PRESS_MS)
+}
+
+/** 长按成立：取这一格的颜色，切回画笔。
+    画笔 / 橡皮在按下时已经改了一格，要先退回再吸 —— 否则橡皮长按吸到的是刚擦空的格子。 */
+function runFingerPick(clientX, clientY) {
+  if (!cv.value || !pattern.value) return
+  if (painting) {
+    revertEdit()
+    painting = false
+  }
+  const hit = hitTest(cv.value, pattern.value, { clientX, clientY }, hitOpts.value)
+  if (!hit) { clearFingerPick(); return }
+  const c = pickAt(hit.x, hit.y)
+  if (!c) {
+    toastWarn('这一格是空的，没有颜色可吸')
+    clearFingerPick()
+    return
+  }
+  fingerPicked = true
+  moved = true
+  tool.value = 'paint'
+  fingerPickX.value = clientX
+  fingerPickY.value = clientY
+  fingerPick.value = true
+  toastOk(`已吸取 ${c.code}，松手后用画笔继续`)
+  fingerPickHideTimer = window.setTimeout(() => {
+    fingerPickHideTimer = 0
+    fingerPick.value = false
+  }, 700)
+}
 
 function trackTouch(e) {
   if (e.pointerType !== 'touch') return
@@ -599,34 +689,33 @@ function pinchInfo() {
   }
 }
 
-function startTwoFingerPan(stage) {
-  const info = pinchInfo()
-  if (!info) return
-  /* 第二根手指落下说明用户想挪画布 / 缩放：把刚落下的那一笔退回去，
-     免得「双指手势」顺手在图纸上留一格颜色。 */
+/** 手指两根一起按下去 = 撤回上一步。不看窗口宽度：iPad 横过来往往超过 1100，
+    按宽度会把它当成电脑，两指仍去平移。鼠标没有双指，电脑端捏合不受影响。 */
+function twoFingerUndoNow() {
+  clearFingerPick()
+  /* 第一根手指落下时画笔已经改了一格，而且这一笔还没入历史。
+     先退回这一笔，再撤上一步已提交的编辑，才是用户要的「撤回」。 */
   if (painting) revertEdit()
   painting = false
   dragging.value = false
-  /* 双指手势结束后浏览器还可能补一个 click；标记成「拖动过」，
-     免得吸色 / 填充工具把它当成一次点击。 */
   moved = true
-  twoFingerPan = true
-  panOrigin = {
-    x: info.mx,
-    y: info.my,
-    left: stage.scrollLeft,
-    top: stage.scrollTop
-  }
-  pinch = { dist: info.dist, zoom: zoom.value }
-  pinchMoved = new Set()
+  fingerPicked = true
+  twoFingerUndo = true
+  twoFingerPan = false
+  panOrigin = null
+  pinch = null
   pinchAnchor = null
-  if (consoleViewport.value) {
-    const board = boardBox()
-    if (board) {
-      const br = board.getBoundingClientRect()
-      pinchAnchor = { ox: info.mx - br.left, oy: info.my - br.top, w: br.width, h: br.height }
-    }
-  }
+  pinchMoved.clear()
+  if (undo()) toastOk('已撤回上一步')
+  else toastWarn('现在没有可撤回的操作')
+}
+
+function startTwoFingerPan(stage) {
+  const info = pinchInfo()
+  if (!info) return
+  /* 第二根手指落下：长按吸色取消。手指双指一律撤回，不平移、不捏合。 */
+  clearFingerPick()
+  twoFingerUndoNow()
 }
 
 /* 指针捕获只是「拖出画布也别丢事件」的加分项：浏览器在指针已经失效时会抛
@@ -659,6 +748,8 @@ function onPointerDown(e) {
     return
   }
 
+  armFingerPick(e)
+
   // 编辑工具下，直接点格子改色（PRD §12 画布）
   if (currentView.value === 'pattern' && e.button === 0 && (tool.value === 'paint' || tool.value === 'erase')) {
     painting = true
@@ -680,9 +771,9 @@ function onPointerDown(e) {
     return
   }
   if (e.button !== 0) return
-  /* 触屏单指只编辑：填充 / 吸色这类工具也不能顺手把画布拖走。
-     要平移画布请用「移动」工具，或双指手势。 */
-  if (e.pointerType === 'touch' && tool.value !== 'pan') return
+  /* 触屏单指只编辑：填充 / 吸色 / 移动都不能在第一根手指按下时就把画布拖走。
+     第二根手指可能紧跟着落下，那一下是撤回；先拖再撤，画面会先跳一下。 */
+  if (e.pointerType === 'touch') return
   startPanDrag(e, stage)
 }
 
@@ -717,6 +808,18 @@ function onPointerMove(e) {
   const stage = stageEl.value
   if (e.pointerType === 'touch' && touchPoints.has(e.pointerId)) {
     touchPoints.set(e.pointerId, { x: e.clientX, y: e.clientY })
+  }
+  /* 按住期间的小抖动不当成拖动：不取消吸色，也不要把笔跟着抖出去。
+     手指明显挪开（超过约一颗豆）才取消长按，这一笔按原工具继续画。 */
+  if (fingerPickTimer && e.pointerId === fingerPickPointer) {
+    const dist = Math.hypot(e.clientX - fingerPickDownX, e.clientY - fingerPickDownY)
+    if (dist <= FINGER_PICK_SLOP) return
+    stopFingerPickTimer()
+  }
+  /* 两指撤回已经处理过：手指还按着时不要再平移、也不要继续画。
+     第二根手指的按下和移动可能挤在同一帧，标志还没立上时也要拦住。 */
+  if (twoFingerUndo || (e.pointerType === 'touch' && touchPoints.size >= 2)) {
+    return
   }
   if (twoFingerPan) {
     if (e.pointerType === 'touch') pinchMoved.add(e.pointerId)
@@ -768,6 +871,7 @@ function onPointerMove(e) {
 
 function onPointerUp(e) {
   if (e && e.pointerType === 'touch') touchPoints.delete(e.pointerId)
+  if (e && e.pointerId === fingerPickPointer) clearFingerPick()
   // 松手才提交这一笔：中途每一格共用同一个「操作前快照」
   if (painting) endEdit()
   painting = false
@@ -777,24 +881,48 @@ function onPointerUp(e) {
   if (stage && e && e.pointerId != null) releasePointer(stage, e.pointerId)
   /* 双指平移时先抬起一根手指：停止平移，剩下的那根不要接着画，
      等它自己抬起（下一次单指按下才是新的一笔）。 */
-  if (twoFingerPan && touchPoints.size < 2) {
-    twoFingerPan = false
-    panOrigin = null
-    pinch = null
-    pinchAnchor = null
-    pinchMoved.clear()
+  if (touchPoints.size < 2) {
+    if (twoFingerUndo) twoFingerUndo = false
+    if (twoFingerPan) {
+      twoFingerPan = false
+      panOrigin = null
+      pinch = null
+      pinchAnchor = null
+      pinchMoved.clear()
+    }
   }
   setTimeout(() => { moved = false }, 0)
+}
+
+/** 系统长按菜单会把指针抢走。手指还按在原处时，直接吸色，不要当成取消。 */
+function onStageContextMenu(e) {
+  if (currentView.value !== 'pattern') return
+  e.preventDefault()
+  if (!fingerPickTimer) return
+  const x = fingerPickDownX
+  const y = fingerPickDownY
+  stopFingerPickTimer()
+  runFingerPick(x, y)
 }
 
 /** 指针被系统抢走（来电、通知中心）：这一笔不要留在历史里，免得撤销时画面跳变 */
 function onPointerCancel(e) {
   if (e && e.pointerType === 'touch') touchPoints.delete(e.pointerId)
+  /* iOS 长按经常在计时结束前发 pointercancel。手指没挪开就照样吸色。 */
+  if (fingerPickTimer && (!e || e.pointerId === fingerPickPointer)) {
+    const x = fingerPickDownX
+    const y = fingerPickDownY
+    stopFingerPickTimer()
+    if (!twoFingerPan && !twoFingerUndo && touchPoints.size < 2) runFingerPick(x, y)
+  } else {
+    clearFingerPick()
+  }
   if (painting) cancelEdit()
   painting = false
   dragging.value = false
   midPan.value = false
   if (touchPoints.size < 2) {
+    twoFingerUndo = false
     twoFingerPan = false
     panOrigin = null
     pinch = null
@@ -804,6 +932,8 @@ function onPointerCancel(e) {
 }
 
 function onClick(e) {
+  /* 长按吸色成功后浏览器还会补一个 click：那一格已经被吸过了，不能再画上去 */
+  if (fingerPicked) { fingerPicked = false; return }
   if (moved) return
   if (!cv.value || !pattern.value) return
   if (tool.value === 'pick') {
@@ -1139,10 +1269,17 @@ function scheduleRuler() {
 }
 watch([rulerOn, cellPx, width, height, actualMode], scheduleRuler, { flush: 'post' })
 
+/** 手指还按在图纸上时，浏览器会自己改舞台的 scrollLeft（全屏工作台
+    overflow:hidden 也挡不住）。监听必须 non-passive，才能 preventDefault。 */
+function onStageTouchMove(e) {
+  if (e.touches.length >= 1) e.preventDefault()
+}
+
 onMounted(() => {
   redrawAll()
   if (wideQuery) wideQuery.addEventListener('change', onWideChange)
   if (deskQuery) deskQuery.addEventListener('change', onDeskChange)
+  if (stageEl.value) stageEl.value.addEventListener('touchmove', onStageTouchMove, { passive: false })
   setTimeout(fitToStage, 60)
   /* 第一次适配按「当前缩放」反推图纸尺寸，缩放很低时标尺/留白的固定开销
      会被放大，结果偏保守（手机上 33% 明明还能到 42%）。布局稳定后再适配
@@ -1173,6 +1310,7 @@ onMounted(() => {
   }
 })
 onBeforeUnmount(() => {
+  clearFingerPick()
   clearTimeout(noticeTimer)
   if (wideQuery) wideQuery.removeEventListener('change', onWideChange)
   if (deskQuery) deskQuery.removeEventListener('change', onDeskChange)
@@ -1181,6 +1319,7 @@ onBeforeUnmount(() => {
   if (rulerRo) { rulerRo.disconnect(); rulerRo = null }
   if (rulerRaf) { cancelAnimationFrame(rulerRaf); rulerRaf = 0 }
   if (stageEl.value) stageEl.value.removeEventListener('scroll', scheduleRuler)
+  if (stageEl.value) stageEl.value.removeEventListener('touchmove', onStageTouchMove)
   if (painting) cancelEdit()
   painting = false
   dragging.value = false
@@ -1382,6 +1521,7 @@ defineExpose({
         @pointerup="onPointerUp"
         @pointerleave="onPointerUp"
         @pointercancel="onPointerCancel"
+        @contextmenu="onStageContextMenu"
         @mousedown="onStageMouseDown"
         @wheel="onWheel"
       >
@@ -1444,6 +1584,10 @@ defineExpose({
           class="board editing" v-show="!showEmpty"
         >
           <canvas ref="cv" @click="onClick" />
+          <span
+            v-if="fingerPick" class="fingerPick" aria-hidden="true"
+            :style="{ left: fingerPickX + 'px', top: fingerPickY + 'px' }"
+          ><Icon name="pipette" :size="18" /></span>
         </div>
 
         <!-- 原图 -->
@@ -1562,7 +1706,7 @@ defineExpose({
 
       <div v-if="!showEmpty && currentView === 'pattern'" class="chartNote">
         <span class="hintWheel">滚轮缩放 · 按住空白处拖拽平移</span>
-        <span class="hintTouch">双指捏合缩放 / 拖动平移 · 单指编辑</span>
+        <span class="hintTouch">双指同时点一下撤回 · 单指编辑 · 长按一格吸色</span>
         <span v-if="tool !== 'pan'" class="only-lg">· 直接点格子改色（当前工具：
           {{ tool === 'paint' ? '画笔' : tool === 'erase' ? '橡皮' : tool === 'pick' ? '吸色' : '填充' }}）</span>
       </div>
@@ -1651,12 +1795,17 @@ defineExpose({
            全屏工作台由 EditorView 左侧浮动工具栏接管） -->
       <div v-if="!consoleChrome" class="editPanel">
         <div class="canvasCard__foot">
-          <div class="toolgroup" role="toolbar" aria-label="编辑工具" @mouseover="onTipOver" @mouseleave="hideTip">
+          <div
+            class="toolgroup" role="toolbar" aria-label="编辑工具"
+            @mouseover="desk && onTipOver($event)" @mouseleave="desk && hideTip()"
+          >
             <button
               v-for="t in tools" :key="t.key"
               class="tool" :class="{ on: tool === t.key }"
               :title="toolTitle(t)" :aria-label="t.title" :aria-pressed="tool === t.key"
-              :data-tip="t.label" :data-tip-desc="t.desc || ''" :data-tip-key="t.shortcut || ''"
+              :data-tip="desk ? t.label : null"
+              :data-tip-desc="desk ? (t.desc || '') : null"
+              :data-tip-key="desk ? (t.shortcut || '') : null"
               @click="pickTool(t.key)"
             >
               <Icon :name="t.icon" :size="16" />
@@ -1689,7 +1838,9 @@ defineExpose({
                 <button
                   class="tool" :aria-label="actionTitle(a)"
                   :disabled="!hasPattern"
-                  :data-tip="a.label" :data-tip-desc="a.desc || ''" :data-tip-key="a.shortcut || ''"
+                  :data-tip="desk ? a.label : null"
+                  :data-tip-desc="desk ? (a.desc || '') : null"
+                  :data-tip-key="desk ? (a.shortcut || '') : null"
                   @click="mirrorPattern('h')"
                 >
                   <Icon :name="a.icon" :size="16" />
@@ -1926,6 +2077,15 @@ defineExpose({
   .actLong{display:none}
   .actShort{display:inline}
 }
+/* 平板 / 手机长按吸色：吸到颜色的那一瞬间，手指旁边闪一下吸管。
+   坐标是视口坐标（fixed），不跟画布的缩放平移走。 */
+.fingerPick{
+  position:fixed;z-index:30;pointer-events:none;
+  width:36px;height:36px;margin:-46px 0 0 -6px;border-radius:50%;
+  display:grid;place-items:center;
+  background:var(--ink,#1A2D22);color:#fff;
+  box-shadow:0 6px 16px rgba(24,24,28,.28);
+}
 .stage--empty .empty__icon{
   width:58px;height:58px;border-radius:18px;background:var(--primary-soft);color:var(--primary-ink);
 }
@@ -2099,10 +2259,14 @@ canvas{display:block}
 }
 /* 电脑端：标尺内侧整块都是画布。图纸左上角贴住标尺内沿，
    浮动工具、色板、右侧面板压在画布上，不再把图纸缩成中间一块。
-   平移靠四周空白 + scroll（舞台 overflow:hidden，不出现滚动条）。 */
-@media(min-width:1100px){
+   平移靠四周空白 + scroll（舞台 overflow:hidden，不出现滚动条）。
+   手指设备即使宽度 ≥1100（横屏 iPad）也不走这条滚动：
+   overflow:hidden 挡不住浏览器自己改 scrollLeft，两指一点画布就跟着跑。
+   手指只编辑、两指撤回；鼠标中键平移不受影响。 */
+@media(min-width:1100px) and (pointer:fine) and (hover:hover){
   .canvasCard--console .stage--edit{
     overflow:hidden;padding:0;display:block;background:#fff;
+    touch-action:none;-webkit-touch-callout:none;
   }
   .canvasCard--console .stage--edit > .board{
     margin:0;padding:0;border:0;border-radius:0;box-shadow:none;background:transparent;

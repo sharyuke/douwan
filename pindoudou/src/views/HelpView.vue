@@ -205,7 +205,7 @@ function sendReport() {
         <ol class="quickSteps">
           <li><b>创建</b><span>上传照片，或去素材中心挑一个现成图案</span></li>
           <li><b>选方案</b><span>高还原 / 好拼版 / 艺术版，系统会标出推荐与推荐理由</span></li>
-          <li><b>微调</b><span>创建卡里打开「智能抠图」（连投影一起去掉，只留主体）；调颜色数与色板；高级设置里开关抖动、去孤立豆、格内色号；改错了随时撤销（Ctrl/⌘ + Z，拖着画笔划过一片格子算一步，重做是 Ctrl/⌘ + Y）。卡通风格与一键优化需要 AI 生图能力，目前对接中</span></li>
+          <li><b>微调</b><span>创建卡里打开「智能抠图」（连投影一起去掉，只留主体）；调颜色数与色板；高级设置里开关抖动、去孤立豆、格内色号；改错了随时点撤销，拖着画笔划过一片格子算一步。卡通风格与一键优化需要 AI 生图能力，目前对接中</span></li>
           <li><b>看数据</b><span>右侧检查还原度、可拼性、材料用量与缺口</span></li>
           <li><b>导出</b><span>PNG 发出去，PDF 打印出来照着拼，CSV 拿去采购</span></li>
           <li><b>开拼</b><span>进入第三步「完成」：逐颗 / 整板记录进度，随时看到这一板还差多少颗</span></li>
@@ -300,9 +300,9 @@ function sendReport() {
       老存档（老规格方板）仍按原样分板、按 5mm 中号豆算，打开后不会变样。
     </p>
 
-    <!-- 快捷键 -->
-    <section class="secHead">
-      <div><h2>编辑器快捷键</h2><p>少点几下鼠标</p></div>
+    <!-- 快捷键只给电脑端。平板和手机用手指：长按吸色，两指同时点一下撤回。 -->
+    <section class="secHead shortcutHead">
+      <div><h2>编辑器快捷键</h2><p>电脑端工作台。平板和手机用手指：长按一格吸色，两指同时点一下撤回</p></div>
     </section>
     <div class="shortcutGrid">
       <div v-for="s in shortcuts" :key="s.key" class="shortcutItem">
@@ -411,6 +411,10 @@ kbd{
   background:var(--surface-3);border:1px solid var(--line-strong);white-space:nowrap;line-height:var(--ty-caption-lh)
 }
 .shortcutItem span{font-size:var(--fs-xs);color:var(--muted);line-height:var(--ty-label-lh)}
+/* 平板和手机不展示这套键：编辑靠手指，键位表只在电脑端出现 */
+@media(max-width:1099px),(pointer:coarse),(hover:none){
+  .shortcutHead,.shortcutGrid{display:none}
+}
 .feedbackGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px}
 .reportList{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:7px}
 .reportList li{font-size:var(--fs-xs);color:var(--ink-2);line-height:var(--ty-label-lh)}

@@ -181,6 +181,10 @@ function onWideChange() {
 const narrowQuery = window.matchMedia('(max-width: 780px)')
 const mobileConsole = ref(narrowQuery.matches)
 function onNarrowChange() { mobileConsole.value = narrowQuery.matches }
+/* 手指设备（含横屏 iPad，宽度常常 ≥1100）：不标快捷键，按键也不切工具。 */
+const coarseQuery = window.matchMedia('(pointer: coarse), (hover: none)')
+const coarsePointer = ref(coarseQuery.matches)
+function onCoarseChange() { coarsePointer.value = coarseQuery.matches }
 const msSheet = ref('')
 const MS_SHEET_TITLES = { color: '颜色', more: '更多工具', menu: '更多', adjust: '图纸调整', crop: '裁切图片' }
 const msSheetTitle = computed(() => MS_SHEET_TITLES[msSheet.value] || '')
@@ -716,8 +720,10 @@ function onKeydown(e) {
 }
 
 /* ---------------------------------------------------------------- 键盘快捷键
-   电脑端：画笔 P / 橡皮 E / 填充 G / 吸色 I / 换色 C / 去杂色 R / 镜像 M。
+   只在电脑端（≥1100px）：画笔 P / 橡皮 E / 填充 G / 吸色 I / 换色 C / 去杂色 R / 镜像 M。
    与工具轨上的浮动标签一一对应（标签里标的就是这些键）。
+   平板（781–1099）和手机（≤780）没有这套键：触屏上按这些字母没意义，
+   外接键盘打字也不该把工具切走。吸色在这两档改成手指长按一格。
 
    三种情况不抢按键：
      · 正在输入（改名输入框、尺寸滑杆等）—— 打字不能被工具切走；
@@ -727,6 +733,8 @@ const SHORTCUT_TOOLS = { p: 'paint', e: 'erase', g: 'fill', i: 'pick', c: 'swap'
 
 function onShortcutKey(e) {
   if (e.defaultPrevented) return
+  /* 手指设备与窄屏都不响应工具快捷键（Ctrl+Z / Ctrl+Y 的撤销重做在 App.vue，不受这里影响） */
+  if (!consoleMode.value || coarsePointer.value) return
   if (e.ctrlKey || e.metaKey || e.altKey) return
   const t = e.target
   const tag = (t && t.tagName) || ''
@@ -755,6 +763,7 @@ onMounted(() => {
   document.addEventListener('pointerdown', onDocPointerDown)
   wideQuery.addEventListener('change', onWideChange)
   narrowQuery.addEventListener('change', onNarrowChange)
+  coarseQuery.addEventListener('change', onCoarseChange)
   trackEvent('editor.open')
   /* 左栏「素材库」和空画布引导的配图都取素材库（后台已发布素材），
      进工作台就拉一次；失败时两处都会退回内置素材 */
@@ -789,6 +798,7 @@ onBeforeUnmount(() => {
   unbindSizePop()
   window.removeEventListener('resize', placePaletteFly)
   wideQuery.removeEventListener('change', onWideChange)
+  coarseQuery.removeEventListener('change', onCoarseChange)
   narrowQuery.removeEventListener('change', onNarrowChange)
 })
 
@@ -1318,8 +1328,8 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
           >
             <button
               type="button" class="tool csTool" :class="{ on: tool === t.key }"
-              :aria-label="t.title" :aria-pressed="tool === t.key"
-              :data-tip="t.label" :data-tip-desc="t.desc" :data-tip-key="t.shortcut || ''"
+              :aria-label="coarsePointer ? t.label : t.title" :aria-pressed="tool === t.key"
+              :data-tip="t.label" :data-tip-desc="t.desc" :data-tip-key="coarsePointer ? '' : (t.shortcut || '')"
               :data-tool-key="t.key"
               @click="onRailTool(t.key)"
             >
@@ -1344,7 +1354,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
             aria-label="去除杂色：把孤零零一颗、四周全是别的颜色的豆并进周围主色（可撤销）"
             data-tip="去除杂色"
             data-tip-desc="孤零零一颗、四周全是别的颜色的豆并进周围主色"
-            data-tip-key="R"
+            :data-tip-key="coarsePointer ? '' : 'R'"
             @click="onRemoveSpecks"
           >
             <Icon name="wand-sparkles" :size="24" /><span class="toolLabel">去除杂色</span>
@@ -1353,24 +1363,24 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
           <span class="csRail__sep" aria-hidden="true"></span>
 
           <button
-            type="button" class="tool csTool" aria-label="撤销 (Ctrl+Z)"
+            type="button" class="tool csTool" :aria-label="coarsePointer ? '撤销' : '撤销 (Ctrl+Z)'"
             :disabled="!canUndo"
-            data-tip="撤销" data-tip-desc="撤销上一步" data-tip-key="Ctrl+Z"
+            data-tip="撤销" data-tip-desc="撤销上一步" :data-tip-key="coarsePointer ? '' : 'Ctrl+Z'"
             @click="undo()"
           >
             <Icon name="undo-2" :size="24" /><span class="toolLabel">撤销</span>
           </button>
           <button
-            type="button" class="tool csTool" aria-label="重做 (Ctrl+Y)"
+            type="button" class="tool csTool" :aria-label="coarsePointer ? '重做' : '重做 (Ctrl+Y)'"
             :disabled="!canRedo"
-            data-tip="重做" data-tip-desc="重做上一步" data-tip-key="Ctrl+Y"
+            data-tip="重做" data-tip-desc="重做上一步" :data-tip-key="coarsePointer ? '' : 'Ctrl+Y'"
             @click="redo()"
           >
             <Icon name="redo-2" :size="24" /><span class="toolLabel">重做</span>
           </button>
           <button
             type="button" class="tool csTool" aria-label="左右镜像：整张图纸水平翻转（可撤销）"
-            data-tip="左右镜像" data-tip-desc="整张图纸水平翻转（可撤销）" data-tip-key="M"
+            data-tip="左右镜像" data-tip-desc="整张图纸水平翻转（可撤销）" :data-tip-key="coarsePointer ? '' : 'M'"
             @click="doMirror"
           >
             <Icon name="flip-horizontal-2" :size="24" /><span class="toolLabel">左右镜像</span>
@@ -1746,7 +1756,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
         <p class="msGroupTitle">辅助绘制</p>
         <button type="button" class="msRowBtn" :class="{ on: tool === 'pick' }" @click="pickMobileTool('pick')">
           <span class="msRowBtn__ico"><Icon name="pipette" :size="20" /></span>
-          <span class="msRowBtn__main"><b>吸色</b><em>从画布取色</em></span>
+          <span class="msRowBtn__main"><b>吸色</b><em>从画布取色，或手指长按一格</em></span>
         </button>
 
         <p class="msGroupTitle">图纸处理</p>

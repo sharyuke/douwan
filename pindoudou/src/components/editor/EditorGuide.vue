@@ -42,10 +42,10 @@ const BOARD_STEPS = [
   },
   {
     key: 'tools', no: 2, title: '编辑工具',
-    body: '点击左侧的编辑工具进行图纸编辑：移动、画笔、橡皮、填充、换色、取色等。',
+    body: '点击左侧的编辑工具进行图纸编辑：移动、画笔、橡皮、填充、换色、取色等。手指按住一格约半秒，就能吸这一格的颜色。',
     extra: [
       ['工具', '移动 / 画笔 / 橡皮 / 填充 / 换色 / 取色'],
-      ['操作', '撤销 / 重做 / 左右镜像 / 去除杂色'],
+      ['吸色', '手指长按一格，取这一格的颜色当画笔色'],
       ['笔刷', '画笔和橡皮都能调笔刷大小，一笔刷过几格算一步']
     ],
     target: () => document.querySelector('.canvasCard__foot') || document.querySelector('.csRail'),
@@ -57,7 +57,7 @@ const BOARD_STEPS = [
     extra: [
       ['视图', '图纸 / 原图 / 对照 / 分板 / 材料'],
       ['缩放', '适应 / 实际大小（1:1 实物预览）'],
-      ['手势', '滚轮缩放 · 按住空白处拖拽平移']
+      ['手势', '双指同时点一下撤回 · 单指编辑 · 长按一格吸色']
     ],
     target: () => document.querySelector('.stage'),
     place: 'inside-right', pad: 8
@@ -132,9 +132,10 @@ const MOBILE_STEPS = [
   },
   {
     key: 'zoom', no: 4, title: '画布缩放与操作',
-    body: '画布右侧可以撤销 / 重做，也能放大缩小、一键居中显示。',
+    body: '画布右侧可以撤销 / 重做，也能放大缩小、一键居中显示。两根手指同时点一下就撤回上一步；手指按住一格约半秒，就能吸这一格的颜色。',
     extra: [
-      ['移动画布模式', '单指拖动（或双指）只平移视野，不会修改任何格子']
+      ['撤回', '两根手指同时点一下，退回上一步编辑'],
+      ['吸色', '手指长按一格，取这一格的颜色当画笔色']
     ],
     target: () => document.querySelector('.stageTools') || document.querySelector('.stage'),
     place: 'left', pad: 8
@@ -165,7 +166,7 @@ const TABLET_SUMMARY = {
   items: [
     { no: 1, icon: 'grid-3x3', title: '功能面板', text: '左侧就是功能面板，包含画布、方案、色板、分析、用量、交付、库存等核心功能。' },
     { no: 2, icon: 'pencil', title: '编辑工具', text: '移动、画笔、橡皮、填充、取色等，大按钮设计，适合触屏操作。' },
-    { no: 3, icon: 'layout-grid', title: '画布区域', text: '支持手势缩放和拖动画布，轻松调整和编辑图纸。' }
+    { no: 3, icon: 'layout-grid', title: '画布区域', text: '单指编辑图纸。两根手指同时点一下撤回上一步，长按一格吸色。' }
   ]
 }
 const CONSOLE_SUMMARY = {
