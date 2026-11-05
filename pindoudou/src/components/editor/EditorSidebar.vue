@@ -4,7 +4,7 @@ import { RouterLink, useRoute } from 'vue-router'
 import {
   options, sourceUrl, sourceName, projectName, hasPattern, stats, saveStatus,
   width, height, brand, paletteLimited, maxCells, canvasOverSource, availableColors,
-  canvasCapW, canvasCapH, regenerate, setCanvasSize, setCanvasCapacity, restoreVariant, canUndo,
+  canvasCapW, canvasCapH, regenerate, setCanvasSize, setCanvasCapacity, restoreVariant, canUndo, setBrand,
   selectVariant, generating, activeKey, variants as variantList, pattern,
   lastSearch, matteInfo, matteLevels, setRemoveBg, setMatteLevel,
   cartoonInfo, cartoonStyles, setCartoonStyle,
@@ -1143,12 +1143,21 @@ async function onPickAsset(asset) {
   }
 }
 
-function onColorsChange() {
-  /* 夹在 [4, colorsMax]：数字框可以直接敲 200，也可能因为换了色板（Pro → 免费版）
-     而留下一个当前色板根本没有的色数。夹在这里，引擎与界面才是同一个数。 */
+/* 夹在 [4, colorsMax]：数字框可以直接敲 200，也可能因为换了色板（Pro → 免费版）
+   而留下一个当前色板根本没有的色数。夹在这里，引擎与界面才是同一个数。 */
+function clampTargetColors() {
   const v = Math.round(Number(options.targetColors)) || 4
   options.targetColors = Math.max(4, Math.min(colorsMax.value, v))
+}
+function onColorsChange() {
+  clampTargetColors()
   if (sourceUrl.value) void runWithBusy(() => regenerate())
+}
+/* 换色板不重新生成：setBrand 会把现有图纸的颜色和色号一起匹配到新色板
+   （重新生成会覆盖手工修改，而且自由画布根本没有原图可重跑）。 */
+function onBrandPick(e) {
+  setBrand(e.target.value)
+  clampTargetColors()
 }
 
 function onRemoveBg(on) {
@@ -1973,8 +1982,8 @@ function onSave() {
             <span>{{ currentBrand.name }} · 本套 {{ currentBrand.colorCount }} 色</span>
           </div>
           <select
-            v-model="options.brandId" class="paletteHero__pick" aria-label="色板选择"
-            data-audit="palette-select" @change="onColorsChange"
+            :value="options.brandId" class="paletteHero__pick" aria-label="色板选择"
+            data-audit="palette-select" @change="onBrandPick"
           >
             <option v-for="b in PALETTE_BRANDS" :key="b.id" :value="b.id">
               {{ b.name }} · {{ b.colorCount }} 色

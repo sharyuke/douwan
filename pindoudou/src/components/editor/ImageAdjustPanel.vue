@@ -13,7 +13,7 @@ import { BOARD_SPECS } from '../../lib/boardSpec.js'
 import { PALETTE_BRANDS } from '../../lib/palettes.js'
 import {
   options, sourceUrl, availableColors, regenerate, setCanvasCapacity, yieldForBusyPaint,
-  setRemoveBg, setMatteLevel, matteLevels, matteInfo, stats
+  setRemoveBg, setMatteLevel, matteLevels, matteInfo, stats, setBrand
 } from '../../composables/useStudio.js'
 
 /** 抠图那一行的状态文案（与左栏「图片处理 → 智能抠图」同一套口径） */
@@ -58,13 +58,8 @@ function applyCustom() {
   customOpen.value = false
   setCanvasCapacity(w, h)
 }
-/* 换色板同样选择即应用：按新色板重跑一次生成（HEAD 里还没有换色板重匹配，
-   这一步保证下拉换完，画布上的色号跟着变） */
-async function pickBrand(e) {
-  options.brandId = e.target.value
-  if (!sourceUrl.value) return
-  await yieldForBusyPaint()
-  regenerate()
+function pickBrand(e) {
+  setBrand(e.target.value)
 }
 
 /* 色数：拖动时只改读数，松手（change）才重算 —— 每拖一格都重跑一次生成会卡住滑杆 */

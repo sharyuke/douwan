@@ -13,7 +13,7 @@
    自由画布要挑新颜色时从这里进。
    ========================================================================= */
 import { computed, ref, watch } from 'vue'
-import { options, brushColorId, availableColors } from '../../composables/useStudio.js'
+import { options, brushColorId, availableColors, setBrand } from '../../composables/useStudio.js'
 import { PALETTE_BRANDS, getColorById } from '../../lib/palettes.js'
 import Icon from '../ui/Icon.vue'
 
@@ -78,7 +78,7 @@ function toggle() {
 }
 
 function onBrand(e) {
-  options.brandId = e.target.value
+  setBrand(e.target.value)
 }
 
 const brandLabel = computed(() => {

@@ -10,9 +10,9 @@ import {
   BOARD_SIZE, EMPTY, beadCountOf, variantParams, generateVariants as runVariants, generateVariant,
   applyInventory, materialList, boardLayout, BEAD_WEIGHT_G,
   buildability, estimateMinutes, readImagePixels, MAX_SOURCE_SIDE, colorFloorForCells,
-  cleanupIsolated, CLEANUP_MAX_DE, PATTERN_VERSION, patternProfile
+  cleanupIsolated, CLEANUP_MAX_DE, PATTERN_VERSION, patternProfile, rematchBrand
 } from '../lib/pattern.js'
-import { hexToLab } from '../lib/color.js'
+import { hexToLab, deltaE2000 } from '../lib/color.js'
 /* 拼板规格（52 / 78 / 104 / 120 钉画线板）与豆径（2.6mm 小豆 / 5mm 中号豆）的唯一口径 */
 import {
   BEADS, BEAD_KEYS, DEFAULT_BEAD, BOARD_SPECS, BOARD_MIN, SIZE_TIERS,
@@ -996,6 +996,154 @@ export const brand = computed(() => getBrand(options.brandId))
 export const availableColors = computed(() => clipPalette(getColors(options.brandId), paletteLimitFor(options.brandId)))
 /** 引擎能用的色号比品牌色板少时，界面上要说明原因（否则用户以为色板坏了） */
 export const paletteLimited = computed(() => availableColors.value.length < getColors(options.brandId).length)
+
+/** 色板里的最接近色号（换品牌时给画笔 / 手工修改记录兜底用） */
+function nearestColorIn(color, colors) {
+  if (!color || !colors.length) return null
+  const hit = colors.find(c => c.id === color.id)
+  if (hit) return hit
+  let best = colors[0]
+  let bd = Infinity
+  for (const c of colors) {
+    const d = deltaE2000(color.lab || [0, 0, 0], c.lab)
+    if (d < bd) { bd = d; best = c }
+  }
+  return best
+}
+
+/** 把一份色板（底稿 / 手工修改层）整体搬到新品牌色板：返回新色板与旧下标映射 */
+function remapPaletteColors(palette, match) {
+  const next = []
+  const indexOf = new Map()
+  const remap = new Int32Array(palette.length).fill(-1)
+  for (let i = 0; i < palette.length; i++) {
+    const target = match(palette[i])
+    if (!target) continue
+    let k = indexOf.get(target.id)
+    if (k === undefined) {
+      k = next.length
+      next.push(target)
+      indexOf.set(target.id, k)
+    }
+    remap[i] = k
+  }
+  return { palette: next, remap }
+}
+
+/* 底稿 / 修改层 / 修改记录里也存着旧品牌的颜色对象。只换画面、不换它们的话，
+   下一次换尺寸或按原图重新取样，旧色号会被重新带回来。 */
+function remapMasterColors(master, match) {
+  if (!master || !Array.isArray(master.palette) || !master.palette.length) return master
+  const { palette, remap } = remapPaletteColors(master.palette, match)
+  const cells = new Int32Array(master.cells.length)
+  for (let i = 0; i < cells.length; i++) {
+    const k = master.cells[i]
+    cells[i] = k < 0 ? EMPTY : (k < remap.length ? remap[k] : EMPTY)
+  }
+  return { ...master, cells, palette }
+}
+
+function remapEditLayerColors(layer, match) {
+  if (!layer || !Array.isArray(layer.palette) || !layer.palette.length) return layer
+  const { palette, remap } = remapPaletteColors(layer.palette, match)
+  const cells = new Int32Array(layer.cells.length)
+  for (let i = 0; i < cells.length; i++) {
+    const k = layer.cells[i]
+    cells[i] = k < 0 ? EMPTY : (k < remap.length ? remap[k] : EMPTY)
+  }
+  return { ...layer, cells, palette }
+}
+
+function remapEditMapColors(map, match) {
+  if (!(map instanceof Map) || !map.size) return map
+  const out = new Map()
+  for (const [i, e] of map) {
+    if (!e) { out.set(i, e); continue }
+    const color = e.color || (e.id ? getColorById(e.id) : null)
+    const target = color ? match(color) : null
+    out.set(i, target ? { id: target.id, color: target } : e)
+  }
+  return out
+}
+
+/** 把所有方案（含底稿 / 修改层 / 修改记录）搬到新品牌色板。返回当前方案换了多少颗豆 */
+/** 尺寸缓存里的每一份图纸也要换成新品牌色号，否则换回那个尺寸会把旧色号带回来 */
+function remapSizeCacheColors(cache, match) {
+  if (!cache || !cache.sizes) return cache
+  const remapEntry = (entry) => (entry ? remapMasterColors(entry, match) : entry)
+  const sizes = {}
+  for (const k of Object.keys(cache.sizes)) {
+    const item = cache.sizes[k]
+    sizes[k] = { base: remapEntry(item.base), active: remapEntry(item.active) }
+  }
+  return { sig: cache.sig, sizes }
+}
+
+function remapVariantsToBrand(brandId, colors) {
+  const list = variants.value
+  if (!list.length) return { changed: 0, after: 0 }
+  let changed = 0
+  let after = 0
+  const remapOne = (t, count) => {
+    if (!t) return t
+    if (!t.cells || !t.cells.length || !t.palette || !t.palette.length) return { ...t, brandId }
+    const r = rematchBrand(t, colors, brandId)
+    if (count) { changed += r.changed; after = r.after }
+    return {
+      ...r.pattern,
+      brandId,
+      master: remapMasterColors(t.master, r.match),
+      editMap: remapEditMapColors(t.editMap, r.match),
+      editLayer: remapEditLayerColors(t.editLayer, r.match)
+    }
+  }
+  /* 提示里只数当前显示的那一方案：三个方案都换，但用户看到的是这一张 */
+  const shownKey = activeKey.value
+  variants.value = list.map(v => {
+    const count = v.key === shownKey
+    const base = v.active ? remapOne(v, false) : remapOne(v, count)
+    const next = v.active ? { ...base, active: remapOne(v.active, count) } : base
+    if (!v.sizeCache) return next
+    const match = (color) => nearestColorIn(color, colors)
+    return { ...next, sizeCache: remapSizeCacheColors(v.sizeCache, match) }
+  })
+
+  /* 画笔选中的旧品牌色号在新色板里可能不存在：换成最接近的那一个，别让画笔悬空 */
+  const brush = brushColorId.value ? getColorById(brushColorId.value) : null
+  if (brush && colors.length && !colors.some(c => c.id === brush.id)) {
+    const target = nearestColorIn(brush, colors)
+    if (target) brushColorId.value = target.id
+  }
+  return { changed, after }
+}
+
+/**
+ * 换品牌色板：图案的颜色和色号一起匹配到新色板（见 pattern.js 的 rematchBrand）。
+ *
+ * 为什么不能只写 options.brandId：图纸的 palette 里是旧品牌的色号对象，
+ * 画布会继续印着旧色号，而色板面板已经列着新品牌。三条选色板入口
+ * （命令栏下拉 / 平板右栏 / 色板卡 / 手机色板抽屉）都走这里。
+ *
+ * 旧品牌的撤销步骤在换色板后没有意义（快照里的色板对象对不上新品牌），
+ * 所以清空撤销 / 重做栈；手工修改记录与修改层保留，并一起换成新色号。
+ */
+export function setBrand(brandId) {
+  if (!brandId || brandId === options.brandId) return false
+  /* 换色预览开着时先取消：预览事务的快照指向旧色板，不能跨品牌收口 */
+  cancelColorReplace()
+  options.brandId = brandId
+  const colors = availableColors.value
+  if (colors.length && options.targetColors > colors.length) {
+    options.targetColors = Math.max(4, Math.min(options.targetColors, colors.length))
+  }
+  const { changed, after } = remapVariantsToBrand(brandId, colors)
+  clearUndoStacks()
+  if (changed) saveStatus.value = '未保存'
+  const name = getBrand(brandId).name.replace(/\s*套装$/, '')
+  if (changed) toastOk(`已按 ${name}重新匹配 ${changed} 颗豆${after ? `（${after} 色）` : ''}`)
+  else toastOk(`已切换到 ${name} 色板`)
+  return true
+}
 
 /**
  * 抠背景的运行结果。
@@ -3418,6 +3566,15 @@ export function openProject(id) {
         : base
     })
     options.brandId = proj.brandId || DEFAULT_BRAND_ID
+    /* 旧版本换品牌只改了设置、没改图纸色号：打开这种存档时把图纸补匹配到存档品牌，
+       否则色板面板是 COCO、画布上还印着 MARD 的色号。 */
+    const offBrand = variants.value.some(v => {
+      const t = v.active || v
+      if (!t || !t.palette || !t.palette.length) return false
+      if (t.brandId && t.brandId !== options.brandId) return true
+      return t.palette.some(c => c.brandId !== options.brandId)
+    })
+    if (offBrand) remapVariantsToBrand(options.brandId, availableColors.value)
     options.targetColors = proj.targetColors || options.targetColors
     projectName.value = proj.name
     currentProjectId.value = proj.id

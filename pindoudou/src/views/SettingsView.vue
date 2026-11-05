@@ -5,7 +5,7 @@ import BaseDialog from '../components/ui/BaseDialog.vue'
 import Icon from '../components/ui/Icon.vue'
 import {
   options, projects, deleteProject, cartoonStyles, maxCells,
-  bead, BEADS, BEAD_KEYS, SIZE_TIERS, BOARD_MIN, boardSpecFor
+  bead, BEADS, BEAD_KEYS, SIZE_TIERS, BOARD_MIN, boardSpecFor, setBrand
 } from '../composables/useStudio.js'
 import { BOARD_SPEC_LIST_TEXT, beadLabel } from '../lib/boardSpec.js'
 import { inventory, clearInventory } from '../composables/useInventory.js'
@@ -218,9 +218,10 @@ function removeCustom(c) {
 
         <div class="field">
           <label>默认色板</label>
-          <select v-model="options.brandId">
+          <select :value="options.brandId" @change="setBrand($event.target.value)">
             <option v-for="b in PALETTE_BRANDS" :key="b.id" :value="b.id">{{ b.name }} · {{ b.colorCount }} 色</option>
           </select>
+          <p class="hint">换色板会把当前图纸的颜色重新匹配到新品牌的色号（手工修改保留）。</p>
         </div>
 
         <div class="field">

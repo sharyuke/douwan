@@ -27,7 +27,7 @@ import {
   tool, brushSize, eraserSize, BRUSH_MAX, toolSizeOf, setToolSize, brushColorId,
   mirrorPattern, removeSpecks, options, currentView,
   zoom, setZoom, layout, availableColors, maxCells, brand,
-  setCanvasCapacity, setRemoveBg,
+  setCanvasCapacity, setRemoveBg, setBrand,
   cropSource,
   undo, redo, canUndo, canRedo,
   openColorReplace, ensureBlankCanvas,
@@ -114,7 +114,7 @@ const paletteBrands = PALETTE_BRANDS
 function pickBrand(b) {
   brandOpen.value = false
   if (options.brandId === b.id) return
-  options.brandId = b.id
+  setBrand(b.id)
 }
 
 /* 换色：入口在右栏「颜色用量」每行的换色按钮（桌面右栏与手机弹层共用同一实例状态） */
@@ -1751,7 +1751,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
         <div class="msColorTop">
           <label class="msColorBrand">
             <span>品牌色板</span>
-            <select :value="options.brandId" aria-label="品牌色板" @change="options.brandId = $event.target.value">
+            <select :value="options.brandId" aria-label="品牌色板" @change="setBrand($event.target.value)">
               <option v-for="b in paletteBrands" :key="b.id" :value="b.id">{{ b.name }}</option>
             </select>
           </label>

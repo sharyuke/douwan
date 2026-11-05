@@ -1894,6 +1894,94 @@ export function applyInventory(pattern, inventoryColors, inventoryMap, mode = 's
   return { pattern: next, applied: true, replaced, mode }
 }
 
+/* ---------------------------------------------------------------- 换品牌 */
+
+/**
+ * 换品牌色板：把图案里用到的每个颜色换成新色板里最接近的色号（CIEDE2000）。
+ *
+ * 只改 options.brandId 不够：cells 存的是色板下标，palette 里是旧品牌的色号对象，
+ * 画布会继续印着旧品牌的色号，而色板面板已经列着新品牌 —— 用户看到的就是
+ * 「颜色和色号没跟着品牌变」。形状（cells 的空格位置）不动，只换颜色。
+ *
+ * 旧色号在新色板里存在时原样保留：MARD 291 → MARD 221 这种同体系套装切换，
+ * 用到的色号都在，不该无端改色。
+ *
+ * @param {object} pattern
+ * @param {Array} colors 新品牌当前可用色号（会员裁剪后）
+ * @param {string} brandId
+ * @returns {{ pattern: object, changed: number, before: number, after: number, match: Function }}
+ *   changed = 换了色号的豆子数；match(color) = 某个颜色在新色板里的对应色号
+ *   （底稿 / 手工修改层 / 修改记录也用它一起搬过去）
+ */
+export function rematchBrand(pattern, colors, brandId) {
+  const before = pattern && Array.isArray(pattern.palette) ? pattern.palette.length : 0
+  const same = c => c
+  if (!pattern || !colors || !colors.length || !before || !pattern.cells || !pattern.cells.length) {
+    return { pattern, changed: 0, before, after: before, match: same }
+  }
+  const pool = colors
+  const byId = new Map(pool.map(c => [c.id, c]))
+  const cache = new Map()
+  const match = color => {
+    if (!color) return null
+    const hit = byId.get(color.id)
+    if (hit) return hit
+    if (cache.has(color.id)) return cache.get(color.id)
+    const lab = color.lab || [0, 0, 0]
+    let best = pool[0]
+    let bd = Infinity
+    for (const p of pool) {
+      const d = deltaE2000(lab, p.lab)
+      if (d < bd) { bd = d; best = p }
+    }
+    cache.set(color.id, best)
+    return best
+  }
+
+  /* 新色板只收真正用到的颜色（与 recalcStats / applyInventory 同一口径），
+     多个旧色号落到同一个新色号时也会自动合并。 */
+  const targets = pattern.palette.map(match)
+  const palette = []
+  const indexOf = new Map()
+  const cells = new Int32Array(pattern.cells.length)
+  let changed = 0
+  for (let i = 0; i < pattern.cells.length; i++) {
+    const k = pattern.cells[i]
+    if (k < 0) { cells[i] = EMPTY; continue }
+    const target = k < targets.length ? targets[k] : null
+    if (!target) { cells[i] = EMPTY; continue }
+    let pi = indexOf.get(target.id)
+    if (pi === undefined) {
+      pi = palette.length
+      palette.push(target)
+      indexOf.set(target.id, pi)
+    }
+    cells[i] = pi
+    const old = pattern.palette[k]
+    if (!old || target.id !== old.id) changed++
+  }
+
+  const beads = beadCountOf(cells)
+  const build = buildability(cells, pattern.width, pattern.height, palette.length)
+  const next = {
+    ...pattern,
+    brandId: brandId || pattern.brandId,
+    cells,
+    palette,
+    colors: palette.map(c => c.id),
+    stats: {
+      ...pattern.stats,
+      beadCount: beads,
+      colorCount: palette.length,
+      buildability: build.score / 100,
+      isolatedCount: build.isolatedCount,
+      smallRegionRatio: Math.round(build.smallRegionRatio * 1000) / 1000,
+      estimatedMinutes: estimateMinutes(beads, build.score)
+    }
+  }
+  return { pattern: next, changed, before, after: palette.length, match }
+}
+
 /* ---------------------------------------------------------------- 序列化 */
 
 export function toPatternJSON(pattern, extra = {}) {
