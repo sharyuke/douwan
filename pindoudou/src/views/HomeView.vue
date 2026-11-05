@@ -77,7 +77,8 @@ function onDrop(e) {
   user-select:none;-webkit-user-drag:none;
 }
 .homeV3__title{
-  margin:22px 0 0;font-size:28px;line-height:var(--ty-page-lh);font-weight:700;
+  /* 主标比页面标题档（700）轻两级：Noto Sans SC 只有 700 / 500 / 400 */
+  margin:22px 0 0;font-size:28px;line-height:var(--ty-page-lh);font-weight:400;
   font-family:var(--font-sans);
   letter-spacing:0;color:var(--ink);
 }
@@ -93,7 +94,8 @@ function onDrop(e) {
 .homeV3.is-drag .homeV3__cta{background:var(--primary-deep)}
 
 @media(max-width:780px){
-  .homeV3{min-height:calc(100dvh - var(--header-h));padding-bottom:calc(96px + env(safe-area-inset-bottom))}
+  /* 首页不渲染手机底栏，主视觉贴到视口底 */
+  .homeV3{min-height:calc(100dvh - var(--header-h));padding-bottom:0}
   .homeV3__hero{padding:20px 18px 40px}
   .homeV3__title{margin:26px auto 0;max-width:300px;font-size:24px;line-height:var(--ty-dialog-lh)}
   /* 手机稿标题固定断成两行：把灵感 / 拼成喜欢的样子（不带逗号） */

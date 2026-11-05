@@ -39,7 +39,7 @@ const narrowViewport = ref(narrowViewportQuery.matches)
 const fullscreenStudio = computed(() => !!route.meta.studio && (wideViewport.value || narrowViewport.value))
 
 /* 首页的主导航放在顶栏（设计稿红框位置），进入内页后才换成左侧栏。
-   手机端两边都不渲染这份外壳，继续用底部标签栏。 */
+   手机端内页继续用底部标签栏；首页是一整屏主视觉，不放这条底栏。 */
 const isHome = computed(() => route.name === 'home')
 /* 个人空间（个人概览 / 我的作品 / 我的库存 / 设置）不用左侧站点导航：
    分区切换与去创作、素材库的入口都收在顶部 AccountNav 一条里（2026-11-05）。
@@ -135,7 +135,7 @@ onMounted(async () => {
         <AppFooter v-if="showFooter" />
       </div>
     </div>
-    <MobileTabbar v-if="showSiteChrome && !fullscreenStudio" />
+    <MobileTabbar v-if="showSiteChrome && !fullscreenStudio && !isHome" />
     <!-- 前台各页面右侧的意见反馈入口；后台不显示。
          全屏工作台把入口收进顶部命令栏（反馈按钮派发 douwan:open-feedback），
          所以这里只隐藏那颗浮标，弹窗仍然可用。 -->
