@@ -638,7 +638,7 @@ function remapEditMap(p, bw, bh, aw, ah, sx, sy, ox, oy) {
  * palette 只存这一层用到的颜色（按色号 id 与主色板对齐）。
  */
 function createEditLayer(w, h) {
-  return { w, h, mask: new Uint8Array(w * h), cells: new Int32Array(w * h).fill(EMPTY), palette: [] }
+  return { w, h, mask: new Uint8Array(w * h), cells: new Int32Array(w * h).fill(EMPTY), palette: [], canon: [] }
 }
 
 /** 按当前图纸的 editMap 建一层（老存档 / 首次编辑时用；分辨率 = 当前网格） */
@@ -668,6 +668,7 @@ function editLayerFromPattern(p) {
     if (k === undefined) {
       k = layer.palette.length
       layer.palette.push(color)
+      layer.canon.push(e.canon || color)
       indexOf.set(color.id, k)
     }
     layer.cells[at] = k
@@ -683,6 +684,7 @@ function growEditLayer(layer, w, h) {
   const nh = Math.max(h, layer.h)
   const out = createEditLayer(nw, nh)
   out.palette = layer.palette.slice()
+  out.canon = (layer.canon && layer.canon.length === layer.palette.length ? layer.canon : layer.palette).slice()
   for (let y = 0; y < layer.h; y++) {
     const y0 = Math.floor(y * nh / layer.h)
     const y1 = Math.max(y0 + 1, Math.ceil((y + 1) * nh / layer.h))
@@ -713,6 +715,7 @@ function writeEditsToLayer(layer, aw, ah, diffs) {
   const mask = Uint8Array.from(base.mask)
   const cells = Int32Array.from(base.cells)
   const palette = base.palette.slice()
+  const canon = (base.canon && base.canon.length === base.palette.length ? base.canon : base.palette).slice()
   const indexOf = new Map(palette.map((c, i) => [c.id, i]))
   for (const e of diffs) {
     let k = EMPTY
@@ -721,6 +724,7 @@ function writeEditsToLayer(layer, aw, ah, diffs) {
       if (k === undefined) {
         k = palette.length
         palette.push(e.color)
+        canon.push(e.canon || e.color)
         indexOf.set(e.color.id, k)
       }
     }
@@ -736,7 +740,7 @@ function writeEditsToLayer(layer, aw, ah, diffs) {
       }
     }
   }
-  return { w: base.w, h: base.h, mask, cells, palette }
+  return { w: base.w, h: base.h, mask, cells, palette, canon }
 }
 
 /**
@@ -809,7 +813,9 @@ function applyEditLayer(p, layer) {
         indexOf.set(color.id, pi)
       }
       k = pi
-      entry = { id: color.id, color }
+      /* canon 记「用户当时挑的那个色号」：换到少色品牌再换回来时按它还原，
+         不能拿已经匹配过的颜色往回匹配，否则手改的颜色也会一路漂 */
+      entry = { id: color.id, color, canon: layer.canon ? (layer.canon[best] || color) : color }
     }
     const target = (oy + Math.floor(at / aw)) * p.width + ox + (at % aw)
     cells[target] = k
@@ -1045,67 +1051,108 @@ function remapMasterColors(master, match) {
 
 function remapEditLayerColors(layer, match) {
   if (!layer || !Array.isArray(layer.palette) || !layer.palette.length) return layer
-  const { palette, remap } = remapPaletteColors(layer.palette, match)
+  /* 按 canon（用户当时挑的色号）匹配；canon 不动，换回原品牌时手改颜色逐色还原 */
+  const canon = Array.isArray(layer.canon) && layer.canon.length === layer.palette.length ? layer.canon : layer.palette
+  const palette = []
+  const indexOf = new Map()
+  const remap = new Int32Array(canon.length).fill(-1)
+  for (let i = 0; i < canon.length; i++) {
+    const target = match(canon[i])
+    if (!target) continue
+    let k = indexOf.get(target.id)
+    if (k === undefined) {
+      k = palette.length
+      palette.push(target)
+      indexOf.set(target.id, k)
+    }
+    remap[i] = k
+  }
   const cells = new Int32Array(layer.cells.length)
   for (let i = 0; i < cells.length; i++) {
     const k = layer.cells[i]
     cells[i] = k < 0 ? EMPTY : (k < remap.length ? remap[k] : EMPTY)
   }
-  return { ...layer, cells, palette }
+  return { ...layer, cells, palette, canon }
 }
 
-function remapEditMapColors(map, match) {
-  if (!(map instanceof Map) || !map.size) return map
-  const out = new Map()
-  for (const [i, e] of map) {
-    if (!e) { out.set(i, e); continue }
-    const color = e.color || (e.id ? getColorById(e.id) : null)
-    const target = color ? match(color) : null
-    out.set(i, target ? { id: target.id, color: target } : e)
+/* 每个方案按品牌留一份「生成底稿」：换回这个品牌时直接拿回来，不再从当前色板
+   （可能已经被少色品牌合并过）往回过。cells / palette 都是不可变对象，这里只存引用。
+   没有这份记忆时，MARD 291 → MARD 24 → MARD 291 会永久丢掉那 267 个色号。 */
+const BRAND_MEMORY_LIMIT = 8
+/* 用户想要的色数也按品牌记：切到少色品牌时只夹小当前值，切回来恢复原来的数 */
+const brandTargetColors = {}
+
+/** 换了一份文档（新图 / 打开存档 / 清空）：按品牌记的色数只对当前文档有效 */
+function resetBrandTargetColors() {
+  for (const k of Object.keys(brandTargetColors)) delete brandTargetColors[k]
+  brandTargetColors[options.brandId] = options.targetColors
+}
+
+function brandMemoryOf(v) {
+  return v && v.brandBases && typeof v.brandBases === 'object' ? v.brandBases : {}
+}
+
+/** 生成底稿：去掉手改与品牌记忆本身（手改由 projectEdits 投影回来） */
+function brandBaseOf(v) {
+  const { active, brandBases, editMap, editLayer, ...base } = v
+  return base
+}
+
+/** 记忆只留最近换过的几个品牌，按插入顺序丢最早的 */
+function trimBrandMemory(mem, keep) {
+  const keys = Object.keys(mem)
+  while (keys.length > BRAND_MEMORY_LIMIT) {
+    const drop = keys.shift()
+    if (drop !== keep) delete mem[drop]
   }
-  return out
+  return mem
 }
 
-/** 把所有方案（含底稿 / 修改层 / 修改记录）搬到新品牌色板。返回当前方案换了多少颗豆 */
-/** 尺寸缓存里的每一份图纸也要换成新品牌色号，否则换回那个尺寸会把旧色号带回来 */
-function remapSizeCacheColors(cache, match) {
-  if (!cache || !cache.sizes) return cache
-  const remapEntry = (entry) => (entry ? remapMasterColors(entry, match) : entry)
-  const sizes = {}
-  for (const k of Object.keys(cache.sizes)) {
-    const item = cache.sizes[k]
-    sizes[k] = { base: remapEntry(item.base), active: remapEntry(item.active) }
-  }
-  return { sig: cache.sig, sizes }
+/** 手改投影回生成底稿：修改层 / 修改记录先换到目标品牌，再按原分辨率落回格子 */
+function projectEdits(base, edited, colors) {
+  const match = color => nearestColorIn(color, colors)
+  let layer = edited.editLayer && edited.editLayer.mask ? edited.editLayer : null
+  if (!layer && edited.editMap instanceof Map && edited.editMap.size) layer = editLayerFromPattern(edited)
+  if (!layer) return null
+  const projected = applyEditLayer(base, remapEditLayerColors(layer, match))
+  if (!projected) return null
+  recalcStats(projected)
+  return { ...projected, master: bakeEditsIntoMaster(projected, projected.editMap) }
 }
 
-function remapVariantsToBrand(brandId, colors) {
+function remapVariantsToBrand(brandId, colors, fromBrand) {
   const list = variants.value
-  if (!list.length) return { changed: 0, after: 0 }
+  if (!list.length) return { changed: 0, after: 0, restored: false }
   let changed = 0
   let after = 0
-  const remapOne = (t, count) => {
-    if (!t) return t
-    if (!t.cells || !t.cells.length || !t.palette || !t.palette.length) return { ...t, brandId }
-    const r = rematchBrand(t, colors, brandId)
-    if (count) { changed += r.changed; after = r.after }
-    return {
-      ...r.pattern,
-      brandId,
-      master: remapMasterColors(t.master, r.match),
-      editMap: remapEditMapColors(t.editMap, r.match),
-      editLayer: remapEditLayerColors(t.editLayer, r.match)
-    }
-  }
+  let restored = false
   /* 提示里只数当前显示的那一方案：三个方案都换，但用户看到的是这一张 */
   const shownKey = activeKey.value
   variants.value = list.map(v => {
     const count = v.key === shownKey
-    const base = v.active ? remapOne(v, false) : remapOne(v, count)
-    const next = v.active ? { ...base, active: remapOne(v.active, count) } : base
-    if (!v.sizeCache) return next
-    const match = (color) => nearestColorIn(color, colors)
-    return { ...next, sizeCache: remapSizeCacheColors(v.sizeCache, match) }
+    const mem = { ...brandMemoryOf(v) }
+    const source = brandBaseOf(v)
+    /* 离开当前品牌：把这一版的生成底稿留一份（色板对象不动，换回来逐色还原） */
+    if (fromBrand) mem[fromBrand] = source
+    let base = mem[brandId]
+    if (base && base.cells && base.cells.length === source.cells.length) restored = true
+    if (!base || !base.cells || base.cells.length !== source.cells.length) {
+      const r = rematchBrand(source, colors, brandId)
+      base = {
+        ...r.pattern,
+        brandId,
+        master: remapMasterColors(source.master, r.match),
+        /* 尺寸缓存按品牌各留一份：第一次去这个品牌不继承别的品牌的缓存，
+           换回来时用上面 mem 里存的那一份 */
+        sizeCache: undefined
+      }
+      if (count) changed += r.changed
+      mem[brandId] = base
+    }
+    const projected = projectEdits(base, v.active || v, colors)
+    const next = { ...(projected || base), brandBases: trimBrandMemory(mem, brandId) }
+    if (count) after = next.palette.length
+    return next
   })
 
   /* 画笔选中的旧品牌色号在新色板里可能不存在：换成最接近的那一个，别让画笔悬空 */
@@ -1114,7 +1161,7 @@ function remapVariantsToBrand(brandId, colors) {
     const target = nearestColorIn(brush, colors)
     if (target) brushColorId.value = target.id
   }
-  return { changed, after }
+  return { changed, after, restored }
 }
 
 /**
@@ -1131,17 +1178,23 @@ export function setBrand(brandId) {
   if (!brandId || brandId === options.brandId) return false
   /* 换色预览开着时先取消：预览事务的快照指向旧色板，不能跨品牌收口 */
   cancelColorReplace()
+  const fromBrand = options.brandId
   options.brandId = brandId
   const colors = availableColors.value
+  /* 色数按品牌记：切到少色品牌时只夹小当前值，切回多色品牌恢复原来的数 */
+  if (fromBrand) brandTargetColors[fromBrand] = options.targetColors
+  if (brandTargetColors[brandId]) options.targetColors = brandTargetColors[brandId]
   if (colors.length && options.targetColors > colors.length) {
     options.targetColors = Math.max(4, Math.min(options.targetColors, colors.length))
   }
-  const { changed, after } = remapVariantsToBrand(brandId, colors)
+  brandTargetColors[brandId] = options.targetColors
+  const { changed, after, restored } = remapVariantsToBrand(brandId, colors, fromBrand)
   clearUndoStacks()
-  if (changed) saveStatus.value = '未保存'
+  if (changed || restored) saveStatus.value = '未保存'
   const name = getBrand(brandId).name.replace(/\s*套装$/, '')
   if (changed) toastOk(`已按 ${name}重新匹配 ${changed} 颗豆${after ? `（${after} 色）` : ''}`)
-  else toastOk(`已切换到 ${name} 色板`)
+  else if (restored) toastOk(`已恢复 ${name} 色板${after ? `（${after} 色）` : ''}`)
+  else toastOk(`已切换到 ${name} 色板${after ? `（${after} 色）` : ''}`)
   return true
 }
 
@@ -1522,7 +1575,7 @@ function recordEdits(snap) {
     const k = cur[i]
     const color = k >= 0 ? t.palette[k] : null
     if (k >= 0 && !color) continue
-    map.set(i, color ? { id: color.id, color } : null)
+    map.set(i, color ? { id: color.id, color, canon: color } : null)
     const rx = (i % t.width) - sx
     const ry = Math.floor(i / t.width) - sy
     if (rx >= 0 && ry >= 0 && rx < art.w && ry < art.h) diffs.push({ rx, ry, color })
@@ -1995,6 +2048,7 @@ export function resetWorkspace({ blank = false } = {}) {
   previewMode.value = 'source'
   clearHistory()
   manualEdited.value = false
+  resetBrandTargetColors()
   currentView.value = blank ? 'pattern' : 'original'
   if (blank) ensureBlankCanvas()
   return true
@@ -2987,6 +3041,7 @@ function autoFitForSource(img) {
     raisedColors = options.targetColors
     options.targetColors = floor
   }
+  resetBrandTargetColors()
   /* 照片默认给「高还原」：见 preferDetail 的说明 */
   preferDetail.value = true
   const perCell = cells ? ((box.w * box.h) / cells) : 0
@@ -3073,6 +3128,7 @@ export async function useAsset(asset) {
   options.canvasW = assetBox
   options.canvasH = assetBox
   options.targetColors = asset.colors || options.targetColors
+  resetBrandTargetColors()
   /* 素材的尺寸来自它自带的块数，不是复杂度推荐；列表里给最近的那一档打「推荐」 */
   sourceRecommend.value = {
     spec: boardSpecFor(assetBox, assetBox),
@@ -3325,6 +3381,8 @@ function unpackEditLayer(p, flat) {
     }
     layer.cells[at] = k
   }
+  /* 存档里没有 canon：按存档当时图纸的颜色当 canon（换回这个品牌时逐色还原） */
+  layer.canon = layer.palette.slice()
   return layer.mask.some(Boolean) ? layer : null
 }
 
@@ -3344,7 +3402,7 @@ function unpackEditMap(p, flat) {
     }
     const color = p.palette.find(c => c.id === id) || getColorById(id)
     if (!color) continue
-    map.set(at, { id: color.id, color })
+    map.set(at, { id: color.id, color, canon: color })
   }
   return map.size ? map : undefined
 }
@@ -3576,6 +3634,7 @@ export function openProject(id) {
     })
     if (offBrand) remapVariantsToBrand(options.brandId, availableColors.value)
     options.targetColors = proj.targetColors || options.targetColors
+    resetBrandTargetColors()
     projectName.value = proj.name
     currentProjectId.value = proj.id
     sourceImg.value = null
