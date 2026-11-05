@@ -25,34 +25,12 @@ const props = defineProps({
 })
 const emit = defineEmits(['update:open'])
 
-/* 色系（按 Lab 色相算的粗分类）。色卡数据里没有族字段，
-   自己按色相 / 饱和度 / 明度归类，够用而且稳定。
-   胶囊按英文色名 A–Z 排（black → yellow），「全部」固定在最前。 */
-const FAMILY_LABEL = {
-  black: '黑色系', blue: '蓝色系', brown: '棕色系', cyan: '青色系',
-  gray: '灰色系', green: '绿色系', orange: '橙色系', pink: '粉色系',
-  purple: '紫色系', red: '红色系', white: '白色系', yellow: '黄色系'
-}
-
-function familyOf(color) {
-  const lab = color && color.lab
-  if (!lab || lab.length < 3) return 'gray'
-  const L = Number(lab[0]) || 0
-  const a = Number(lab[1]) || 0
-  const b = Number(lab[2]) || 0
-  const c = Math.sqrt(a * a + b * b)
-  let h = (Math.atan2(b, a) * 180) / Math.PI
-  if (h < 0) h += 360
-  if (c < 12) return L > 92 ? 'white' : (L < 26 ? 'black' : 'gray')
-  if (h >= 18 && h < 48 && L < 56) return 'brown'
-  if (h < 15 || h >= 345) return 'red'
-  if (h < 45) return 'orange'
-  if (h < 70) return 'yellow'
-  if (h < 165) return 'green'
-  if (h < 200) return 'cyan'
-  if (h < 255) return 'blue'
-  if (h < 292) return 'purple'
-  return 'pink'
+/* 色系 = 色号开头的字母。MARD 的 A1、A2 同属 A，胶囊按字母 A–Z 排，
+   「全部」固定在最前。没有字母的色号（如 Perler 的 SKU）不单独成一组。 */
+function letterOf(color) {
+  const code = String(color && color.code || '')
+  const m = code.match(/^[A-Za-z]+/)
+  return m ? m[0].toUpperCase() : ''
 }
 
 const family = ref('all')
@@ -66,17 +44,19 @@ watch(() => options.brandId, () => {
 
 const families = computed(() => {
   const set = new Set()
-  for (const c of availableColors.value) set.add(familyOf(c))
-  /* 键名就是英文色名，插入顺序即 A–Z；当前色卡没有的色系不出现 */
-  return Object.keys(FAMILY_LABEL)
-    .filter(f => set.has(f))
-    .map(f => ({ key: f, label: FAMILY_LABEL[f] }))
+  for (const c of availableColors.value) {
+    const letter = letterOf(c)
+    if (letter) set.add(letter)
+  }
+  return [...set]
+    .sort((a, b) => a.localeCompare(b, 'en'))
+    .map(letter => ({ key: letter, label: letter }))
 })
 
 const list = computed(() => {
   const q = query.value.trim().toLowerCase()
   return availableColors.value.filter(c => {
-    if (family.value !== 'all' && familyOf(c) !== family.value) return false
+    if (family.value !== 'all' && letterOf(c) !== family.value) return false
     if (!q) return true
     return `${c.code} ${c.name || ''}`.toLowerCase().includes(q)
   })
