@@ -1,10 +1,8 @@
 /* =========================================================================
    手机验证码登录验收脚本（开发用，不进构建产物）
    -------------------------------------------------------------------------
-   当前状态：短信资质审核中，入口在 LoginDialog.vue 里关着（SMS_LOGIN_ENABLED=false）。
-   默认只验「入口确实不出现」：服务端配没配短信，弹窗都只有微信 + 邮箱两种方式，
-   也没有手机号输入框。审核通过、把开关改成 true 之后，用
-   SMS_LOGIN_RELEASED=1 node scripts/verify-sms-login.cjs 跑下面的完整流程。
+   入口已放出：服务端 /auth/sms/status 返回 configured 时显示手机号登录页签。
+   脚本默认跑下面的完整流程，并额外验「服务端未配置短信」时回到邮箱版式。
    -------------------------------------------------------------------------
    完整流程验的是什么（真浏览器走真实用户路径）：
      ① 服务端配了短信（mock 默认 configured）→ 登录弹窗出现「手机号登录 /
@@ -32,8 +30,8 @@ const PORT = Number(process.env.VERIFY_PORT || 4414)
 const ORIGIN = `http://127.0.0.1:${PORT}`
 const SMS_CODE = '638264'
 const PHONE = '13800138000'
-/* 入口放开后才跑完整流程（见文件头说明）。 */
-const RELEASED = process.env.SMS_LOGIN_RELEASED === '1'
+/* 可选视口：VERIFY_VIEWPORT=390x844 跑手机档。 */
+const VIEWPORT = (process.env.VERIFY_VIEWPORT || '1440x900').split('x').map(Number)
 
 const CHROME_CANDIDATES = [
   'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
@@ -154,7 +152,12 @@ async function runScenario(browser, { disabled }) {
   })
   await send('Runtime.enable')
   await send('Page.enable')
-  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false })
+  await send('Emulation.setDeviceMetricsOverride', {
+    width: VIEWPORT[0],
+    height: VIEWPORT[1],
+    deviceScaleFactor: 1,
+    mobile: VIEWPORT[0] <= 767
+  })
 
   const checks = []
   const step = (name, ok, detail) => {
@@ -174,19 +177,6 @@ async function runScenario(browser, { disabled }) {
   const type = (sel, value) => evaluate(send, `(() => { const d = document.querySelector('[data-audit="login-dialog"]'); const el = d.querySelector('${sel}'); el.value = ${JSON.stringify(value)}; el.dispatchEvent(new Event('input', { bubbles: true })) })()`)
   const click = sel => evaluate(send, `(() => { const d = document.querySelector('[data-audit="login-dialog"]'); d.querySelector('${sel}').click() })()`)
 
-  if (!RELEASED) {
-    /* 入口关闭：服务端配没配短信，弹窗都不该出现页签、手机号表单与相关隐私说明 */
-    step('入口隐藏：不出现手机号 / 邮箱页签', !(await evaluate(send, q('[data-audit="login-tabs"]'))))
-    step('入口隐藏：没有手机号输入框', !(await evaluate(send, q('[data-audit="login-phone"]'))))
-    step('保留「或使用邮箱」版式', !!(await evaluate(send, q('[data-audit="email-divider"]'))))
-    step('邮箱表单直接可见', !!(await evaluate(send, vis('[data-audit="email-submit"]'))))
-    step('隐私说明不再提手机号登录', !/手机号登录/.test(
-      await evaluate(send, `document.querySelector('[data-audit="login-dialog"]').textContent`)
-    ))
-    await shot(send, 'sms-hidden')
-    return { checks, consoleErrors }
-  }
-
   if (disabled) {
     step('未配置短信：不出现页签', !(await evaluate(send, q('[data-audit="login-tabs"]'))))
     step('未配置短信：保留「或使用邮箱」版式', !!(await evaluate(send, q('[data-audit="email-divider"]'))))
@@ -197,6 +187,12 @@ async function runScenario(browser, { disabled }) {
 
   step('页签出现（手机号 / 邮箱）', !!(await evaluate(send, q('[data-audit="tab-sms"]'))) && !!(await evaluate(send, q('[data-audit="tab-email"]'))))
   step('默认落在手机号表单', !!(await evaluate(send, vis('[data-audit="login-phone"]'))) && !(await evaluate(send, vis('[data-audit="email-submit"]'))))
+  const box = await evaluate(send, `(() => {
+    const d = document.querySelector('[data-audit="login-dialog"]')
+    const r = d.getBoundingClientRect()
+    return { sw: d.scrollWidth, cw: d.clientWidth, left: r.left, right: r.right, vw: innerWidth }
+  })()`)
+  step('弹窗没有横向溢出', box.sw <= box.cw + 1 && box.left >= -1 && box.right <= box.vw + 1, box)
 
   /* 非法手机号 */
   await type('[data-audit="login-phone"]', '12345')

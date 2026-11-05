@@ -855,7 +855,8 @@ async function main() {
     check('未登录点保存弹出登录窗', dlg.open === true, dlg)
     check('登录窗说明「登录后才能保存」且主按钮是「登录并保存」', /登录后才能保存/.test(dlg.reason || '') && /登录并保存/.test(dlg.submit || ''), { reason: dlg.reason, submit: dlg.submit })
     check('登录窗有微信登录 / 邮箱表单 / 忘记密码 / 邮箱注册', dlg.hasWechat && dlg.hasForgot && dlg.hasRegister, dlg)
-    check('登录窗没有手机号 / 短信页签', !dlg.hasPhone && !dlg.hasSmsTab && !/手机号登录/.test(dlg.text || ''), { hasPhone: dlg.hasPhone, hasSmsTab: dlg.hasSmsTab })
+    /* 短信入口按服务端配置显示；这个自检没有后端，页签不出现是正常的。这里只守老版手机扫码引导不再回来。 */
+    check('登录窗没有老的手机扫码引导', !/扫码登录|复制链接|另一台手机/.test(dlg.text || ''), dlg)
     await shotEl(send, '.dialog', 'login-dialog-save')
     await evalJs(send, `document.querySelector('.dialog__head .iconbtn')?.click(); 1`)
     await sleep(400)

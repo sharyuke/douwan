@@ -69,7 +69,9 @@
   out.emailForm = !!dialog.querySelector('[data-audit="login-email"]') &&
     !!dialog.querySelector('[data-audit="login-password"]') &&
     !!dialog.querySelector('[data-audit="email-submit"]')
-  out.emailDivider = !!dialog.querySelector('[data-audit="email-divider"]')
+  /* 短信已开启时这里是「手机号登录 / 邮箱登录」页签，未开启时才是「或使用邮箱」分隔线。 */
+  out.emailDivider = !!(dialog.querySelector('[data-audit="email-divider"]') ||
+    dialog.querySelector('[data-audit="login-tabs"]'))
 
   if (mobile) {
     /* 手机：打开弹窗不请求 /start，点「微信登录」才请求一次 */

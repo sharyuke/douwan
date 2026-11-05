@@ -6,17 +6,18 @@
      密钥 / 回调地址时明确报错，不会伪造登录成功。
    - 邮箱：走 /auth/register 与 /auth/login。注册时服务端要求用户名，
      前端用邮箱前缀生成（冲突时加随机后缀重试），用户只需要填邮箱和密码。
-   - 手机号 / 短信验证码：按设计稿撤下，字段、页签与隐私说明里的相关字样
-     全部移除，服务端接口保留在 douwan-api 里，资质通过后再放出入口。
+   - 手机号 / 短信验证码：服务端凭据配齐（/auth/sms/status 返回 configured）时
+     显示「手机号登录 / 邮箱登录」页签，默认手机号；未配置时保持「或使用邮箱」。
+     未注册的手机号验证通过后由服务端自动建号。
    - reason = 'save'：从工作台点「保存」弹出来的，顶部提示「登录后才能保存」，
      登录成功后由调用方接着走保存流程。
    ========================================================================= */
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import BaseDialog from './BaseDialog.vue'
 import logoDouwan from '../../assets/logo-douwan.webp'
 import { ApiError, api } from '../../lib/api.js'
 import { isMobileViewport } from '../../composables/useWechatLogin.js'
-import { login, register } from '../../composables/useUserAccount.js'
+import { login, loginWithSmsCode, register } from '../../composables/useUserAccount.js'
 import { toastOk } from '../../composables/useToast.js'
 
 const props = defineProps({
@@ -39,6 +40,19 @@ const email = ref('')
 const password = ref('')
 const emailBusy = ref(false)
 const emailError = ref('')
+
+/* 手机验证码登录：服务端短信凭据配齐才显示入口。
+   手机号未注册时服务端自动建号，用户只填手机号 + 验证码。 */
+const smsConfigured = ref(false)
+const smsMethod = ref('email') // sms | email，表单区二选一
+const smsPhone = ref('')
+const smsCode = ref('')
+const smsBusy = ref(false)
+const smsError = ref('')
+const smsCountdown = ref(0)
+let smsTimer = null
+
+const PHONE_RE = /^1[3-9]\d{9}$/
 
 /* 「忘记密码」：服务端还没有自助重置接口，展开后如实说明并给出替代路径 */
 const forgotOpen = ref(false)
@@ -70,11 +84,82 @@ watch(() => props.modelValue, open => {
     error.value = ''
     emailError.value = ''
     password.value = ''
+    smsError.value = ''
     forgotOpen.value = false
     phone.value = isMobileViewport()
     checkWeChatStatus()
+    checkSmsStatus()
   }
 })
+
+onBeforeUnmount(() => {
+  if (smsTimer) clearInterval(smsTimer)
+})
+
+/** 打开对话框先问一次手机号登录是否可用：未配置就只显示邮箱表单。 */
+async function checkSmsStatus() {
+  try {
+    const status = await api.get('/auth/sms/status', { auth: false })
+    smsConfigured.value = !!(status && status.configured)
+  } catch {
+    smsConfigured.value = false
+  }
+  smsMethod.value = smsConfigured.value ? 'sms' : 'email'
+}
+
+/** 发送验证码。60 秒倒计时内按钮禁用。 */
+async function sendSmsCode() {
+  if (smsCountdown.value > 0) return
+  smsError.value = ''
+  if (!PHONE_RE.test(smsPhone.value.trim())) {
+    smsError.value = '请输入正确的手机号'
+    return
+  }
+  try {
+    await api.post('/auth/sms/send', { phone: smsPhone.value.trim() }, { auth: false })
+    toastOk('验证码已发送，请查收短信')
+    smsCountdown.value = 60
+    smsTimer = setInterval(() => {
+      smsCountdown.value -= 1
+      if (smsCountdown.value <= 0) {
+        clearInterval(smsTimer)
+        smsTimer = null
+      }
+    }, 1000)
+  } catch (e) {
+    smsError.value = e instanceof ApiError ? e.message : '验证码发送失败，请稍后重试'
+  }
+}
+
+/** 验证码登录 / 注册。 */
+async function submitSms() {
+  if (smsBusy.value) return
+  smsError.value = ''
+  if (!PHONE_RE.test(smsPhone.value.trim())) {
+    smsError.value = '请输入正确的手机号'
+    return
+  }
+  if (!smsCode.value.trim()) {
+    smsError.value = '请输入验证码'
+    return
+  }
+  smsBusy.value = true
+  try {
+    const result = await loginWithSmsCode({
+      phone: smsPhone.value.trim(),
+      code: smsCode.value.trim()
+    })
+    if (!result.ok) {
+      smsError.value = result.message || '登录失败，请稍后重试'
+      return
+    }
+    toastOk('登录成功')
+    emit('success')
+    close()
+  } finally {
+    smsBusy.value = false
+  }
+}
 
 /** 打开对话框先问一次状态：未配置 / 应用未开通时直接禁用按钮。 */
 async function checkWeChatStatus(force = false) {
@@ -227,9 +312,83 @@ async function submitEmail() {
         </span>
       </button>
 
-      <div class="loginOr" data-audit="email-divider"><span>或使用邮箱</span></div>
+      <div v-if="smsConfigured" class="loginTabs" data-audit="login-tabs">
+        <button
+          type="button"
+          :class="{ active: smsMethod === 'sms' }"
+          data-audit="tab-sms"
+          @click="smsMethod = 'sms'; smsError = ''"
+        >手机号登录</button>
+        <button
+          type="button"
+          :class="{ active: smsMethod === 'email' }"
+          data-audit="tab-email"
+          @click="smsMethod = 'email'; emailError = ''"
+        >邮箱登录</button>
+      </div>
+      <div v-else class="loginOr" data-audit="email-divider"><span>或使用邮箱</span></div>
 
-      <form class="loginForm" novalidate @submit.prevent="submitEmail">
+      <form
+        v-if="smsConfigured"
+        v-show="smsMethod === 'sms'"
+        class="loginForm"
+        novalidate
+        @submit.prevent="submitSms"
+      >
+        <div class="field">
+          <label for="login-phone">手机号</label>
+          <input
+            id="login-phone"
+            v-model.trim="smsPhone"
+            type="tel"
+            name="tel"
+            autocomplete="tel"
+            inputmode="numeric"
+            maxlength="11"
+            placeholder="请输入 11 位手机号"
+            data-audit="login-phone"
+          >
+        </div>
+        <div class="field">
+          <label for="login-sms-code">验证码</label>
+          <div class="codeRow">
+            <input
+              id="login-sms-code"
+              v-model.trim="smsCode"
+              type="text"
+              name="one-time-code"
+              autocomplete="one-time-code"
+              inputmode="numeric"
+              maxlength="6"
+              placeholder="6 位验证码"
+              data-audit="login-sms-code"
+            >
+            <button
+              type="button"
+              class="btn ghost sendBtn"
+              :disabled="smsCountdown > 0"
+              data-audit="sms-send"
+              @click="sendSmsCode"
+            >{{ smsCountdown > 0 ? smsCountdown + 's 后重发' : '获取验证码' }}</button>
+          </div>
+        </div>
+        <div v-if="smsError" class="loginError" data-audit="sms-error" role="alert">
+          {{ smsError }}
+        </div>
+        <button type="submit" class="btn primary block" :disabled="smsBusy" data-audit="sms-submit">
+          {{ smsBusy ? '请稍候…' : (isSaveReason ? '登录并保存' : '登录 / 注册') }}
+        </button>
+        <p class="loginFoot">
+          <span class="loginFoot__hint">未注册的手机号验证通过后将自动创建账号</span>
+        </p>
+      </form>
+
+      <form
+        v-show="!smsConfigured || smsMethod === 'email'"
+        class="loginForm"
+        novalidate
+        @submit.prevent="submitEmail"
+      >
         <div class="field">
           <label for="login-email">邮箱</label>
           <input
@@ -294,6 +453,7 @@ async function submitEmail() {
       <p class="loginPrivacy">
         使用微信登录时，我们仅获取昵称、头像和稳定用户标识（openid）用于创建账号与展示，
         不保存授权 access token；
+        <template v-if="smsConfigured">使用手机号登录时，验证码只用于校验本人手机号；</template>
         使用邮箱登录时，密码只以加密摘要保存在服务端。
         继续登录即表示同意
         <a href="#/help" @click="close">隐私说明</a>。
@@ -342,6 +502,25 @@ async function submitEmail() {
   line-height:var(--ty-caption-lh);color:var(--ty-muted);
 }
 .loginOr::before,.loginOr::after{content:'';flex:1;height:1px;background:var(--line)}
+.loginTabs{
+  display:flex;gap:4px;padding:4px;border-radius:var(--r-md);
+  background:var(--ty-surface-soft);border:1px solid var(--ty-line);
+}
+.loginTabs button{
+  flex:1;min-height:34px;border:0;border-radius:var(--r-sm);background:none;
+  color:var(--ty-muted);font-family:var(--font-sans);font-size:var(--ty-caption);
+  font-weight:700;line-height:var(--ty-caption-lh);cursor:pointer;transition:var(--t);
+}
+.loginTabs button.active{background:var(--surface);color:var(--ty-ink);box-shadow:var(--sh-1)}
+.codeRow{display:flex;gap:8px}
+.codeRow input{flex:1;min-width:0}
+.codeRow .sendBtn{
+  flex:0 0 auto;white-space:nowrap;min-height:42px;padding:0 12px;
+  border:1px solid var(--line-strong);background:var(--surface);color:var(--primary-deep);
+  font-family:var(--font-sans);font-size:var(--ty-caption);font-weight:700;
+  line-height:var(--ty-caption-lh);
+}
+.codeRow .sendBtn:disabled{color:var(--ty-muted);cursor:not-allowed;opacity:.7}
 .loginForm{display:flex;flex-direction:column;gap:11px}
 .loginForm .field label{
   font-family:var(--font-sans);font-size:var(--ty-label);font-weight:500;
