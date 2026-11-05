@@ -1,19 +1,16 @@
 <script setup>
 /* 图纸调整（设计稿「豆玩 · 图纸调整展开」）
-   把「成品尺寸 → 智能抠图 → 图纸尺寸 → 色板 → 用色上限」收在一块面板里。
-   面板没有「应用 / 取消」按钮（2026-11-05 去掉）：尺寸、色板、抠图各自的 setter
-   已经即时落到画布，色数在松手（change）时重算。左栏卡片版面与这里共用同一份
-   options，在哪儿改都一样，这里只是把要调的几件事按设计稿的顺序排好。
+   把「成品尺寸 → 智能抠图 → 用色上限」收在一块面板里。
+   图纸尺寸与品牌色板按 2026-11-05 的要求从这里去掉（命令行有钉板与色号下拉）。
+   面板没有「应用 / 取消」按钮（同日去掉）：成品尺寸、抠图各自的 setter 即时落到画布，
+   色数在松手（change）时重算。左栏卡片版面与这里共用同一份 options，在哪儿改都一样。
    原图调整（亮度 / 对比度 / 饱和度）已按 2026-11-05 的要求去掉；
    智能抠图原先在命令行有一颗独立按钮，2026-11-05 也并进这块面板。 */
-import { computed, ref } from 'vue'
-import Icon from '../ui/Icon.vue'
+import { computed } from 'vue'
 import SizeQuickCard from './SizeQuickCard.vue'
-import { BOARD_SPECS } from '../../lib/boardSpec.js'
-import { PALETTE_BRANDS } from '../../lib/palettes.js'
 import {
-  options, sourceUrl, availableColors, regenerate, setCanvasCapacity, yieldForBusyPaint,
-  setRemoveBg, setMatteLevel, matteLevels, matteInfo, stats, setBrand
+  options, sourceUrl, availableColors, regenerate, yieldForBusyPaint,
+  setRemoveBg, setMatteLevel, matteLevels, matteInfo, stats
 } from '../../composables/useStudio.js'
 
 /** 抠图那一行的状态文案（与左栏「图片处理 → 智能抠图」同一套口径） */
@@ -31,36 +28,6 @@ const matteNoteClass = computed(() => ({
 }))
 
 const colorMax = computed(() => Math.max(4, availableColors.value.length))
-const boardSize = computed(() => {
-  const w = options.canvasW
-  const h = options.canvasH
-  return w === h ? w : Math.max(w, h)
-})
-
-const customOpen = ref(false)
-const customW = ref(options.canvasW)
-const customH = ref(options.canvasH)
-
-function pickSize(n) {
-  customOpen.value = false
-  if (options.canvasW === n && options.canvasH === n) return
-  setCanvasCapacity(n, n)
-}
-function openCustom() {
-  customOpen.value = true
-  customW.value = options.canvasW
-  customH.value = options.canvasH
-}
-function applyCustom() {
-  const w = Math.round(Number(customW.value) || 0)
-  const h = Math.round(Number(customH.value) || 0)
-  if (!w || !h) return
-  customOpen.value = false
-  setCanvasCapacity(w, h)
-}
-function pickBrand(e) {
-  setBrand(e.target.value)
-}
 
 /* 色数：拖动时只改读数，松手（change）才重算 —— 每拖一格都重跑一次生成会卡住滑杆 */
 function onColors(e) {
@@ -114,34 +81,6 @@ async function onColorsCommit() {
 
       <div class="iap__field">
         <div class="iap__label">
-          <span>图纸尺寸</span>
-          <span class="iap__lock"><Icon name="lock-keyhole" :size="16" />1:1 · 锁定比例</span>
-        </div>
-        <div class="iap__sizes">
-          <button
-            v-for="n in BOARD_SPECS" :key="n" type="button"
-            class="iap__size" :class="{ on: boardSize === n && !customOpen }"
-            @click="pickSize(n)"
-          >{{ n }}</button>
-          <button type="button" class="iap__size" :class="{ on: customOpen }" @click="openCustom">自定义</button>
-        </div>
-        <div v-if="customOpen" class="iap__custom">
-          <input v-model="customW" type="number" min="8" :max="boardSize" aria-label="图纸宽（格）">
-          <span>×</span>
-          <input v-model="customH" type="number" min="8" :max="boardSize" aria-label="图纸高（格）">
-          <button type="button" class="btn sm" @click="applyCustom">确定</button>
-        </div>
-      </div>
-
-      <div class="iap__field">
-        <div class="iap__label"><span>品牌色板</span></div>
-        <select :value="options.brandId" aria-label="品牌色板" @change="pickBrand">
-          <option v-for="b in PALETTE_BRANDS" :key="b.id" :value="b.id">{{ b.name }}</option>
-        </select>
-      </div>
-
-      <div class="iap__field">
-        <div class="iap__label">
           <span>用色上限 · 减色</span>
           <span>最多 {{ colorMax }} 色</span>
         </div>
@@ -171,8 +110,6 @@ async function onColorsCommit() {
 .iap__field{display:flex;flex-direction:column;gap:8px}
 .iap__label{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;font-weight:700;color:var(--ink-2);line-height:var(--ty-caption-lh)}
 .iap__label > span:last-child{font-weight:500;color:var(--muted-2)}
-.iap__lock{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--muted);line-height:var(--ty-caption-lh)}
-.iap__sizes{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px}
 .iap__levels{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
 .iap__size{
   height:38px;border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface);
@@ -180,9 +117,6 @@ async function onColorsCommit() {
 }
 .iap__size:hover{border-color:var(--line-strong)}
 .iap__size.on{background:var(--primary);border-color:var(--primary);color:var(--ink)}
-.iap__custom{display:flex;align-items:center;gap:6px}
-.iap__custom input{width:72px;min-height:34px;padding:4px 8px;font-size:12px;line-height:var(--ty-caption-lh)}
-.iap__custom span{color:var(--muted)}
 .iap__scale{display:flex;align-items:center;justify-content:space-between;font-size:12px;color:var(--muted-2);line-height:var(--ty-caption-lh)}
 .iap__scale b{color:var(--ink);font-weight:700}
 .iap__hint{margin:0;font-size:12px;line-height:var(--ty-caption-lh);color:var(--muted-2)}
