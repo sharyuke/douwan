@@ -1,8 +1,8 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import {
-  pattern, hasPattern, stats, materials, variants,
+  pattern, hasPattern, stats, materials, variants, layout,
   projectName,
   regenerate, sourceUrl, bead
 } from '../../composables/useStudio.js'
@@ -12,6 +12,7 @@ import { check } from '../../composables/useMembership.js'
 import { toastOk, toastWarn } from '../../composables/useToast.js'
 import { copyShoppingList } from '../../lib/exporters.js'
 import Icon from '../ui/Icon.vue'
+import BoardSplitPanel from './BoardSplitPanel.vue'
 
 const props = defineProps({
   /* 手机端弹层：只显示 focus 指定的那张卡（'' = 桌面完整右栏）。
@@ -44,6 +45,8 @@ const boardSpecsText = computed(() => {
    （最多 22 行 + 汇总 + 两个按钮），一展开整页就被顶得很长。
    卡头已经把「几色 / 缺几色」摆出来了，需要明细再展开。 */
 const openColors = ref(props.focus === 'colors')
+/* 分板卡：默认收起，和颜色用量一样按需展开；抽屉里（focus='split'）直接展开 */
+const openSplit = ref(props.focus === 'split')
 
 const short = computed(() => (hasPattern.value ? shortageOf(pattern.value) : null))
 
@@ -124,6 +127,13 @@ async function onCopy() {
   if (res.ok) toastOk('采购清单已复制')
   else toastWarn('复制失败，请改用 CSV 导出')
 }
+
+/* 画布上的「看分板」在平板版面里滚到这张卡并展开它（全屏工作台走右侧抽屉） */
+function revealSplit() {
+  openSplit.value = true
+  nextTick(() => document.getElementById('split-card')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }))
+}
+defineExpose({ revealSplit })
 
 </script>
 
@@ -251,6 +261,23 @@ async function onCopy() {
           <button class="btn btn-secondary sm" @click="onCopy">复制采购清单</button>
           <RouterLink to="/project-materials" class="btn btn-secondary sm">完整材料表</RouterLink>
         </div>
+      </div>
+    </section>
+
+    <!-- 🧩 分板：放在颜色用量下面。画布不再提供分板视图页签，
+         逐块放大、按板号跳转和每板材料都收进这张卡。 -->
+    <section v-if="hasPattern" id="split-card" class="card card--split" :class="{ 'is-folded': !openSplit, 'is-focus': focus === 'split' }">
+      <div class="card__head">
+        <h3><span class="cardIcon"><Icon name="layout-grid" :size="16" /></span>分板</h3>
+        <span class="muted card__headValue">{{ layout ? `${layout.count} 块` : '未生成' }}</span>
+        <button
+          class="cardArrowBtn" type="button"
+          :aria-expanded="openSplit" aria-label="展开或收起分板"
+          @click="openSplit = !openSplit"
+        ><i class="cardArrow" :class="{ 'cardArrow--open': openSplit }" aria-hidden="true"><Icon name="chevron-down" :size="16" /></i></button>
+      </div>
+      <div v-if="openSplit" class="card__body">
+        <BoardSplitPanel />
       </div>
     </section>
 

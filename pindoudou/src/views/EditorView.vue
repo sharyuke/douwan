@@ -180,6 +180,11 @@ function onWideChange() {
 const narrowQuery = window.matchMedia('(max-width: 780px)')
 const mobileConsole = ref(narrowQuery.matches)
 function onNarrowChange() { mobileConsole.value = narrowQuery.matches }
+/* 全屏 / 平板版面不再提供视图页签：画布固定停在拼豆图纸，
+   分板改由右栏卡片展示。手机仍保留自己的图纸 / 原图 / 对照页签。 */
+watch([consoleMode, mobileConsole, currentView], () => {
+  if (!mobileConsole.value && currentView.value !== 'pattern') currentView.value = 'pattern'
+}, { immediate: true })
 /* 手指设备（含横屏 iPad，宽度常常 ≥1100）：不标快捷键，按键也不切工具。 */
 const coarseQuery = window.matchMedia('(pointer: coarse), (hover: none)')
 const coarsePointer = ref(coarseQuery.matches)
@@ -202,6 +207,7 @@ const DRAWER_TITLES = {
   palette: '色板与参数',
   analysis: '作品分析',
   colors: '颜色用量',
+  split: '分板',
   stock: '我的库存',
   adjust: '图纸调整'
 }
@@ -218,6 +224,14 @@ function openDrawer(key) {
   aiOpen.value = false
 }
 function closeDrawer() { drawerKey.value = '' }
+
+/* 分板入口：全屏工作台开右侧抽屉，平板滚到右栏那张卡，手机仍走画布分板视图 */
+function showSplit() {
+  mobileMore.value = 'none'
+  if (mobileConsole.value) { currentView.value = 'split'; return }
+  if (consoleMode.value) { openDrawer('split'); return }
+  insightsRef.value?.revealSplit()
+}
 
 /* 命令栏的两个小浮层：钉板下拉、AI 未接入说明 */
 const boardOpen = ref(false)
@@ -252,15 +266,8 @@ const views = [
   { key: 'materials', icon: 'list', label: '材料' }
 ]
 
-/* 自由画布是从零手绘的空白网格，没有原图可看 —— 这两个视图页签收起来，
-   只留图纸 / 分板 / 材料。图纸转换照旧五个。 */
-const modeViews = computed(() => (
-  createMode.value === 'free'
-    ? views.filter(v => v.key !== 'original' && v.key !== 'compare')
-    : views
-))
-
 const canvasRef = ref(null)
+const insightsRef = ref(null)
 const zoomPct = computed(() => Math.round(zoom.value * 100))
 
 /* 左侧浮动工具栏：工具本身来自 icons.js（画布组件与这里共用同一份定义），
@@ -1070,17 +1077,8 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
       </div>
     </div>
 
-    <!-- 文档与视图：五个视图 + 网格开关 -->
+    <!-- 文档与视图：画布固定停在拼豆图纸，分板收进右侧「颜色用量」下面；这里只留网格开关 -->
     <div v-if="consoleMode" class="csDoc">
-      <div class="viewtabs csViews" role="tablist" aria-label="视图">
-        <button
-          v-for="v in modeViews" :key="v.key" type="button"
-          :class="{ on: currentView === v.key }"
-          role="tab" :aria-selected="currentView === v.key"
-          :disabled="v.key !== 'original' && createMode === 'edit' && !hasPattern"
-          @click="currentView = v.key"
-        ><Icon :name="v.icon" :size="16" /><span>{{ v.label }}</span></button>
-      </div>
       <button class="csToggle" type="button" :class="{ on: options.showGrid }" :aria-pressed="options.showGrid" @click="toggleGrid">
         <span>网格</span><i aria-hidden="true"></i>
       </button>
@@ -1160,6 +1158,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
         :mode="createMode"
         @upload="pickMobileImage" @browse="router.push('/materials/')"
         @resize="openMobilePanel('size')" @delivery="openDelivery('export')"
+        @split="showSplit"
       >
         <template #above>
           <div v-if="!consoleMode && !mobileConsole" class="canvasTitleBar no-print">
@@ -1478,6 +1477,11 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
           <span>颜色用量</span>
           <span class="csRot csSide__chev"><Icon name="chevron-down" :size="16" /></span>
         </button>
+        <button type="button" class="csSide__row" :disabled="!hasPattern" @click="openDrawer('split')">
+          <span class="csSide__ico csSide__ico--lime"><Icon name="layout-grid" :size="16" /></span>
+          <span>分板</span>
+          <span class="csRot csSide__chev"><Icon name="chevron-down" :size="16" /></span>
+        </button>
       </aside>
 
       <!-- 右侧滑出面板：复用左栏 / 右栏那张卡本身（focus 模式只显示它） -->
@@ -1511,7 +1515,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
       </aside>
     </div>
 
-    <EditorInsights v-if="!consoleMode && !mobileConsole" class="studio__insights" @need-pro="needPro" @replace-color="onReplaceColor" />
+    <EditorInsights v-if="!consoleMode && !mobileConsole" ref="insightsRef" class="studio__insights" @need-pro="needPro" @replace-color="onReplaceColor" />
 
     <!-- 画布状态栏：当前状态 · 缩放 · 适应 / 实际大小 -->
     <footer v-if="consoleMode" class="csStatus no-print">
@@ -2117,27 +2121,12 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
   .csModeSeg button.on{background:var(--cs-accent);color:var(--cs-ink);font-weight:700}
 
   /* ---------------- 第三行：文档与视图 ---------------- */
-  /* 与第一行同一套三列：视图页签固定在页面中线上，网格开关仍贴右缘 */
+  /* 视图页签已去掉（画布固定拼豆图纸），这一行只留贴右缘的网格开关 */
   .csDoc{
     display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);
     align-items:center;gap:12px;flex:0 0 auto;
     height:44px;padding:0 20px;background:var(--cs-surface);border-bottom:1px solid var(--cs-line);
   }
-  .csViews{
-    grid-column:2;
-    display:flex;gap:2px;justify-content:center;align-items:center;
-    padding:0;border:0;border-radius:0;background:transparent;
-    overflow:visible;width:auto;
-  }
-  /* 视图页签：标签 13/500，选中 13/700 */
-  .csViews button{
-    display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 12px;border-radius:99px;
-    font-family:var(--font-sans);font-size:13px;font-weight:500;line-height:var(--ty-label-lh);letter-spacing:0;
-    color:var(--cs-muted);border:0;background:transparent;
-  }
-  .csViews button:hover:not(:disabled){background:var(--cs-fill);color:var(--cs-ink)}
-  .csViews button.on{background:var(--cs-accent);color:var(--cs-ink);font-weight:700;box-shadow:none}
-  .csViews button:disabled{color:var(--cs-disabled);cursor:not-allowed}
   .csToggle{
     display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 2px;
     border:0;background:transparent;grid-column:3;justify-self:end;

@@ -22,7 +22,7 @@ import EditorEmptyGuide from './EditorEmptyGuide.vue'
 import CanvasRuler from './CanvasRuler.vue'
 
 /* 手机端：上传命令直接放在画布空状态里（桌面端仍指向左栏的 ① 创建） */
-const emit = defineEmits(['upload', 'browse', 'resize', 'delivery'])
+const emit = defineEmits(['upload', 'browse', 'resize', 'delivery', 'split'])
 
 /* chrome:
    'default' —— 卡片自带「页签 + 缩放」顶栏与底部两行工具条（手机 / 平板版面）
@@ -113,14 +113,6 @@ function historyTitle(h) {
   }
   return `${base} · 可${isUndo ? '撤销' : '重做'} ${n} 步`
 }
-
-const views = [
-  { key: 'pattern', icon: 'grid-3x3', label: '拼豆图纸', short: '图纸' },
-  { key: 'original', icon: 'image', label: '原图', short: '原图' },
-  { key: 'compare', icon: 'columns-2', label: '对照', short: '对照' },
-  { key: 'split', icon: 'layout-grid', label: '分板', short: '分板' },
-  { key: 'materials', icon: 'list', label: '材料', short: '材料' }
-]
 
 /** 基准格子尺寸：zoom=1 时整张图纸大致铺满舞台（契合约「铺满一屏」，不是「一格 20px」） */
 const baseCell = computed(() => {
@@ -1419,15 +1411,7 @@ defineExpose({
     <slot name="above" />
 
     <div v-if="!consoleChrome" class="canvasCard__toolbar">
-      <div class="viewtabs" role="tablist">
-        <button
-          v-for="v in views" :key="v.key"
-          :class="{ on: currentView === v.key }"
-          role="tab"
-          :aria-selected="currentView === v.key"
-          @click="currentView = v.key"
-        ><Icon :name="v.icon" :size="20" /><span class="tabLong">{{ v.label }}</span><span class="tabShort">{{ v.short }}</span></button>
-      </div>
+      <!-- 视图页签已去掉：画布固定停在拼豆图纸，分板收进右栏「颜色用量」下面 -->
 
       <!-- 平移模式要有可见状态：工具按钮高亮之外，顶栏再给一条明确提示，
            避免用户以为单指拖动会改图 -->
@@ -1722,7 +1706,7 @@ defineExpose({
         </span>
         <span class="hintShort">
           图纸太大，编辑区不再印色号。
-          <button type="button" class="hintLink" @click="currentView = 'split'">看分板</button>
+          <button type="button" class="hintLink" @click="emit('split')">看分板</button>
           <button type="button" class="hintLink" @click="emit('delivery')">导出图纸</button>
         </span>
       </p>
@@ -1737,7 +1721,7 @@ defineExpose({
         </span>
         <span class="hintShort">
           成品太大，屏幕只能显示到实际的 {{ actualShownPct }}%。
-          <button type="button" class="hintLink" @click="currentView = 'split'">看分板</button>
+          <button type="button" class="hintLink" @click="emit('split')">看分板</button>
           <button type="button" class="hintLink" @click="emit('delivery')">导出图纸</button>
         </span>
       </p>
@@ -2049,8 +2033,6 @@ defineExpose({
    tooltip）时还能显示「为什么不能点」。桌面端宽度跟着按钮走，手机上跟着工具组一起伸缩 */
 .toolSlot{display:flex;min-width:0}
 .toolSlot .tool{flex:1 1 auto}
-/* 宽屏用全名「拼豆图纸」，手机上在媒体查询里换成短名 */
-.tabShort{display:none}
 /* 镜像按钮同理：宽屏「左右镜像」，手机上换成「左右」才塞得进 9 格 */
 .actShort{display:none}
 @media(max-width:780px){
@@ -2197,8 +2179,6 @@ canvas{display:block}
   /* 手机顶栏只留 图纸 / 原图 / 对照：分板与材料从「编辑 ▾ → 分板视图」、
      分析/用量卡片进入，顶栏不再挤五个页签。 */
   .viewtabs button:nth-child(n+4){display:none}
-  .tabLong{display:none}
-  .tabShort{display:inline}
   /* 缩放只留实时百分比：加减 / 适应移到画布右侧浮控上 */
   .zoomBar{gap:0;flex:0 0 auto}
   .zoomBar .btn{display:none}
