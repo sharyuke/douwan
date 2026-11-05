@@ -96,7 +96,7 @@ const CONSOLE_STEPS = [
     extra: [
       ['视图', '图纸 / 原图 / 对照 / 分板 / 材料'],
       ['缩放', '适应 / 实际大小（1:1 实物预览）'],
-      ['手势', '滚轮缩放 · 按住空白处拖拽平移']
+      ['手势', '滚轮缩放 · 按住鼠标中键拖动平移']
     ],
     target: () => document.querySelector('.stage'),
     place: 'inside-right', pad: 8

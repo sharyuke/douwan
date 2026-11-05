@@ -1718,7 +1718,7 @@ defineExpose({
       </div>
 
       <div v-if="!showEmpty && currentView === 'pattern'" class="chartNote">
-        <span class="hintWheel">滚轮缩放 · 按住空白处拖拽平移</span>
+        <span class="hintWheel">滚轮缩放 · 按住鼠标中键拖动平移</span>
         <span class="hintTouch">双指同时点一下撤回 · 单指编辑 · 长按一格吸色</span>
         <span v-if="tool !== 'pan'" class="only-lg">· 直接点格子改色（当前工具：
           {{ tool === 'paint' ? '画笔' : tool === 'erase' ? '橡皮' : tool === 'pick' ? '吸色' : '填充' }}）</span>

@@ -66,7 +66,12 @@ class CDP {
   close() { try { this.ws.close() } catch {} }
 }
 
-const CHROME = ['C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe'].find(p => fs.existsSync(p))
+const CHROME = [
+  process.env.CHROME_PATH,
+  'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+  'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+].find(p => p && fs.existsSync(p))
 
 async function main() {
   const urlIdx = process.argv.indexOf('--url')
@@ -275,6 +280,7 @@ async function main() {
   })()`)
   console.log('rail geometry:', JSON.stringify(railGeo))
   const TOOL_TIPS = [
+    ['移动', '中键'],
     ['画笔', 'P'], ['橡皮', 'E'], ['填充', 'G'], ['吸色', 'I'],
     ['换色', 'C'], ['去除杂色', 'R'], ['左右镜像', 'M']
   ]
@@ -308,9 +314,9 @@ async function main() {
     const okTip = !!tip && tip.text.includes(label) && (tip.key || '').trim() === key &&
       tip.x >= tip.railRight - 1 && tip.x < tip.vw && tip.y >= 0 && tip.y < tip.vh
     check(`悬停「${label}」浮出标签并标注快捷键 ${key}`, okTip, tip)
-    if (label === '画笔') {
+    if (label === '移动' || label === '画笔') {
       const shot = await send('Page.captureScreenshot', { format: 'png' })
-      fs.writeFileSync(path.join(OUT, 'tip-brush.png'), Buffer.from(shot.data, 'base64'))
+      fs.writeFileSync(path.join(OUT, label === '移动' ? 'tip-pan.png' : 'tip-brush.png'), Buffer.from(shot.data, 'base64'))
     }
   }
   /* 移开鼠标 → 标签消失 */

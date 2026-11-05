@@ -147,10 +147,10 @@ export const ICON_ALIASES = {
 /* 编辑区底部工具。label 是按钮上的文字：光看图标的工具栏总要用户猜一次，
    而「撤销/重做」在没得撤销时是灰的，所以工具与历史操作都带文字，
    图标只负责加速识别 */
-/* shortcut = 电脑端的键盘快捷键（悬停时在浮动标签里标出来）。
+/* shortcut = 电脑端的快捷键（悬停时在浮动标签里标出来）。
    desc = 标签里那一句说明（跟 title 去掉「工具名：」前缀之后一样）。 */
 export const EDIT_TOOLS = [
-  { key: 'pan', icon: 'hand', label: '移动', title: '移动画布：单指拖动只平移视野，不修改图纸', desc: '单指拖动只平移视野，不修改图纸' },
+  { key: 'pan', icon: 'hand', label: '移动', title: '移动画布：按住鼠标中键拖动平移视野，不修改图纸', desc: '按住鼠标中键拖动平移视野，不修改图纸', shortcut: '中键' },
   { key: 'paint', icon: 'pencil', label: '画笔', title: '画笔：点一下格子就改成当前颜色', desc: '点一下格子就改成当前颜色', shortcut: 'P' },
   { key: 'erase', icon: 'eraser', label: '橡皮', title: '橡皮：擦掉这一格（不放豆）', desc: '擦掉这一格（不放豆）', shortcut: 'E' },
   { key: 'fill', icon: 'paint-bucket', label: '填充', title: '填充：整块同色区域一次性替换', desc: '整块同色区域一次性替换', shortcut: 'G' },
