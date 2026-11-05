@@ -2214,8 +2214,8 @@ function onSave() {
 .srcAsset:hover{border-color:var(--line-strong);background:var(--surface-warm)}
 .srcAsset__thumb{display:block;aspect-ratio:1;border-radius:6px;background:#fff;overflow:hidden}
 .srcAsset__thumb svg{width:100%;height:100%;display:block}
-/* 后台素材的缩略图是方形白底 JPEG，按方格铺满即可 */
-.srcAsset__thumb img{width:100%;height:100%;display:block;object-fit:cover}
+/* 后台素材的缩略图是白底 JPEG，完整放进方格，别把竖图裁掉 */
+.srcAsset__thumb img{width:100%;height:100%;display:block;object-fit:contain}
 .srcAsset b{
   font-size:var(--fs-2xs);font-weight:700;color:var(--ink-2);text-align:center;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:var(--ty-caption-lh)

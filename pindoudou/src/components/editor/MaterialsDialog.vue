@@ -4,10 +4,8 @@
 import { computed, ref, watch } from 'vue'
 import BaseDialog from '../ui/BaseDialog.vue'
 import Icon from '../ui/Icon.vue'
-import { useAsset } from '../../composables/useStudio.js'
-import { loadRemoteAssets, remoteAssets, freeAssets } from '../../composables/useAssets.js'
+import { loadRemoteAssets, remoteAssets, freeAssets, pickAsset } from '../../composables/useAssets.js'
 import { matchesPurpose, sortAssets } from '../../data/libraryCategories.js'
-import { toastWarn } from '../../composables/useToast.js'
 
 const props = defineProps({ modelValue: { type: Boolean, default: false } })
 const emit = defineEmits(['update:modelValue'])
@@ -114,10 +112,10 @@ async function confirm() {
   if (!selected.value || busy.value) return
   busy.value = true
   try {
-    await useAsset(selected.value)
-    emit('update:modelValue', false)
-  } catch (err) {
-    toastWarn(err.message || '素材载入失败')
+    /* 后台素材要下载原图再走上传链路；直接 svgToImage 会把没有 svg 的素材
+       当成 "undefined" 的 SVG，加载必失败。pickAsset 按 remote 分流并给提示。 */
+    const res = await pickAsset(selected.value.id)
+    if (res.ok) emit('update:modelValue', false)
   } finally {
     busy.value = false
   }
@@ -282,10 +280,11 @@ function resetFilters() {
 .matCard:hover{border-color:var(--line-strong);box-shadow:0 2px 10px rgba(31,31,29,.05)}
 .matCard.on{border-color:var(--primary-deep);box-shadow:0 0 0 1px var(--primary-deep) inset}
 .matCard__art{
-  position:relative;display:grid;place-items:center;aspect-ratio:16/11;border-radius:10px;
+  position:relative;display:grid;place-items:center;aspect-ratio:1 / 1;border-radius:10px;
   background:#FBFDF6;overflow:hidden;
 }
-.matCard__art img{width:100%;height:100%;object-fit:cover}
+/* 完整显示整张素材：cover 会把竖图上下裁掉，contain 才能看到全貌 */
+.matCard__art img{width:100%;height:100%;object-fit:contain;padding:4px}
 .matCard__svg{display:block;width:100%;height:100%}
 .matCard__svg :deep(svg){width:100%;height:100%;display:block}
 .matCard__badge{
@@ -324,7 +323,7 @@ function resetFilters() {
   width:30px;height:30px;border-radius:8px;overflow:hidden;background:var(--surface-3);flex:0 0 auto;
   display:grid;place-items:center;
 }
-.matFoot__thumb img{width:100%;height:100%;object-fit:cover}
+.matFoot__thumb img{width:100%;height:100%;object-fit:contain}
 .matFoot__thumb :deep(svg){width:100%;height:100%;display:block}
 @media(max-width:780px){
   .matFilters{grid-template-columns:1fr 1fr}
