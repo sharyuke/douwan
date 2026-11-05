@@ -20,7 +20,10 @@
        在 104 上改的一颗，缩到 52 再放回 104 仍是那一颗；在 52 上改的一颗，放大到 104 是 2×2；
      · 只换钉板（成品区域不变）→ 旧格子 1:1 居中平移，不重新取样；
      · 老存档的源图是按图纸重建的（sourceFromPattern）→ 那不是原图，退回按当前图纸块缩放。
-   所以本探针里：A / C / D / F / H / I / G 换尺寸都**重新取样**（`regenerated` 为 true），
+   2026-11-05 补充（用户硬性要求）：小尺寸回到用过的尺寸时，直接还原那个尺寸的生成结果，
+   细节与颜色数量一颗不少（`restored` 为 true），保存 / 未保存的作品都一样。
+   所以本探针里：A / C / D / F / H 换到没生成过的尺寸**重新取样**（`regenerated` 为 true）；
+   G 存档往返后放大、I 缩回用过的 52 都走尺寸缓存**还原**（`restored` 为 true）；
    手改格子的期望位置由 `projectEditKeys` 按修改层投影算出来；C2 只换钉板仍是 1:1 平移。
 
    所以断言全部落在真实状态上（调试桥只驱动、不下结论）：
@@ -502,23 +505,25 @@
     if (!reopened) return { ok: false, err: 'G: 重新打开失败', ...out }
     if (!S.manualEdited.value) return { ok: false, err: 'G: 打开存档后 manualEdited 丢了', ...out }
 
-    /* 再放大 52 → 104：按工作区当前图纸复制（不回源图重新取样），手改记录跟着走 */
+    /* 再放大 52 → 104：这个尺寸之前生成过（存档里带了尺寸缓存），直接还原那一份，
+       细节与颜色数量原样回来；缓存没命中才回源图重新取样。 */
     const at0 = S.lastSearch.value.at
     /* 底板也得放得下（界面上的档位快选会顺带把底板撑到放得下，见 EditorSidebar 的 pickBox） */
     S.options.canvasMaxW = 104
     S.options.canvasMaxH = 104
-    S.setCanvasSize(104, 104)
+    const regrow = S.setCanvasSize(104, 104)
     await sleep(250)
     const p2 = pat()
     out.G.regrow = {
       board: `${p2.width}x${p2.height}`,
       art: `${p2.artW}x${p2.artH}`,
       manualEdited: S.manualEdited.value,
+      restored: !!(regrow && regrow.restored),
       regenerated: S.lastSearch.value.at > at0,
       editsKept: sameKeys(projectEditKeys(p1, 104, 104, 104, 104), editKeys(p2)),
       beads: p2.stats && p2.stats.beadCount
     }
-    if (!out.G.regrow.regenerated) return { ok: false, err: 'G: 存档往返后放大没按原图重新取样', ...out }
+    if (!out.G.regrow.restored) return { ok: false, err: 'G: 存档往返后放大没还原到 104 那一份（细节与颜色数量应原样回来）', ...out }
     if (!S.manualEdited.value) return { ok: false, err: 'G: 放大后 manualEdited 丢了（手改记录没跟存档走）', ...out }
     if (!out.G.regrow.editsKept) return { ok: false, err: 'G: 存档往返后放大，手改的格子没落回去', ...out }
     if (p2.artW !== 104 || p2.artH !== 104) return { ok: false, err: `G: 成品区域没落到 104（art ${p2.artW}x${p2.artH}）`, ...out }
@@ -553,7 +558,8 @@
     const bboxBefore = bboxRel(before, 104, 104, 0, 0, 104, 104)
     const expectKeys = projectEditKeys(p0i, 104, 104, 52, 52)
     const at0 = S.lastSearch.value.at
-    S.setCanvasSize(52, 52)
+    /* 52 这个尺寸之前用过（H / G 缩到过），这里会直接还原那一份 */
+    const shrunk = S.setCanvasSize(52, 52)
     await sleep(400)
     const p1 = pat()
     const afterIds = idsOf(p1)
@@ -564,6 +570,7 @@
       board: `${p1.width}x${p1.height}`,
       art: `${p1.artW}x${p1.artH}`,
       manualEdited: S.manualEdited.value,
+      restored: !!(shrunk && shrunk.restored),
       regenerated: S.lastSearch.value.at > at0,
       editsKept: sameKeys(expectKeys, editKeys(p1)),
       beadCount: p1.stats && p1.stats.beadCount,
@@ -572,7 +579,7 @@
       bboxAfter
     }
     if (p1.artW !== 52 || p1.artH !== 52) return { ok: false, err: 'I: 成品区域没落到 52×52', ...out }
-    if (!out.I.regenerated) return { ok: false, err: 'I: 拖滑杆缩小没按原图重新取样', ...out }
+    if (!out.I.restored && !out.I.regenerated) return { ok: false, err: 'I: 拖滑杆缩小既没还原缓存也没按原图重新取样', ...out }
     if (!out.I.editsKept) return { ok: false, err: 'I: 拖滑杆后手改的格子没落回新网格', ...out }
     if (p1.stats.beadCount !== out.I.artFilled) return { ok: false, err: 'I: 统计的豆子数与格子对不上', ...out }
     if (!S.manualEdited.value) return { ok: false, err: 'I: manualEdited 丢了', ...out }
@@ -617,7 +624,7 @@
     'A 未手改：换尺寸按原图重新取样', 'B 真画一笔立标记', 'C2 只换钉板：1:1 居中不重生成',
     'C 手改放大：原图重新取样 + 修改层落回',
     'D 同板缩成品区域：画面等比缩小', 'E 画到留白', 'F 缩板按原图重新取样不裁画面',
-    'G 存档往返：放大仍按原图取样、修改层跟着走', 'H 换钉板画面不裁', 'I 拖清晰度滑杆：画面在画布上缩放',
+    'G 存档往返：放大还原 104 那一份、修改层跟着走', 'H 换钉板画面不裁', 'I 拖清晰度滑杆：画面在画布上缩放',
     'J 缩小再放大：细节回到原样'
   ]
   return out

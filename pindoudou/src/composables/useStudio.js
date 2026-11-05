@@ -19,7 +19,7 @@ import {
   beadOf, autoBeadKey, boardSpecFor, boardProfile, boardsText, boardsTextShort,
   isWholeBoard, snapSpec, snapTier, tierBox, customBox
 } from '../lib/boardSpec.js'
-import { packPattern, unpackPattern, packProgress, unpackProgress } from '../lib/archive.js'
+import { packPattern, unpackPattern, packProgress, unpackProgress, encodeCells, decodeCells } from '../lib/archive.js'
 import { packCellColors } from '../lib/render.js'
 import { estimateComplexity } from '../lib/complexity.js'
 import { matteLevel, MATTE_LEVELS, estimateMatte } from '../lib/matte.js'
@@ -858,6 +858,226 @@ function applyEditLayers(list) {
     return hit.onActive && v.active ? { ...v, active: next } : { ...v, ...next }
   })
   return total
+}
+
+/* ------------------------------------------------------------ 尺寸还原缓存 */
+
+/**
+ * 每个方案按**成品尺寸**留一份生成结果（只存成品区域），换回这个尺寸时直接还原。
+ *
+ * 为什么必须有（2026-11-05 用户硬性要求）：「图案从大尺寸变小尺寸会自动缩减细节和
+ * 颜色数量，那么小尺寸变回大尺寸也要自动还原回原来的细节和颜色数量」，保存和未保存的
+ * 作品都是这个要求。
+ *
+ * 只靠「每次按原图重新取样」做不到：存档里的源图是 512 px 的快照，重新打开后再放大
+ * 回原来那个大尺寸，取样结果和保存前那张不是逐格一致（实测 104 格差 5709 格、少 2 色）。
+ * 所以每个尺寸第一次生成时把结果留在这里；换回同一尺寸时不再重新取样。
+ * 手改仍由修改层投影回来（见 applyEditLayer），缓存只存「生成结果」。
+ */
+const SIZE_CACHE_LIMIT = 10
+const SIZE_CACHE_MAX_CELLS = 300000
+
+/**
+ * 缓存的失效口径：影响生成结果的参数变一个，旧尺寸的结果就不能再用了。
+ * 源图换了不走这里 —— 换图 / 卡通化 / 打开存档都会重生成方案（新对象没有缓存）。
+ */
+function sizeCacheSig() {
+  return [
+    options.brandId, options.targetColors, options.fit, options.dither, options.cleanup,
+    options.enhance, options.removeBg, options.matteLevel, options.cartoon, options.cartoonStyle,
+    variantCount.value, maxCells.value, availableColors.value.length,
+    useInventory.value, inventoryMode.value, inventoryColors.value.map(c => c.id).join(',')
+  ].join('|')
+}
+
+/** 一张图纸的成品区域 → 缓存条目（成品区域相对坐标，四周留白不存） */
+function sizeEntryFromPattern(p) {
+  const art = artBoxOf(p)
+  const sx = Math.floor((p.width - art.w) / 2)
+  const sy = Math.floor((p.height - art.h) / 2)
+  const cells = new Int32Array(art.w * art.h).fill(EMPTY)
+  for (let y = 0; y < art.h; y++) {
+    const row = (sy + y) * p.width + sx
+    for (let x = 0; x < art.w; x++) cells[y * art.w + x] = p.cells[row + x]
+  }
+  return { artW: art.w, artH: art.h, cells, palette: Array.from(p.palette || []) }
+}
+
+/** 这个方案有没有该尺寸、且参数没变的缓存 */
+function cachedSizeEntry(v, key) {
+  const cache = v && v.sizeCache
+  if (!cache || !cache.sizes || cache.sig !== sizeCacheSig()) return null
+  return cache.sizes[key] || null
+}
+
+/** 把一份尺寸结果并进方案的缓存（参数变了就重开一份；条目太多丢最早的一份，最大的一份留着） */
+function mergeSizeCache(oldCache, key, base, active) {
+  if (!base || base.artW * base.artH > SIZE_CACHE_MAX_CELLS) return oldCache || undefined
+  const sig = sizeCacheSig()
+  const cache = oldCache && oldCache.sig === sig ? oldCache : { sig, sizes: {} }
+  const sizes = { ...cache.sizes, [key]: { base, active: active || null } }
+  const keys = Object.keys(sizes)
+  if (keys.length > SIZE_CACHE_LIMIT) {
+    let largest = keys[0]
+    for (const k of keys) {
+      const a = sizes[k].base
+      const b = sizes[largest].base
+      if (a && (!b || a.artW * a.artH > b.artW * b.artH)) largest = k
+    }
+    const drop = keys.find(k => k !== largest) || keys[0]
+    delete sizes[drop]
+  }
+  return { sig, sizes }
+}
+
+/** 换尺寸前把每个方案已有的缓存取出来（regenerate 会整份换掉方案对象） */
+function collectSizeCaches() {
+  const out = new Map()
+  for (const v of variants.value) {
+    if (v && v.sizeCache) out.set(v.key, v.sizeCache)
+  }
+  return out
+}
+
+/** 刚生成完（还没叠手改）：把这个尺寸的结果记进缓存 */
+function attachSizeCaches(oldCaches, key) {
+  variants.value = variants.value.map(v => {
+    const base = sizeEntryFromPattern(v)
+    return { ...v, sizeCache: mergeSizeCache(oldCaches.get(v.key), key, base, null) }
+  })
+}
+
+/** 按当前图纸块缩放之后：基底与 active 各记一份 */
+function attachSizeCachesAfterResize(oldCaches, key) {
+  variants.value = variants.value.map(v => {
+    const base = sizeEntryFromPattern(v)
+    const active = v.active ? sizeEntryFromPattern(v.active) : null
+    return { ...v, sizeCache: mergeSizeCache(oldCaches.get(v.key), key, base, active) }
+  })
+}
+
+/** 从存档打开后：把存档里的图纸与底稿都塞进缓存，换回这些尺寸时逐格还原 */
+function seedSizeCaches() {
+  const sig = sizeCacheSig()
+  variants.value = variants.value.map(v => {
+    const t = v.active || v
+    const art = artBoxOf(t)
+    let cache = mergeSizeCache(
+      { sig, sizes: {} },
+      `${art.w}x${art.h}`,
+      sizeEntryFromPattern(t),
+      v.active ? sizeEntryFromPattern(v.active) : null
+    )
+    if (v.master) {
+      cache = mergeSizeCache(cache, `${v.master.artW}x${v.master.artH}`, v.master, null)
+    }
+    return { ...v, sizeCache: cache }
+  })
+}
+
+/** 缓存条目 → 一张完整的图纸（按当前底板居中，统计重算；模板提供方案元数据） */
+function patternFromSizeEntry(template, entry, bw, bh, bs, bk) {
+  const aw = Math.max(1, Math.min(entry.artW, bw))
+  const ah = Math.max(1, Math.min(entry.artH, bh))
+  const ox = Math.floor((bw - aw) / 2)
+  const oy = Math.floor((bh - ah) / 2)
+  const cells = new Int32Array(bw * bh).fill(EMPTY)
+  for (let y = 0; y < ah; y++) {
+    const dst = (oy + y) * bw + ox
+    const src = y * entry.artW
+    for (let x = 0; x < aw; x++) cells[dst + x] = entry.cells[src + x]
+  }
+  const { active, sizeCache, ...rest } = template
+  const palette = entry.palette.slice()
+  const next = {
+    ...rest,
+    width: bw,
+    height: bh,
+    artW: aw,
+    artH: ah,
+    cells,
+    palette,
+    colors: palette.map(c => c.id),
+    /* 手改由调用方随后用修改层投影回来；这里先清掉旧的格子下标 */
+    editMap: undefined,
+    boardSize: bs,
+    beadKey: bk
+  }
+  recalcStats(next)
+  return next
+}
+
+/** 把所有方案还原到缓存的这个尺寸（调用前先 collectEditLayers） */
+function restoreSizeFromCache(key) {
+  const bw = Math.max(1, Math.min(maxCells.value, canvasCapW.value))
+  const bh = Math.max(1, Math.min(maxCells.value, canvasCapH.value))
+  const bs = boardProfile(bw, bh)
+  const bk = options.beadKey || autoBeadKey(bw, bh)
+  variants.value = variants.value.map(v => {
+    const item = cachedSizeEntry(v, key)
+    if (!item) return v
+    const base = { ...patternFromSizeEntry(v, item.base, bw, bh, bs, bk), sizeCache: v.sizeCache }
+    if (!item.active) return base
+    const active = patternFromSizeEntry(v.active || v, item.active, bw, bh, bs, bk)
+    return { ...base, active }
+  })
+}
+
+/**
+ * 底稿进存档：把「见过的最大的那个尺寸」按成品区域存下来。
+ *
+ * 只存比保存时的图纸更大的那一份（否则和存档里的图纸重复，白占体积）。
+ * 重新打开作品后，换回这个大尺寸仍能逐格还原 —— 这正是「保存的作品也要还原」的关键：
+ * 存档里的源图只有 512 px，靠它重新取样回不到保存前的细节。
+ */
+function packMasterEntry(v, t) {
+  const art = artBoxOf(t)
+  let best = null
+  const cache = v && v.sizeCache
+  if (cache && cache.sig === sizeCacheSig() && cache.sizes) {
+    for (const k of Object.keys(cache.sizes)) {
+      const e = cache.sizes[k] && cache.sizes[k].base
+      if (!e) continue
+      if (e.artW <= art.w && e.artH <= art.h) continue
+      if (!best || e.artW * e.artH > best.artW * best.artH) best = e
+    }
+  }
+  if (!best && t.master && (t.master.artW > art.w || t.master.artH > art.h)) best = t.master
+  if (!best || best.artW * best.artH > SIZE_CACHE_MAX_CELLS) return null
+  return {
+    w: best.artW,
+    h: best.artH,
+    codes: best.palette.map(c => c.id),
+    packed: encodeCells(best.cells)
+  }
+}
+
+/** 存档里的底稿 → 缓存条目（色号按当前图纸的色板找，找不到再查全局色板） */
+function unpackMasterEntry(p, raw) {
+  if (!raw || typeof raw.packed !== 'string') return null
+  const w = Number(raw.w)
+  const h = Number(raw.h)
+  if (!(w > 0 && h > 0) || !Number.isFinite(w) || !Number.isFinite(h)) return null
+  if (w * h > SIZE_CACHE_MAX_CELLS) return null
+  const ids = decodeCells(raw.packed, Array.isArray(raw.codes) ? raw.codes : [])
+  if (ids.length < w * h) return null
+  const palette = []
+  const indexOf = new Map()
+  const cells = new Int32Array(w * h).fill(EMPTY)
+  for (let i = 0; i < w * h; i++) {
+    const id = ids[i]
+    if (!id) continue
+    let k = indexOf.get(id)
+    if (k === undefined) {
+      const color = (p.palette || []).find(c => c.id === id) || getColorById(id)
+      if (!color) continue
+      k = palette.length
+      palette.push(color)
+      indexOf.set(id, k)
+    }
+    cells[i] = k
+  }
+  return palette.length ? { artW: w, artH: h, cells, palette } : null
 }
 
 /**
@@ -2477,8 +2697,12 @@ export async function yieldForBusyPaint() {
   await new Promise(r => requestAnimationFrame(r))
 }
 
-/** 根据当前参数跑一次生成（会替换掉现有三方案） */
-export function regenerate({ silent = false, keys } = {}) {
+/** 根据当前参数跑一次生成（会替换掉现有三方案）
+ *
+ * keepSizeCache：换尺寸那条路要保留别的尺寸的缓存（见 setCanvasSize）；
+ * 其它调用（换图 / 改参数 / 恢复方案）都让旧尺寸的结果作废，只记当前尺寸。
+ */
+export function regenerate({ silent = false, keys, keepSizeCache = false } = {}) {
   const img = sourceImage()
   if (!img) {
     if (!silent) toastWarn('请先上传图片，或从素材中心挑一个图案')
@@ -2563,6 +2787,9 @@ export function regenerate({ silent = false, keys } = {}) {
     } else if (!variants.value.some(v => v.key === activeKey.value)) {
       activeKey.value = recommendedKey
     }
+    /* 参数 / 源图变了：旧尺寸的缓存作废，把当前尺寸记一份。
+       换尺寸那条路（keepSizeCache）由调用方把旧缓存并回来，这里不动。 */
+    if (!keepSizeCache) attachSizeCaches(new Map(), `${gw}x${gh}`)
     /* 成品区域变了（画布没变），旧的拼制进度下标对应的是另一张网格：
        留着它会让进度条显示一个跟当前图纸无关的百分比，
        完成过的作品更会变成「已完成但格子对不上」。 */
@@ -3458,6 +3685,10 @@ export function saveProject(name, extra) {
       if (edits) extra.edits = edits
       const layer = packEditLayer(t)
       if (layer) extra.layer = layer
+      /* 底稿（见过的最大的成品尺寸）：重新打开后放大回这个大尺寸要逐格还原。
+         存档里的源图只有 512 px，靠它重新取样回不到保存前的细节。 */
+      const master = packMasterEntry(v, t)
+      if (master) extra.master = master
       return {
         key: v.key,
         label: v.label,
@@ -3586,6 +3817,9 @@ export function openProject(id) {
         editMap: unpackEditMap(p, v.data && v.data.edits),
         /* 修改层：记着「改那一刻的尺寸」，比存档里的图纸更细时靠它保住精度 */
         editLayer: unpackEditLayer(p, v.data && v.data.layer),
+        /* 底稿：保存时见过的最大的成品尺寸（比存档里的图纸大时才有），
+           重新打开后放大回这个尺寸要逐格还原，不能靠 512 px 的源图重新取样 */
+        master: unpackMasterEntry(p, v.data && v.data.master),
         key: v.key,
         label: v.label,
         tagline: v.tagline,
@@ -3635,6 +3869,9 @@ export function openProject(id) {
     if (offBrand) remapVariantsToBrand(options.brandId, availableColors.value)
     options.targetColors = proj.targetColors || options.targetColors
     resetBrandTargetColors()
+    /* 尺寸还原缓存：当前图纸 + 存档里的底稿（最大尺寸）各一份。
+       换回这些尺寸时直接还原，不再用 512 px 的源图重新取样。 */
+    seedSizeCaches()
     projectName.value = proj.name
     currentProjectId.value = proj.id
     sourceImg.value = null
@@ -4399,7 +4636,12 @@ export function zoomBy(d) {
  *     缩到 52 再放回 104 仍是那一颗；在 52 上改的一颗，放大到 104 是 2×2 一块。
  *   · 不弹层、不遮盖手改；没有源图（老存档且没快照）才退回按当前图纸块缩放。
  *
- * @returns {{ resampled: boolean, keptEdits: number }|{ scaled: boolean, croppedBeads: number, moved: boolean, boardChanged: boolean }|null}
+ * 2026-11-05 硬性要求（覆盖「每次都重新取样」那一条的副作用）：大 → 小 → 大必须
+ * **逐格还原**到原来那张图（细节与颜色数量都不许少），保存过和没保存的作品一样。
+ * 所以这个尺寸之前生成过就直接用缓存还原，不再重新取样 —— 存档里的 512 px 源图
+ * 重新取样回不到保存前的细节（实测 104 格差 5709 格、少 2 色）。
+ *
+ * @returns {{ restored?: boolean, resampled?: boolean, keptEdits: number }|{ scaled: boolean, croppedBeads: number, moved: boolean, boardChanged: boolean }|null}
  */
 export function setCanvasSize(w, h, { silent = false, announce = true } = {}) {
   const max = maxCells.value
@@ -4419,20 +4661,43 @@ export function setCanvasSize(w, h, { silent = false, announce = true } = {}) {
   const prevH = options.canvasH
   options.canvasW = cw
   options.canvasH = ch
+  const key = `${cw}x${ch}`
+
+  /* ① 这个尺寸之前生成过：直接还原那一份。
+     大 → 小 → 大要逐格回到原样（细节、颜色数量都不许少），这是硬性要求。 */
+  if (variants.value.length && variants.value.every(v => cachedSizeEntry(v, key))) {
+    const layers = collectEditLayers()
+    restoreSizeFromCache(key)
+    clearHistory()
+    if (buildProgress.value.size) buildProgress.value = new Set()
+    const kept = applyEditLayers(layers)
+    if (kept) manualEdited.value = true
+    saveStatus.value = '未保存'
+    if (announce) {
+      toastOk(`已还原到 ${cw} × ${ch} 格（细节与颜色数量保持原样${kept ? '，手工修改按原尺寸保留' : ''}）`)
+    }
+    return { restored: true, resampled: true, keptEdits: kept }
+  }
 
   /* 有真原图：按新尺寸重新取样整张图，再把修改层按它自己的分辨率落回去。
      原图部分因此永远跟着原图走，修改部分保留「改那一刻」的精度。
      老存档的源图是按图纸重建的（sourceFromPattern）—— 那不是原图，放大也只能铺块，
      走下面的按块缩放更忠实（颜色一颗不变），不去假装重新取样。 */
   if (sourceUrl.value && !sourceFromPattern.value && variants.value.length) {
+    const oldCaches = collectSizeCaches()
     const layers = collectEditLayers()
+    /* 只重生成这件作品现有的方案：打开的作品可能只有一个方案（免费版 / 存档裁剪过），
+       换尺寸时凭空多出另外两个方案，它们的尺寸缓存永远对不上，换回来就还原不了。 */
+    const keys = variants.value.map(v => v.key)
     /* silent 交给调用方：一次重新取样要几百毫秒，提示由下面这一条 / 左栏说明行承担 */
-    const ok = regenerate({ silent: true })
+    const ok = regenerate({ silent: true, keepSizeCache: true, keys })
     if (!ok) {
       options.canvasW = prevW
       options.canvasH = prevH
       return null
     }
+    /* 先记缓存、再叠手改：缓存存的是「这个尺寸的生成结果」，手改由修改层投影回来 */
+    attachSizeCaches(oldCaches, key)
     const kept = applyEditLayers(layers)
     if (kept) {
       manualEdited.value = true
@@ -4445,7 +4710,12 @@ export function setCanvasSize(w, h, { silent = false, announce = true } = {}) {
   }
 
   /* 没有源图（老存档且没带快照）：只能按当前图纸块缩放，手改跟着格子走 */
-  if (variants.value.length) return resizeVariantsPreserving(cw, ch, { silent, announce })
+  if (variants.value.length) {
+    const oldCaches = collectSizeCaches()
+    const r = resizeVariantsPreserving(cw, ch, { silent, announce })
+    attachSizeCachesAfterResize(oldCaches, key)
+    return r
+  }
   return null
 }
 

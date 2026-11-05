@@ -122,6 +122,8 @@ const setupExpr = (art, paint) => `(async () => {
   const asset = A.ASSETS.find(a => a.featured) || A.ASSETS[0]
   await S.useAsset(asset)
   await sleep(300)
+  /* 这张卡按素材比例换算网格；验收里统一用正方形网格，块坐标才好算 */
+  S.sourceAspect.value = 1
   S.options.canvasMaxW = 156
   S.options.canvasMaxH = 156
   S.options.canvasW = ${art}
@@ -150,15 +152,18 @@ const setupExpr = (art, paint) => `(async () => {
     bubbles: true, cancelable: true,
     pointerId: 7, pointerType: 'mouse', isPrimary: true, button: 0, buttons: type === 'pointerup' ? 0 : 1
   })
-  /* 画在**成品区域**里（成品居中在底板上，四周是留白）：成品坐标 (12,12)。
+  /* 画在**成品区域**里（成品居中在底板上，四周是留白）：取正中间那一格，
+     任何尺寸都在图案主体里（12,12 在 156 格上已经落到留白了）。
      笔色挑一个与这一格不同的：同色画上去不算改动，manualEdited 不会立起来。 */
   const ax = Math.floor((p.width - p.artW) / 2)
   const ay = Math.floor((p.height - p.artH) / 2)
-  const at = (ay + 12) * p.width + (ax + 12)
+  const px = Math.floor(${art} / 2)
+  const py = Math.floor(${art} / 2)
+  const at = (ay + py) * p.width + (ax + px)
   const brush = p.palette.find((c, i) => i !== p.cells[at]) || p.palette[0]
   S.brushColorId.value = brush.id
-  cv.dispatchEvent(ptr('pointerdown', ax + 12, ay + 12))
-  cv.dispatchEvent(ptr('pointerup', ax + 12, ay + 12))
+  cv.dispatchEvent(ptr('pointerdown', ax + px, ay + py))
+  cv.dispatchEvent(ptr('pointerup', ax + px, ay + py))
   await sleep(300)
   ` : ''}
   return { ok: true, asset: asset.name, manualEdited: S.manualEdited.value }
@@ -172,7 +177,7 @@ const STATE = `(() => {
   const oy = p ? Math.floor((p.height - p.artH) / 2) : 0
   const artGrid = p ? Array.from({ length: p.artH }, (_, y) =>
     Array.from({ length: p.artW }, (_, x) => p.cells[(oy + y) * p.width + (ox + x)])) : null
-  const range = document.querySelector('[data-size-range]')
+  const range = document.querySelector('[data-size-card-range]') || document.querySelector('[data-size-range]')
   const head = document.querySelector('.canvasTitleBar')
   return {
     cap: S.options.canvasMaxW + 'x' + S.options.canvasMaxH,
@@ -189,7 +194,7 @@ const STATE = `(() => {
     guardOpen: !!document.querySelector('[data-size-guard]') || !!document.querySelector('.dialog__head h2'),
     slider: range ? range.value : null,
     sliderMax: range ? range.max : null,
-    note: ((document.querySelector('[data-size-note]') || {}).textContent || '').trim(),
+    note: ((document.querySelector('[data-size-note]') || document.querySelector('[data-size-card-intro]') || {}).textContent || '').trim(),
     headText: head ? head.textContent.replace(/\\s+/g, ' ').trim() : null
   }
 })()`
@@ -197,7 +202,7 @@ const STATE = `(() => {
 /** 真拖滑杆（设值 + input + change，走页面自己的处理链路） */
 const dragExpr = (v) => `(async () => {
   const sleep = ms => new Promise(r => setTimeout(r, ms))
-  const range = document.querySelector('[data-size-range]')
+  const range = document.querySelector('[data-size-card-range]') || document.querySelector('[data-size-range]')
   if (!range) return { ok: false, err: '找不到清晰度滑杆' }
   range.value = String(${JSON.stringify(v)})
   range.dispatchEvent(new Event('input', { bubbles: true }))
@@ -213,6 +218,11 @@ function cellId(state, x, y) {
   if (x < 0 || y < 0 || x >= w || y >= h) return '?'
   const k = state.artGrid[y][x]
   return k < 0 ? null : state.palette[k] || '?'
+}
+
+/** 成品区域正中间那一格（验收里画的那一笔固定在这里；任何尺寸都在图案主体内） */
+function mid(n) {
+  return Math.floor(n / 2)
 }
 
 /** 两套色号是不是完全相同（换尺寸不许自动改颜色） */
@@ -377,12 +387,25 @@ async function main() {
     fs.writeFileSync(path.join(OUT, name), Buffer.from(s.data, 'base64'))
   }
   /* 全屏创作工作台把尺寸滑杆收进了右侧抽屉：桌面 / 窄三栏先点「成品尺寸」把抽屉打开，
-     滑杆与说明行才在 DOM 里（手机端在底部弹层里，见 drag） */
+     滑杆与说明行才在 DOM 里；手机端尺寸在「图纸调整」底部弹层里。 */
   const openSizePanel = async () => {
-    if (isMobile) return
+    if (isMobile) {
+      await evaluate(`(() => {
+        if (document.querySelector('[data-size-card-range]')) return 'already'
+        /* 手机没有右栏，也没有 .quickItem 快捷栏：图纸调整在画布下方的 msEditBar 里 */
+        const b = [...document.querySelectorAll('.msEditBar__pills button')]
+          .find(el => /图纸调整|成品尺寸/.test(el.textContent))
+        if (b) b.click()
+        return !!b
+      })()`)
+      await sleep(700)
+      return
+    }
     await evaluate(`(() => {
-      if (document.querySelector('[data-size-range]')) return 'already'
-      const b = [...document.querySelectorAll('.csSide__row')].find(el => /成品尺寸/.test(el.textContent))
+      if (document.querySelector('[data-size-card-range]') || document.querySelector('[data-size-range]')) return 'already'
+      /* 成品尺寸滑杆在「图纸调整」抽屉里（右栏那排入口已经改成 图纸调整 / 分析 / 库存 / 颜色 / 分板） */
+      const b = document.querySelector('[data-side-adjust]')
+        || [...document.querySelectorAll('.csSide__row')].find(el => /成品尺寸|图纸调整/.test(el.textContent))
       if (b) b.click()
       return !!b
     })()`)
@@ -393,16 +416,9 @@ async function main() {
     await sleep(3500)
     await openSizePanel()
   }
-  /* 手机端成品尺寸在底部弹层里：先点快捷栏的「尺寸」把弹层打开，滑杆才在 DOM 里 */
   const drag = async (v) => {
-    if (isMobile) {
-      await evaluate(`(() => {
-        const b = [...document.querySelectorAll('.quickItem')].find(el => el.textContent.trim() === '尺寸')
-        if (b) b.click()
-        return !!b
-      })()`)
-      await sleep(800)
-    }
+    /* 入口按钮在没载图时是 disabled：每次拖之前再确认一次面板已打开 */
+    await openSizePanel()
     return evaluate(dragExpr(v))
   }
 
@@ -423,12 +439,12 @@ async function main() {
   if (!report.setup.ok) fail('准备失败：' + report.setup.err)
   const beforeUp = await evaluate(STATE)
   if (!beforeUp.manualEdited) fail('准备：画一笔之后 manualEdited 没立起来')
-  const painted = cellId(beforeUp, 12, 12)
+  const painted = cellId(beforeUp, mid(52), mid(52))
   await shot('up-before.png')
   await drag(156)
   const afterUp = await evaluate(STATE)
   await shot('up-after.png')
-  const upBlock = editBlock(12, 12, 52, 52, 156, 156)
+  const upBlock = editBlock(mid(52), mid(52), 52, 52, 156, 156)
   /* 原图部分要与「同一份源图、同一套参数重新生成」逐格一致 —— 这就是「按原图缩放」 */
   await evaluate(`(async () => {
     const S = window.__studio
@@ -456,11 +472,11 @@ async function main() {
   await reload()
   report.setupShrink = await evaluate(setupExpr(156, true))
   const beforeDown = await evaluate(STATE)
-  const paintedDown = cellId(beforeDown, 12, 12)
+  const paintedDown = cellId(beforeDown, mid(156), mid(156))
   await drag(52)
   const afterDown = await evaluate(STATE)
   await shot('down-after.png')
-  const downBlock = editBlock(12, 12, 156, 156, 52, 52)
+  const downBlock = editBlock(mid(156), mid(156), 156, 156, 52, 52)
   await evaluate(`(async () => {
     const S = window.__studio
     const sleep = ms => new Promise(r => setTimeout(r, ms))
@@ -510,7 +526,7 @@ async function main() {
   await drag(156)
   const afterReopen = await evaluate(STATE)
   await shot('reopen-after.png')
-  const reopenBlock = editBlock(12, 12, 52, 52, 156, 156)
+  const reopenBlock = editBlock(mid(52), mid(52), 52, 52, 156, 156)
   await evaluate(`(async () => {
     const S = window.__studio
     const sleep = ms => new Promise(r => setTimeout(r, ms))
@@ -583,7 +599,7 @@ async function main() {
     fail(`老存档：放大后色号变了（${beforeLegacy.palette.join(',')} → ${afterLegacy.palette.join(',')}）`)
   }
   if (!anchorsMatch(beforeLegacy, afterLegacy)) fail('老存档：放大后有些旧豆换了颜色')
-  if (painted && cellId(afterLegacy, 36, 36) !== painted) fail('老存档：放大后改过的豆子丢了')
+  if (painted && cellId(afterLegacy, mid(156), mid(156)) !== painted) fail('老存档：放大后改过的豆子丢了')
 
   /* ---------- ⑥ 滑杆上限 = 底板边界：拉到最大撑满画布、不超出不裁切 ---------- */
   await reload()
@@ -597,6 +613,7 @@ async function main() {
     S.options.removeBg = false
     await S.useAsset(A.ASSETS.find(a => a.featured) || A.ASSETS[0])
     await sleep(300)
+    S.sourceAspect.value = 1
     S.options.canvasMaxW = 104
     S.options.canvasMaxH = 104
     S.options.canvasW = 52
@@ -606,6 +623,7 @@ async function main() {
     window.__studio = S
     return true
   })()`)
+  await openSizePanel()
   const beforeMax = await evaluate(STATE)
   const maxLong = Number(beforeMax.sliderMax)
   report.maxSlider = { before: beforeMax, sliderMax: maxLong }
@@ -658,13 +676,13 @@ async function main() {
     const p = S.pattern.value
     const ox = Math.floor((p.width - p.artW) / 2)
     const oy = Math.floor((p.height - p.artH) / 2)
-    const at = (oy + 12) * p.width + (ox + 12)
+    const at = (oy + 26) * p.width + (ox + 26)
     const k = p.cells[at]
     const brush = p.palette.find((c, i) => i !== k) || p.palette[0]
     S.brushColorId.value = brush.id
-    S.paintAt(ox + 12, oy + 12)
+    S.paintAt(ox + 26, oy + 26)
     await sleep(250)
-    return { id: brush.id, x: 12, y: 12, manualEdited: S.manualEdited.value }
+    return { id: brush.id, x: 26, y: 26, manualEdited: S.manualEdited.value }
   })()`)
   await drag(104)
   const roundEdited = await evaluate(STATE)
@@ -682,7 +700,7 @@ async function main() {
   if (!report.setupLayer.ok) fail('修改层：准备失败 ' + report.setupLayer.err)
   const layerBefore = await evaluate(STATE)
   report.layerBefore = layerBefore
-  const layerPainted = cellId(layerBefore, 12, 12)
+  const layerPainted = cellId(layerBefore, mid(104), mid(104))
   await drag(52)
   report.layerSmall = await evaluate(STATE)
   report.layerSave = await evaluate(`(async () => {
@@ -712,7 +730,7 @@ async function main() {
   await drag(104)
   const layerBack = await evaluate(STATE)
   await shot('layer-roundtrip.png')
-  const layerBlock = editBlock(12, 12, 104, 104, 104, 104)
+  const layerBlock = editBlock(mid(104), mid(104), 104, 104, 104, 104)
   report.layerRound = { before: layerBefore.art, reopen: layerReopen.art, back: layerBack.art, painted: layerPainted }
   if (layerBack.art !== '104x104') fail(`修改层：放回去没到 104（实际 ${layerBack.art}）`)
   if (!blockAll(layerBack, layerBlock, layerPainted)) {

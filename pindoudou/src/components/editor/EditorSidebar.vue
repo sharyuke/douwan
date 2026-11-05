@@ -570,8 +570,11 @@ function applySizeNow(w, h, token = ++sizeToken) {
     const r = setCanvasSize(w, h, { silent: true, announce: false })
     sizePending.value = false
     if (r && r.resampled) {
-      /* 原图部分按原图重新取样；改过的部分按修改时的尺寸落回 */
-      flashSizeNote(`画面已按原图缩放到 ${w} × ${h} 格${r.keptEdits ? '（手工修改按原尺寸保留）' : ''}`)
+      /* 原图部分按原图重新取样；改过的部分按修改时的尺寸落回。
+         restored = 换回之前到过的尺寸，细节与颜色数量逐格还原。 */
+      flashSizeNote(r.restored
+        ? `画面已还原到 ${w} × ${h} 格${r.keptEdits ? '（手工修改按原尺寸保留）' : ''}`
+        : `画面已按原图缩放到 ${w} × ${h} 格${r.keptEdits ? '（手工修改按原尺寸保留）' : ''}`)
     } else if (r && r.scaled) {
       /* 没有源图的兜底：按当前图纸块缩放（放大从底稿还原细节、缩小按块合并） */
       flashSizeNote(r.grew
