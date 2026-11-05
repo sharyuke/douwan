@@ -760,6 +760,23 @@ async function main() {
   const redoEnabled = await evalJs(send, `[...document.querySelectorAll('.csRail .csTool')].find(b => b.textContent.includes('重做')).disabled`)
   check('撤销后重做可用', redoEnabled === false, redoEnabled)
 
+  /* 交互：图纸转换的「更换图片」直接打开文件选择。
+     不再经过「上传图片 → 选择图片 → 导入图片」两步确认，所以点完不应出现 .cmdDlg。
+     用 CDP 拦住系统文件选择框，避免无头浏览器挂住。 */
+  {
+    await evalJs(send, `(() => { const b = [...document.querySelectorAll('.csModeSeg button')].find(x => x.textContent.includes('图纸转换')); b && b.click(); return !!b })()`)
+    await sleep(500)
+    await send('Page.setInterceptFileChooserDialog', { enabled: true })
+    const clicked = await evalJs(send, `(() => { const b = document.querySelector('[data-console="upload"]'); if (!b) return false; b.click(); return true })()`)
+    await sleep(400)
+    const dlgOpened = await evalJs(send, `!!document.querySelector('.cmdDlg')`)
+    check('「更换图片」直接打开文件选择（不再弹导入确认）', clicked && !dlgOpened, { clicked, dlgOpened })
+    await send('Page.setInterceptFileChooserDialog', { enabled: false })
+    /* 回到自由画布：后面的保存 / 重命名 / 导出断言沿用原来的起点 */
+    await evalJs(send, `(() => { const b = [...document.querySelectorAll('.csModeSeg button')].find(x => x.textContent.includes('自由画布')); b && b.click(); return !!b })()`)
+    await sleep(600)
+  }
+
   // 交互：反馈按钮
   await evalJs(send, `[...document.querySelectorAll('.csActions .csAction')].find(b => b.textContent.trim() === '反馈').click(); 1`)
   await sleep(600)

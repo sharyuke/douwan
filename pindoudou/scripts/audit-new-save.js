@@ -63,6 +63,10 @@
 
   const M = await d.membership()
   M.applyServerMembership({ plan: 'pro', is_pro: true, expire_at: null })
+  /* 保存要绑定账号（未登录会先弹登录框）。这个探针只验「换图 = 新作品」，
+     不测登录流程，所以直接给一个已登录身份，别让登录框把保存拦下来。 */
+  const U = await d.userAccount()
+  U.currentUser.value = { id: 'probe-user', username: 'probe-user', nickname: '自检账号' }
   S.options.removeBg = false
 
   /* 从干净状态开始：同一 Chrome profile 在各视口之间共享 localStorage */
@@ -96,9 +100,9 @@
     return !!(await waitFor(() => pat() && pat() !== before && pat().width > 0))
   }
 
-  /** 点界面上的保存（全屏工作台顶栏 / 旧版画布标题栏 / 手机更多抽屉） */
+  /** 点界面上的保存（全屏工作台顶栏 / 手机工作台顶栏 / 旧版画布标题栏 / 手机更多抽屉） */
   async function saveViaUI() {
-    const bar = [...document.querySelectorAll('.csActions button, .canvasTitleBar button')]
+    const bar = [...document.querySelectorAll('.csActions button, .msTop .msPill, .canvasTitleBar button')]
       .find(b => isVisible(b) && b.textContent.trim() === '保存')
     if (bar) {
       bar.click()
@@ -138,6 +142,8 @@
   step('上传第二张图', await upload('probe-new', '#2F6FB4', 0.3))
   step('新图不再挂在旧作品上', S.currentProjectId.value === '', `currentProjectId=${S.currentProjectId.value || '空'}`)
   step('状态回到「未保存」', S.saveStatus.value === '未保存', S.saveStatus.value)
+  /* 换图 = 新建画布：地址也收回 /editor，不再停在 /editor/<旧作品> */
+  step('换图后地址是新建画布', location.pathname === '/editor', location.pathname)
   step('旧作品存档逐字节未变', recText(idA) === recA0)
   step('新图还没进任何作品', S.projects.value.length === 1, `${S.projects.value.length} 件`)
 
@@ -180,6 +186,7 @@
   const recA3 = recText(idA)
   step('打开旧作品后上传第三张图', await upload('probe-third', '#3FA06A', 0.7))
   step('第三张图同样解除关联', S.currentProjectId.value === '', `currentProjectId=${S.currentProjectId.value || '空'}`)
+  step('打开旧作品换图后地址同样收回新建画布', location.pathname === '/editor', location.pathname)
   const how4 = await saveViaUI()
   const idC = await waitFor(() => S.currentProjectId.value, 8000)
   step('第三次界面保存可用', !!how4, how4)

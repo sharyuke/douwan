@@ -207,6 +207,11 @@ export const generating = ref(false)
 export const genMs = ref(0)
 export const projectName = ref('我的拼豆作品')
 export const saveStatus = ref('未保存')
+/**
+ * 每次「载入新图 = 新建画布」时自增。工作台据此把地址从 /editor/<旧作品>
+ * 收回 /editor：换图后这里已经是一件还没保存的新作品，地址不该继续指向旧作品。
+ */
+export const newCanvasAt = ref(0)
 export const currentView = ref('pattern')
 /**
  * 创作模式：free = 自由画布（从零手绘）/ edit = 图纸转换（上传图片转图纸）。
@@ -2507,7 +2512,7 @@ function makeSourceSnapshot(img) {
 }
 
 export function loadImageSource(img, url, name = '', kind = 'raster') {
-  /* 新拖进来的图是一件新作品（2026-10-31）：此前打开的那件作品还挂在
+  /* 换图 = 新建画布（2026-11-05 再次确认）：此前打开的那件作品还挂在
      currentProjectId 上，直接点保存会把新图盖进旧作品里，旧作品就没了。
      这里先解除关联，保存时另建一件；旧作品原样留在「我的作品」里，想接着改再打开它。
      打开存档走的是 openProject（不经过这里），所以不会误伤「改存档再保存」那条路。
@@ -2515,6 +2520,7 @@ export function loadImageSource(img, url, name = '', kind = 'raster') {
   if (currentProjectId.value) currentProjectId.value = ''
   if (buildProgress.value.size) buildProgress.value = new Set()
   saveStatus.value = '未保存'
+  newCanvasAt.value += 1
   sourceImg.value = img
   sourceUrl.value = url
   sourceName.value = name

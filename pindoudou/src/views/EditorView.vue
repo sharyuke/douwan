@@ -5,7 +5,6 @@ import EditorSidebar from '../components/editor/EditorSidebar.vue'
 import EditorCanvas from '../components/editor/EditorCanvas.vue'
 import EditorInsights from '../components/editor/EditorInsights.vue'
 import DeliveryPanel from '../components/editor/DeliveryPanel.vue'
-import UploadDialog from '../components/editor/UploadDialog.vue'
 import MaterialsDialog from '../components/editor/MaterialsDialog.vue'
 import AiDialog from '../components/editor/AiDialog.vue'
 import ExportDialog from '../components/editor/ExportDialog.vue'
@@ -33,7 +32,7 @@ import {
   undo, redo, canUndo, canRedo,
   openColorReplace, ensureBlankCanvas,
   createMode, workspaceMode, switchCreateMode, activateCreateMode, stashCurrentWorkspace,
-  sourceRecommend
+  sourceRecommend, newCanvasAt
 } from '../composables/useStudio.js'
 import { EDIT_TOOLS } from '../data/icons.js'
 import { BOARD_SPECS, boardSpecFor } from '../lib/boardSpec.js'
@@ -507,7 +506,6 @@ function doMirror() {
 
 /* 命令弹窗（Figma 124:2316 / 2139 / 1545 / 1628 / 1365 / 1169） */
 const materialsOpen = ref(false)
-const uploadOpen = ref(false)
 const exportOpen = ref(false)
 const analysisOpen = ref(false)
 const stockOpen = ref(false)
@@ -808,6 +806,13 @@ watch(() => route.params.projectId, id => {
   openWorkspaceProject(id)
 })
 
+/* 换图 = 新建画布：新图已经和旧作品解除关联（useStudio 的 loadImageSource），
+   地址也收回 /editor，不再显示 /editor/<旧作品>。保存时另建一件，
+   刷新页面也不会又打开旧作品、看起来像新图被存进了旧作品。 */
+watch(newCanvasAt, () => {
+  if (route.params.projectId) router.replace('/editor')
+})
+
 /* ---------------------------------------------------------------- 登录
    顶栏账户入口：未登录显示「登录」，已登录显示「个人中心」。
    保存要绑定账号 —— 只有本机匿名身份时也按未登录处理，先弹登录框，
@@ -1009,7 +1014,8 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
         </button>
       </template>
       <template v-else>
-        <button class="csCmd__btn hit36h" data-console="upload" :disabled="mobileBusy" @click="uploadOpen = true">
+        <!-- 换图就是新建一张画布：直接打开文件选择，不再经过「导入图片」确认弹窗 -->
+        <button class="csCmd__btn hit36h" data-console="upload" :disabled="mobileBusy" @click="pickImage">
           <Icon name="image-up" :size="20" /><span>更换图片</span>
         </button>
         <button class="csCmd__btn hit36h" data-console="materials" @click="materialsOpen = true">
@@ -1615,8 +1621,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
       </template>
     </BaseDialog>
 
-    <!-- 六个命令弹窗（设计稿 124:2316 / 2139 / 1545 / 1628 / 1365 / 1169） -->
-    <UploadDialog v-model="uploadOpen" />
+    <!-- 五个命令弹窗（设计稿 124:2316 / 2139 / 1545 / 1628 / 1365 / 1169） -->
     <AiDialog v-model="aiOpen" />
     <MaterialsDialog v-model="materialsOpen" />
     <ExportDialog v-model="exportOpen" />
