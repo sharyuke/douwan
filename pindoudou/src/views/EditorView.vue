@@ -941,7 +941,8 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
   <div class="studio studio--console" :class="{ 'studio--mobile': mobileConsole }">
     <!-- ============================ 全局命令栏（全屏工作台） ============================
          第一行：品牌 · 作品名（可改名）· 保存状态 ‖ 居中：模式切换 ‖ 保存 / 导出 / 反馈 / 个人中心
-         第二行：上传图片 / AI 生成 / 素材库 | 智能抠图力度 · 卡通风格（对接中）| 钉板
+         第二行：五个功能（上传图片 / AI 生成 / 素材库 | 卡通 · 钉板 · 色板）整体居中，
+                网格开关贴右缘；原来第三行的网格开关已并进这一行（2026-11-05）。
          版面与文字层级按 Figma「豆玩操作台优化」1:593；字号字重按 1:2「豆玩 · 文字与字体规范」。
          手机 / 平板没有对应设计，这两行不渲染（见 consoleMode）。 -->
     <header v-if="consoleMode" class="csTop">
@@ -1002,86 +1003,86 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
     </header>
 
     <div v-if="consoleMode" class="csCmd">
-      <template v-if="createMode === 'free'">
-        <!-- 自由画布：从零开始手绘，不提供上传入口（设计稿 1:2445 第二行只有这两颗）。
-             AI 生图还没接（lib/aiPending.js 的 AI_GENERATION_READY），入口先保留位置、禁用。 -->
-        <button
-          class="csCmd__btn hit36h" :class="{ 'is-soon': !AI_GENERATION_READY }"
-          type="button" :disabled="!AI_GENERATION_READY"
-          :title="AI_GENERATION_READY ? 'AI 生成素材' : `AI 生成：${AI_PENDING_TEXT}`"
-          @click="aiOpen = true"
-        >
-          <Icon name="sparkles" :size="20" /><span>AI 生成</span>
-          <em v-if="!AI_GENERATION_READY">对接中</em>
-        </button>
-        <button class="csCmd__btn hit36h" data-console="materials" @click="materialsOpen = true">
-          <Icon name="images" :size="20" /><span>素材库</span>
-        </button>
-      </template>
-      <template v-else>
-        <!-- 换图就是新建一张画布：直接打开文件选择，不再经过「导入图片」确认弹窗 -->
-        <button class="csCmd__btn hit36h" data-console="upload" :disabled="mobileBusy" @click="pickImage">
-          <Icon name="image-up" :size="20" /><span>更换图片</span>
-        </button>
-        <button class="csCmd__btn hit36h" data-console="materials" @click="materialsOpen = true">
-          <Icon name="images" :size="20" /><span>素材库</span>
-        </button>
-        <span class="csDiv csDiv--v"></span>
-        <button class="csCmd__btn is-soon hit36h" type="button" disabled title="卡通风格：对接中，敬请期待">
-          <Icon name="wand-sparkles" :size="24" /><span>卡通</span><em>对接中</em>
-        </button>
-      </template>
-
-      <span class="csSpacer"></span>
-
-      <div class="csBoard">
-        <button class="csBoard__btn" type="button" :aria-expanded="boardOpen" @click="boardOpen = !boardOpen">
-          <Icon name="grid-3x3" :size="16" />
-          <span>钉板 {{ boardSpec }} × {{ boardSpec }}</span>
-          <Icon name="chevron-down" :size="16" />
-        </button>
-        <div v-if="boardOpen" class="csPop csBoard__pop">
-          <p class="csPop__title">底板尺寸</p>
+      <div class="csCmd__main">
+        <template v-if="createMode === 'free'">
+          <!-- 自由画布：从零开始手绘，不提供上传入口（设计稿 1:2445 第二行只有这两颗）。
+               AI 生图还没接（lib/aiPending.js 的 AI_GENERATION_READY），入口先保留位置、禁用。 -->
           <button
-            v-for="o in boardOptions" :key="o.spec" type="button"
-            class="csBoard__item" :class="{ on: o.current, locked: o.locked }"
-            @click="pickBoard(o)"
+            class="csCmd__btn hit36h" :class="{ 'is-soon': !AI_GENERATION_READY }"
+            type="button" :disabled="!AI_GENERATION_READY"
+            :title="AI_GENERATION_READY ? 'AI 生成素材' : `AI 生成：${AI_PENDING_TEXT}`"
+            @click="aiOpen = true"
           >
-            <b>{{ o.w }} × {{ o.h }}</b>
-            <span>{{ o.w }} 钉画线板</span>
-            <em v-if="o.locked">PRO</em>
-            <em v-else-if="o.rec" class="csBoard__rec">推荐</em>
-            <Icon v-else-if="o.current" name="check" :size="16" />
+            <Icon name="sparkles" :size="20" /><span>AI 生成</span>
+            <em v-if="!AI_GENERATION_READY">对接中</em>
           </button>
+          <button class="csCmd__btn hit36h" data-console="materials" @click="materialsOpen = true">
+            <Icon name="images" :size="20" /><span>素材库</span>
+          </button>
+        </template>
+        <template v-else>
+          <!-- 换图就是新建一张画布：直接打开文件选择，不再经过「导入图片」确认弹窗 -->
+          <button class="csCmd__btn hit36h" data-console="upload" :disabled="mobileBusy" @click="pickImage">
+            <Icon name="image-up" :size="20" /><span>更换图片</span>
+          </button>
+          <button class="csCmd__btn hit36h" data-console="materials" @click="materialsOpen = true">
+            <Icon name="images" :size="20" /><span>素材库</span>
+          </button>
+          <span class="csDiv csDiv--v"></span>
+          <button class="csCmd__btn is-soon hit36h" type="button" disabled title="卡通风格：对接中，敬请期待">
+            <Icon name="wand-sparkles" :size="24" /><span>卡通</span><em>对接中</em>
+          </button>
+        </template>
+
+        <div class="csBoard">
+          <button class="csBoard__btn" type="button" :aria-expanded="boardOpen" @click="boardOpen = !boardOpen">
+            <Icon name="grid-3x3" :size="16" />
+            <span>钉板 {{ boardSpec }} × {{ boardSpec }}</span>
+            <Icon name="chevron-down" :size="16" />
+          </button>
+          <div v-if="boardOpen" class="csPop csBoard__pop">
+            <p class="csPop__title">底板尺寸</p>
+            <button
+              v-for="o in boardOptions" :key="o.spec" type="button"
+              class="csBoard__item" :class="{ on: o.current, locked: o.locked }"
+              @click="pickBoard(o)"
+            >
+              <b>{{ o.w }} × {{ o.h }}</b>
+              <span>{{ o.w }} 钉画线板</span>
+              <em v-if="o.locked">PRO</em>
+              <em v-else-if="o.rec" class="csBoard__rec">推荐</em>
+              <Icon v-else-if="o.current" name="check" :size="16" />
+            </button>
+          </div>
+        </div>
+
+        <div class="csBoard">
+          <button class="csBoard__btn" type="button" :aria-expanded="brandOpen" @click="brandOpen = !brandOpen">
+            <Icon name="palette" :size="16" />
+            <span>{{ brandLabel }}</span>
+            <Icon name="chevron-down" :size="16" />
+          </button>
+          <div v-if="brandOpen" class="csPop csBoard__pop csBrand__pop">
+            <p class="csPop__title">品牌色板</p>
+            <button
+              v-for="b in paletteBrands" :key="b.id" type="button"
+              class="csBoard__item" :class="{ on: b.id === options.brandId }"
+              @click="pickBrand(b)"
+            >
+              <b>{{ b.name }}</b>
+              <span>{{ b.colorCount }} 色</span>
+              <Icon v-if="b.id === options.brandId" name="check" :size="16" />
+            </button>
+          </div>
         </div>
       </div>
 
-      <div class="csBoard">
-        <button class="csBoard__btn" type="button" :aria-expanded="brandOpen" @click="brandOpen = !brandOpen">
-          <Icon name="palette" :size="16" />
-          <span>{{ brandLabel }}</span>
-          <Icon name="chevron-down" :size="16" />
+      <!-- 网格开关：原来单独占第三行，现在贴在第一行右缘（画布固定拼豆图纸，分板在右栏） -->
+      <div class="csCmd__end">
+        <button class="csToggle" type="button" :class="{ on: options.showGrid }" :aria-pressed="options.showGrid" @click="toggleGrid">
+          <span>网格</span><i aria-hidden="true"></i>
         </button>
-        <div v-if="brandOpen" class="csPop csBoard__pop csBrand__pop">
-          <p class="csPop__title">品牌色板</p>
-          <button
-            v-for="b in paletteBrands" :key="b.id" type="button"
-            class="csBoard__item" :class="{ on: b.id === options.brandId }"
-            @click="pickBrand(b)"
-          >
-            <b>{{ b.name }}</b>
-            <span>{{ b.colorCount }} 色</span>
-            <Icon v-if="b.id === options.brandId" name="check" :size="16" />
-          </button>
-        </div>
       </div>
-    </div>
-
-    <!-- 文档与视图：画布固定停在拼豆图纸，分板收进右侧「颜色用量」下面；这里只留网格开关 -->
-    <div v-if="consoleMode" class="csDoc">
-      <button class="csToggle" type="button" :class="{ on: options.showGrid }" :aria-pressed="options.showGrid" @click="toggleGrid">
-        <span>网格</span><i aria-hidden="true"></i>
-      </button>
     </div>
 
     <!-- ============================ 手机工作台（设计稿 124:887） ============================
@@ -2078,11 +2079,15 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
   }
   .csIconBtn:hover{background:var(--cs-fill);border-color:var(--cs-line)}
 
-  /* ---------------- 第二行：命令栏 ---------------- */
+  /* ---------------- 第二行：命令栏 ----------------
+     五个功能合成一组、固定在页面中线上，网格开关占右缘（2026-11-05）。 */
   .csCmd{
-    display:flex;align-items:center;gap:6px;flex:0 0 auto;
+    display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);
+    align-items:center;gap:12px;flex:0 0 auto;
     height:50px;padding:0 16px;background:var(--cs-surface);border-bottom:1px solid var(--cs-line);
   }
+  .csCmd__main{display:flex;align-items:center;gap:6px;grid-column:2;justify-self:center;min-width:0}
+  .csCmd__end{display:flex;align-items:center;grid-column:3;justify-self:end}
   .csCmd__btn{
     display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 10px;
     border:1px solid transparent;border-radius:9px;background:transparent;
@@ -2120,16 +2125,10 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
   .csModeSeg button:hover{background:rgba(255,255,255,.72)}
   .csModeSeg button.on{background:var(--cs-accent);color:var(--cs-ink);font-weight:700}
 
-  /* ---------------- 第三行：文档与视图 ---------------- */
-  /* 视图页签已去掉（画布固定拼豆图纸），这一行只留贴右缘的网格开关 */
-  .csDoc{
-    display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);
-    align-items:center;gap:12px;flex:0 0 auto;
-    height:44px;padding:0 20px;background:var(--cs-surface);border-bottom:1px solid var(--cs-line);
-  }
+  /* ---------------- 网格开关（命令栏右缘） ---------------- */
   .csToggle{
     display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 2px;
-    border:0;background:transparent;grid-column:3;justify-self:end;
+    border:0;background:transparent;
     font-family:var(--font-sans);font-size:13px;font-weight:500;line-height:var(--ty-label-lh);letter-spacing:0;
     color:var(--cs-ink-2);white-space:nowrap;flex:0 0 auto;
   }
