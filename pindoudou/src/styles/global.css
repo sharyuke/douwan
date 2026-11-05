@@ -308,6 +308,26 @@ button{cursor:pointer;border:0;background:none}
 /* 只设上下内边距：左右留白交给 .wrap，避免把它的 22 / 14px 覆盖成 0 */
 .main--pad{padding-top:24px;padding-bottom:56px}
 
+/* 平板工作台（781–1099）把浏览器窗口固定在屏幕上：
+   页面本身不滚、不回弹，内容改在 .studio 里自己滚。
+   EditorView 只在 /editor 且平板 / 手指设备时挂 .is-editor-fixed。 */
+html.is-editor-fixed,
+body.is-editor-fixed{height:100%;overflow:hidden;overscroll-behavior:none;touch-action:manipulation}
+html.is-editor-fixed #app,
+html.is-editor-fixed .app{height:100%;min-height:0}
+html.is-editor-fixed .appBody{flex:1 1 auto;min-height:0}
+html.is-editor-fixed .appContent > .main{min-height:0;overflow:hidden}
+@media(min-width:768px){
+  html.is-editor-fixed .appBody--side{min-height:0;overflow:hidden}
+  html.is-editor-fixed .appBody--side > .appContent{
+    height:calc(100dvh - var(--header-h));
+    min-height:0;overflow:hidden;
+  }
+}
+html.is-editor-fixed .studio--tablet-fixed{
+  height:100%;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
+}
+
 /* 桌面 / 平板统一外壳：左侧导航 + 内容。
    收起 = 72px 图标轨，展开 = 208px（电脑默认展开、平板默认收起）；
    手机端（≤767px）不进入这套布局，继续用顶栏 + 底部标签栏。

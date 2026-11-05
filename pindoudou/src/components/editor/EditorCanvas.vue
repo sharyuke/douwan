@@ -32,7 +32,10 @@ const props = defineProps({
   chrome: { type: String, default: 'default' },
   /* 全屏工作台的两种模式：free = 自由画布（从零手绘）/ edit = 图纸转换（上传图片转图纸）。
      两种模式的空状态不一样，设计稿 1:2445 与 1:593 各画了一种。 */
-  mode: { type: String, default: 'free' }
+  mode: { type: String, default: 'free' },
+  /* 平板档锁画布：整张图纸固定在「适应窗口」，不提供缩放与平移入口。
+     画笔 / 橡皮 / 填充 / 吸色 / 撤回这些编辑能力不受影响。 */
+  locked: { type: Boolean, default: false }
 })
 const consoleChrome = computed(() => props.chrome === 'console')
 
@@ -84,8 +87,9 @@ function scrollToStage() {
   window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
 }
 
-/* 底部编辑工具：图标 + 文字，数据都在 data/icons.js（同一套线性规范） */
-const tools = EDIT_TOOLS
+/* 底部编辑工具：图标 + 文字，数据都在 data/icons.js（同一套线性规范）。
+   平板锁画布时去掉「移动」：画布固定，留着它只会让人以为还能拖。 */
+const tools = computed(() => props.locked ? EDIT_TOOLS.filter(t => t.key !== 'pan') : EDIT_TOOLS)
 const history = EDIT_HISTORY
 const actions = EDIT_ACTIONS
 
@@ -258,7 +262,7 @@ function exitActualSize({ restore = true } = {}) {
 }
 
 function toggleActualSize() {
-  if (!hasPattern.value) return
+  if (props.locked || !hasPattern.value) return
   if (actualMode.value) {
     exitActualSize()
     return
@@ -323,6 +327,7 @@ function fitStage() {
 }
 /* 居中：把图纸的滚动位置放回正中间（放大后迷路时一键回位） */
 function centerStage() {
+  if (props.locked) return
   const stage = stageEl.value
   if (!stage) return
   if (consoleViewport.value) {
@@ -528,8 +533,10 @@ watch([width, height], () => {
   if (autoFit) nextTick(() => setTimeout(fitToStage, 60))
 })
 /* 只换画布（底板）时成品区域不变、width/height 也不变，但图纸本身从 52 变成 104 格：
-   沿用旧缩放会让新底板顶出舞台，看不到四周留空，所以同样重新适配一次。 */
-watch(() => [pattern.value && pattern.value.width, pattern.value && pattern.value.height], () => {
+   沿用旧缩放会让新底板顶出舞台，看不到四周留空，所以同样重新适配一次。
+   必须分开盯两个数：getter 返回新数组时每次落笔都算「变过」，
+   会把刚挪好的视野在画完一笔后拽回正中。 */
+watch([() => pattern.value && pattern.value.width, () => pattern.value && pattern.value.height], () => {
   recenterPending = true
   if (autoFit) nextTick(() => setTimeout(fitToStage, 60))
 })
@@ -540,6 +547,22 @@ watch(hasPattern, v => {
   recenterPending = true
   nextTick(() => setTimeout(() => { if (autoFit) fitToStage() }, 80))
 })
+/* 平板档锁画布：切到这一档时退回编辑工具、退出实际大小，
+   把整张图纸重新按舞台适配一次，舞台的滚动位置也归零。 */
+function lockCanvasView() {
+  if (tool.value === 'pan') tool.value = 'paint'
+  exitActualSize({ restore: false })
+  autoFit = true
+  nextTick(() => {
+    fitToStage()
+    const stage = stageEl.value
+    if (stage) {
+      stage.scrollLeft = 0
+      stage.scrollTop = 0
+    }
+  })
+}
+watch(() => props.locked, locked => { if (locked) lockCanvasView() })
 watch(currentView, () => redrawAll())
 watch(generating, v => { if (!v) redrawAll() })
 /* 从原图 / 对照回到拼豆图纸，或从窄屏跨进全屏工作台：
@@ -564,23 +587,21 @@ let painting = false
 /* 触屏上的分工：单指 / 笔只编辑，画布固定。
    浏览器默认会把单指拖动解释成滚动（画布跟着手指跑），
    所以舞台在图纸视图下关掉了原生手势（见 global.css 的 .stage--edit）。
-   手指两根一起按下去是撤回，不看窗口宽度：iPad 横过来往往 ≥1100。
+   两指手势先不结算：两指一起轻点 = 撤回，捏合 = 缩放画布。
+   不看窗口宽度：iPad 横过来往往 ≥1100。
    手指设备上全屏工作台不启用「overflow + 滚动平移」（见本文件末尾的媒体查询），
    手指移动时再 preventDefault 一次，挡住浏览器自己改 scrollLeft。
    鼠标滚轮缩放、中键拖动平移不受影响。 */
 const touchPoints = new Map()
-let twoFingerPan = false
-/** 这一下双指已经当成撤回处理过：松手时不要再当成平移结束去补一笔 */
-let twoFingerUndo = false
-let panOrigin = null
-/** 捏合缩放：记下手势开始时的两指距离与缩放级别，移动时按比例换算 */
-let pinch = null
-/** 全屏工作台双指缩放的锚：手势开始时，中点在图纸上的位置与图纸尺寸。 */
-let pinchAnchor = null
-/* 两根手指的 pointermove 是分开到达的：如果每来一根就按当前距离算缩放，
-   平移时两指一前一后会先算成「捏小」再算成「捏大」，画布跟着抖。
-   等两根都动过再结算一次缩放，平移本身仍然每个事件都跟手。 */
-let pinchMoved = new Set()
+/** 双指手势进行中；松手时按 mode 决定是撤回还是什么都不做 */
+let twoFingerGesture = null
+/* 两指刚落下时先不判断：距离变化超过这个像素才算捏合，
+   中点 / 单指移动超过这个像素就算「动过」，松手时不再当轻点。 */
+const TWO_FINGER_PINCH_SLOP = 10
+const TWO_FINGER_TAP_SLOP = 12
+/* 两指按住超过这个时长还没动，就不当成轻点撤回（避免长按误撤） */
+const TWO_FINGER_TAP_MS = 500
+
 
 /* 手指按住一格约半秒就吸这一格的颜色，然后切回画笔。
    不看窗口宽度：iPad 横过来往往 ≥1100，按宽度会把平板当成电脑、长按完全不生效。
@@ -630,7 +651,7 @@ function armFingerPick(e) {
   fingerPickTimer = window.setTimeout(() => {
     fingerPickTimer = 0
     if (fingerPickPointer !== e.pointerId) return
-    if (twoFingerPan || touchPoints.size >= 2) return
+    if (twoFingerGesture || touchPoints.size >= 2) return
     /* 用按下时的位置，不跟手指抖动走，避免吸到旁边那一格 */
     runFingerPick(fingerPickDownX, fingerPickDownY)
   }, LONG_PRESS_MS)
@@ -681,8 +702,8 @@ function pinchInfo() {
   }
 }
 
-/** 手指两根一起按下去 = 撤回上一步。不看窗口宽度：iPad 横过来往往超过 1100，
-    按宽度会把它当成电脑，两指仍去平移。鼠标没有双指，电脑端捏合不受影响。 */
+/** 两指轻点成立：撤回上一步。不看窗口宽度：iPad 横过来往往超过 1100。
+    鼠标没有双指，电脑端不受影响。 */
 function twoFingerUndoNow() {
   clearFingerPick()
   /* 第一根手指落下时画笔已经改了一格，而且这一笔还没入历史。
@@ -692,22 +713,118 @@ function twoFingerUndoNow() {
   dragging.value = false
   moved = true
   fingerPicked = true
-  twoFingerUndo = true
-  twoFingerPan = false
-  panOrigin = null
-  pinch = null
-  pinchAnchor = null
-  pinchMoved.clear()
   if (undo()) toastOk('已撤回上一步')
   else toastWarn('现在没有可撤回的操作')
 }
 
-function startTwoFingerPan(stage) {
+/** 第二根手指落下：先只记下起点，等移动方向决定是捏合还是轻点。
+    第一根手指已经落下的那一笔先退回，别把缩放 / 撤回带进画布。 */
+function startTwoFingerGesture(stage) {
   const info = pinchInfo()
   if (!info) return
-  /* 第二根手指落下：长按吸色取消。手指双指一律撤回，不平移、不捏合。 */
   clearFingerPick()
-  twoFingerUndoNow()
+  if (painting) revertEdit()
+  painting = false
+  dragging.value = false
+  midPan.value = false
+  moved = true
+  const rect = stage.getBoundingClientRect()
+  const board = boardBox()
+  const br = board ? board.getBoundingClientRect() : null
+  twoFingerGesture = {
+    mode: 'pending',
+    startedAt: Date.now(),
+    startDist: info.dist,
+    startMx: info.mx,
+    startMy: info.my,
+    startZoom: zoom.value,
+    startLeft: stage.scrollLeft,
+    startTop: stage.scrollTop,
+    startVx: info.mx - rect.left,
+    startVy: info.my - rect.top,
+    /* 每根手指自己的起点：pointermove 是一根一根到的，
+       只看两指距离会把「一根先动」误判成捏合。 */
+    startPts: new Map([...touchPoints.entries()].slice(0, 2)),
+    /* 中点挪过：松手时不能再算轻点撤回 */
+    touched: false,
+    /* 全屏工作台以图纸上的同一点为锚；卡片版面按滚动比例换算 */
+    anchor: br ? { ox: info.mx - br.left, oy: info.my - br.top, w0: br.width, h0: br.height } : null
+  }
+}
+
+/** 双指移动：两指同向 = 平移，两指分开 / 靠拢 = 缩放。
+    一根手指先动时先不下结论，等另一根也动了再比两者各自的位移。 */
+function moveTwoFingerGesture(stage) {
+  const g = twoFingerGesture
+  const info = pinchInfo()
+  if (!g || !stage || !info) return
+
+  if (g.mode === 'pending') {
+    const distDelta = Math.abs(info.dist - g.startDist)
+    const midDelta = Math.hypot(info.mx - g.startMx, info.my - g.startMy)
+    if (midDelta >= TWO_FINGER_TAP_SLOP) g.touched = true
+    const moves = [...g.startPts.entries()].map(([id, s]) => {
+      const p = touchPoints.get(id) || s
+      return { x: p.x - s.x, y: p.y - s.y, len: Math.hypot(p.x - s.x, p.y - s.y) }
+    })
+    if (moves.length < 2) return
+    const movedBoth = moves.every(m => m.len >= 4)
+    if (!movedBoth) {
+      /* 只有一根动：距离变化已经很大才算捏合，否则再等等 */
+      if (distDelta >= TWO_FINGER_PINCH_SLOP * 2 && g.startDist > 8) {
+        g.mode = 'pinch'
+        exitActualSize({ restore: false })
+        autoFit = false
+      } else {
+        return
+      }
+    } else {
+      const spread = Math.hypot(moves[0].x - moves[1].x, moves[0].y - moves[1].y)
+      const longest = Math.max(moves[0].len, moves[1].len)
+      if (spread <= Math.max(12, longest * 0.6)) {
+        g.mode = 'move'
+      } else if (distDelta >= TWO_FINGER_PINCH_SLOP && g.startDist > 8) {
+        g.mode = 'pinch'
+        exitActualSize({ restore: false })
+        autoFit = false
+      } else {
+        return
+      }
+    }
+  }
+
+  if (g.mode === 'move') {
+    /* 两指一起挪 = 平移画布。锁画布也允许：这是明确的两指手势，
+       单指 / 鼠标 / 滚轮仍然不动画布。 */
+    stage.scrollLeft = g.startLeft - (info.mx - g.startMx)
+    stage.scrollTop = g.startTop - (info.my - g.startMy)
+    return
+  }
+  if (g.mode !== 'pinch' || g.startDist <= 8) return
+  const target = clampZoom(g.startZoom * (info.dist / g.startDist))
+  if (target === zoom.value) return
+  setZoom(target)
+  const rect = stage.getBoundingClientRect()
+  const vx = info.mx - rect.left
+  const vy = info.my - rect.top
+  const ratio = zoom.value / g.startZoom
+  if (consoleViewport.value && g.anchor) {
+    nextTick(() => {
+      draw()
+      anchorBoardPoint(g.anchor.ox, g.anchor.oy, g.anchor.w0, g.anchor.h0, vx, vy)
+    })
+    return
+  }
+  /* 卡片版面：把手指开始按住的滚动位置按缩放比例留在手指下面。
+     画布尺寸要下一帧才更新，先落一次、再补一次，免得被旧的滚动上限夹回去。 */
+  const left = (g.startLeft + g.startVx) * ratio - vx
+  const top = (g.startTop + g.startVy) * ratio - vy
+  stage.scrollLeft = left
+  stage.scrollTop = top
+  nextTick(() => {
+    stage.scrollLeft = left
+    stage.scrollTop = top
+  })
 }
 
 /* 指针捕获只是「拖出画布也别丢事件」的加分项：浏览器在指针已经失效时会抛
@@ -735,7 +852,7 @@ function onPointerDown(e) {
   /* 顶栏浮层开着时，EditorView 会在捕获阶段拦下这一下（只关浮层、不落笔），
      所以走到这里就按当前工具正常编辑。 */
   if (touchPoints.size >= 2) {
-    startTwoFingerPan(stage)
+    startTwoFingerGesture(stage)
     capturePointer(stage, e.pointerId)
     return
   }
@@ -757,6 +874,7 @@ function onPointerDown(e) {
      pointerdown 与 mousedown 上都要 preventDefault 掉。 */
   if (e.button === 1) {
     e.preventDefault()
+    if (props.locked) return
     midPan.value = true
     startPanDrag(e, stage)
     capturePointer(stage, e.pointerId)
@@ -766,6 +884,10 @@ function onPointerDown(e) {
   /* 触屏单指只编辑：填充 / 吸色 / 移动都不能在第一根手指按下时就把画布拖走。
      第二根手指可能紧跟着落下，那一下是撤回；先拖再撤，画面会先跳一下。 */
   if (e.pointerType === 'touch') return
+  /* 笔只在「移动」工具下拖画布：选了画笔 / 填充 / 吸色时，笔落下就是编辑，
+     不能顺手把视野拖走（之前笔走的是鼠标那条路，非画笔工具一拖就平移）。 */
+  if (e.pointerType === 'pen' && tool.value !== 'pan') return
+  if (props.locked) return
   startPanDrag(e, stage)
 }
 
@@ -808,47 +930,13 @@ function onPointerMove(e) {
     if (dist <= FINGER_PICK_SLOP) return
     stopFingerPickTimer()
   }
-  /* 两指撤回已经处理过：手指还按着时不要再平移、也不要继续画。
-     第二根手指的按下和移动可能挤在同一帧，标志还没立上时也要拦住。 */
-  if (twoFingerUndo || (e.pointerType === 'touch' && touchPoints.size >= 2)) {
+  /* 双指手势交给状态机；手指还按着时不要再平移、也不要继续画。
+     第二根手指的按下和移动可能挤在同一帧，按 touchPoints 兜底拦住。 */
+  if (twoFingerGesture) {
+    if (e.pointerType === 'touch' && touchPoints.size >= 2) moveTwoFingerGesture(stage)
     return
   }
-  if (twoFingerPan) {
-    if (e.pointerType === 'touch') pinchMoved.add(e.pointerId)
-    const info = pinchInfo()
-    if (stage && panOrigin && info) {
-      const rect = stage.getBoundingClientRect()
-      const px = info.mx - rect.left
-      const py = info.my - rect.top
-      /* 两指距离变化 = 缩放；中点移动 = 平移。缩放时以手势开始时的
-         两指中点为锚，把同一块图纸留在手指下面。
-         等两根手指都动过再结算缩放：分开到达的 pointermove 会把
-         「平行拖动」误算成一捏一放。 */
-      let ratio = 1
-      if (pinch && pinchMoved.size >= 2 && pinch.dist > 8 && info.dist > 8) {
-        exitActualSize({ restore: false })
-        autoFit = false
-        const target = Math.max(0.1, Math.min(8, pinch.zoom * (info.dist / pinch.dist)))
-        setZoom(target)
-        ratio = zoom.value / pinch.zoom
-        pinchMoved.clear()
-      }
-      const left = (panOrigin.left + (panOrigin.x - rect.left)) * ratio - px
-      const top = (panOrigin.top + (panOrigin.y - rect.top)) * ratio - py
-      if (consoleViewport.value && pinchAnchor) {
-        /* 四周空白不在图纸的缩放里：锚点按图纸矩形算，不能按滚动原点乘比例。 */
-        const apply = () => anchorBoardPoint(pinchAnchor.ox, pinchAnchor.oy, pinchAnchor.w, pinchAnchor.h, px, py)
-        if (ratio !== 1) nextTick(() => { draw(); apply() })
-        else apply()
-      } else {
-        stage.scrollLeft = left
-        stage.scrollTop = top
-        /* 画布尺寸在下一帧才更新，滚动上限也跟着变；再落一次保证不被夹回去 */
-        if (ratio !== 1) nextTick(() => { stage.scrollLeft = left; stage.scrollTop = top })
-      }
-    }
-    return
-  }
+  if (e.pointerType === 'touch' && touchPoints.size >= 2) return
   if (painting) {
     applyPaint(e)
     return
@@ -871,16 +959,14 @@ function onPointerUp(e) {
   midPan.value = false
   const stage = stageEl.value
   if (stage && e && e.pointerId != null) releasePointer(stage, e.pointerId)
-  /* 双指平移时先抬起一根手指：停止平移，剩下的那根不要接着画，
-     等它自己抬起（下一次单指按下才是新的一笔）。 */
-  if (touchPoints.size < 2) {
-    if (twoFingerUndo) twoFingerUndo = false
-    if (twoFingerPan) {
-      twoFingerPan = false
-      panOrigin = null
-      pinch = null
-      pinchAnchor = null
-      pinchMoved.clear()
+  /* 双指手势收尾：第一根手指抬起就结算。两指都没动、而且按得不久，
+     才算一次轻点撤回；捏合 / 拖动过的手势什么都不做。
+     剩下的那根手指不要接着画，等它自己抬起。 */
+  if (twoFingerGesture && e && e.pointerType === 'touch' && touchPoints.size < 2) {
+    const g = twoFingerGesture
+    twoFingerGesture = null
+    if (g.mode === 'pending' && !g.touched && Date.now() - g.startedAt <= TWO_FINGER_TAP_MS) {
+      twoFingerUndoNow()
     }
   }
   setTimeout(() => { moved = false }, 0)
@@ -905,7 +991,7 @@ function onPointerCancel(e) {
     const x = fingerPickDownX
     const y = fingerPickDownY
     stopFingerPickTimer()
-    if (!twoFingerPan && !twoFingerUndo && touchPoints.size < 2) runFingerPick(x, y)
+    if (!twoFingerGesture && touchPoints.size < 2) runFingerPick(x, y)
   } else {
     clearFingerPick()
   }
@@ -913,14 +999,8 @@ function onPointerCancel(e) {
   painting = false
   dragging.value = false
   midPan.value = false
-  if (touchPoints.size < 2) {
-    twoFingerUndo = false
-    twoFingerPan = false
-    panOrigin = null
-    pinch = null
-    pinchAnchor = null
-    pinchMoved.clear()
-  }
+  /* 系统抢走指针时手势不结算，也不撤回 */
+  if (touchPoints.size < 2) twoFingerGesture = null
 }
 
 function onClick(e) {
@@ -959,6 +1039,12 @@ function onClick(e) {
 }
 
 function onWheel(e) {
+  /* 平板锁画布：滚轮不再缩放。Ctrl+滚轮仍要拦掉，
+     否则浏览器会把整页放大（viewport 的 user-scalable=no 管不到桌面浏览器的快捷键缩放）。 */
+  if (props.locked) {
+    if (e.ctrlKey) e.preventDefault()
+    return
+  }
   e.preventDefault()
   /* 滚轮同样属于「用户手动缩放」，必须走 onUserZoom 把 autoFit 关掉。
      只调 setZoom 的话 autoFit 仍是 true —— 画布一放大就撑出滚动条，
@@ -1176,6 +1262,7 @@ function resetPan() {
 let autoFit = true
 let ro = null
 function onUserZoom(v) {
+  if (props.locked) return
   /* 手动缩放就从实际大小模式里退出来：再按一次「实际大小」可以回去 */
   exitActualSize({ restore: false })
   autoFit = false
@@ -1184,6 +1271,7 @@ function onUserZoom(v) {
 /** 缩放按钮：全屏工作台以标尺内侧可见区的中心为锚，放大缩小都不把图纸甩到一边。
     滚轮仍按光标锚（那是用户点着哪里看哪里），按钮没有光标位置，用中心最稳。 */
 function zoomStep(delta) {
+  if (props.locked) return
   const next = clampZoom(zoom.value + delta)
   if (!consoleViewport.value || !stageEl.value || !boardBox()) { onUserZoom(next); return }
   const stage = stageEl.value
@@ -1268,6 +1356,8 @@ function onStageTouchMove(e) {
 }
 
 onMounted(() => {
+  /* 进入工作台时就已经是平板档：把上一次留下的移动工具 / 实际大小收掉 */
+  if (props.locked) lockCanvasView()
   redrawAll()
   if (wideQuery) wideQuery.addEventListener('change', onWideChange)
   if (deskQuery) deskQuery.addEventListener('change', onDeskChange)
@@ -1421,27 +1511,31 @@ defineExpose({
            因为大画布（最多 1000×1000 格 = 100 万格）不一键回中很容易在画布外找不到图 -->
       <div class="zoomBar">
         <template v-if="currentView === 'pattern'">
-          <button class="btn btn-secondary icon sm" title="缩小" aria-label="缩小" @click="zoomStep(-0.25)"><Icon name="zoom-out" :size="16" /></button>
-          <span class="zoomPill"><Icon class="zoomIco" name="zoom-in" :size="16" /><span class="zoomText">{{ Math.round(zoom * 100) }}%</span></span>
-          <button class="btn btn-secondary icon sm" title="放大" aria-label="放大" @click="zoomStep(0.25)"><Icon name="zoom-in" :size="16" /></button>
-          <button class="btn btn-secondary sm" title="适应窗口" @click="fitStage">适应</button>
-          <!-- 成品实际大小：一格 = 一颗豆的实物尺寸，按屏幕像素铺开；
-               不用再自己想象 13.5cm 到底多大。 -->
-          <button
-            class="btn btn-secondary sm actualBtn" :class="{ on: actualMode }"
-            data-actual-btn
-            :disabled="!hasPattern"
-            :title="hasPattern ? `按实际大小预览（成品 ${finishCmText}）` : '先生成图纸后才能按实际大小预览'"
-            :aria-pressed="actualMode"
-            @click="toggleActualSize"
-          >实际大小</button>
+          <template v-if="!locked">
+            <button class="btn btn-secondary icon sm" title="缩小" aria-label="缩小" @click="zoomStep(-0.25)"><Icon name="zoom-out" :size="16" /></button>
+            <span class="zoomPill"><Icon class="zoomIco" name="zoom-in" :size="16" /><span class="zoomText">{{ Math.round(zoom * 100) }}%</span></span>
+            <button class="btn btn-secondary icon sm" title="放大" aria-label="放大" @click="zoomStep(0.25)"><Icon name="zoom-in" :size="16" /></button>
+            <button class="btn btn-secondary sm" title="适应窗口" @click="fitStage">适应</button>
+            <!-- 成品实际大小：一格 = 一颗豆的实物尺寸，按屏幕像素铺开；
+                 不用再自己想象 13.5cm 到底多大。 -->
+            <button
+              class="btn btn-secondary sm actualBtn" :class="{ on: actualMode }"
+              data-actual-btn
+              :disabled="!hasPattern"
+              :title="hasPattern ? `按实际大小预览（成品 ${finishCmText}）` : '先生成图纸后才能按实际大小预览'"
+              :aria-pressed="actualMode"
+              @click="toggleActualSize"
+            >实际大小</button>
+          </template>
+          <!-- 平板锁画布：只保留实时比例，作为「整张已放进窗口」的反馈 -->
+          <span v-else class="zoomPill"><Icon class="zoomIco" name="zoom-in" :size="16" /><span class="zoomText">{{ Math.round(zoom * 100) }}%</span></span>
         </template>
         <span v-else-if="genMs" class="muted">{{ genMs }}ms</span>
       </div>
 
       <!-- 手机端：顶栏最右一颗「适应窗口」。缩放的加减在画布右侧浮控上，
            这样顶栏只占一行，画布能多留一条高度。 -->
-      <button type="button" class="fitTop" title="适应窗口" aria-label="适应窗口" @click="fitStage">
+      <button v-if="!locked" type="button" class="fitTop" title="适应窗口" aria-label="适应窗口" @click="fitStage">
         <Icon name="scan" :size="16" />
       </button>
     </div>
@@ -1499,7 +1593,7 @@ defineExpose({
 
       <div
         ref="stageEl" class="stage"
-        :class="{ 'stage--edit': currentView === 'pattern' && !showEmpty, pannable: currentView === 'pattern' && !showEmpty && (dragging || tool === 'pan'), panning: dragging, 'mid-pan': midPan, 'stage--empty': showEmpty }"
+        :class="{ 'stage--edit': currentView === 'pattern' && !showEmpty, pannable: currentView === 'pattern' && !showEmpty && (dragging || tool === 'pan'), panning: dragging, 'mid-pan': midPan, 'stage--empty': showEmpty, 'stage--locked': locked }"
         @pointerdown="onPointerDown"
         @pointermove="onPointerMove"
         @pointerup="onPointerUp"
@@ -1962,6 +2056,8 @@ defineExpose({
 /* 舞台和它下面的说明 / 工具条 / 笔刷条同属一块，舞台 flex:1 吃掉剩余高度。
    右侧工具窄栏与抽屉都相对这块定位，所以它必须是定位上下文。 */
 .stageWrap{position:relative;display:flex;flex-direction:column;flex:1 1 auto;min-height:0}
+/* 平板锁画布：整张图纸固定在「适应窗口」，舞台自身不再滚动 */
+.stage--locked{overflow:hidden}
 .editPanel{display:block}
 /* 手机端才出现的部件：画布浮控 / 上传提示。桌面端全部不占位。
    顶栏浮层（.cmdPop）的显隐在 global.css：功能浮层由 EditorView 渲染。 */

@@ -318,6 +318,79 @@ async function main() {
   const tipGone = await evalJs(send, `!document.querySelector('[data-shortcut-tip]')`)
   check('鼠标移开后标签消失', tipGone === true, tipGone)
 
+  /* ---------------- 6.5 笔：点「画笔」进入画笔模式，笔只编辑不拖画布 ---------------- */
+  {
+    await evalJs(send, `(() => {
+      window.__penSeen = []
+      document.addEventListener('pointerdown', e => window.__penSeen.push(e.pointerType), true)
+      const b = document.querySelector('[data-tool-key="paint"]')
+      if (b) b.scrollIntoView({ block: 'center' })
+      return 1
+    })()`)
+    await sleep(250)
+    const brushPos = await evalJs(send, `(() => {
+      const b = document.querySelector('[data-tool-key="paint"]')
+      if (!b) return null
+      const r = b.getBoundingClientRect()
+      const x = Math.round(r.x + r.width / 2), y = Math.round(r.y + r.height / 2)
+      const hit = document.elementFromPoint(x, y)
+      return { x, y, onTarget: !!(hit && b.contains(hit)) }
+    })()`)
+    /* 先把工具切到「移动」：笔点画笔必须真的把工具换回画笔 */
+    await evalJs(send, `window.__douzao.studio().then(S => { S.tool.value = 'pan' })`)
+    await sleep(120)
+    if (brushPos && brushPos.onTarget) {
+      await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: brushPos.x, y: brushPos.y, buttons: 0, pointerType: 'pen' })
+      await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: brushPos.x, y: brushPos.y, button: 'left', buttons: 1, clickCount: 1, pointerType: 'pen' })
+      await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: brushPos.x, y: brushPos.y, button: 'left', buttons: 0, clickCount: 1, pointerType: 'pen' })
+      await sleep(220)
+    }
+    const penTool = await toolNow()
+    const penSeen = await evalJs(send, `window.__penSeen.slice()`)
+    check('笔点「画笔」后进入画笔模式', penTool === 'paint' && penSeen.includes('pen'), { penTool, penSeen, clicked: !!(brushPos && brushPos.onTarget) })
+
+    /* 画布状态：格子、图纸在屏幕上的位置、舞台滚动 */
+    const view = () => evalJs(send, `(async () => {
+      const S = await window.__douzao.studio()
+      const b = document.querySelector('.board.editing').getBoundingClientRect()
+      const s = document.querySelector('.stage')
+      return { cells: Array.from(S.pattern.value.cells), board: { x: Math.round(b.x), y: Math.round(b.y) }, sl: s.scrollLeft, st: s.scrollTop }
+    })()`)
+    const stroke = async (x, y, pointerType) => {
+      const at = { x: Math.round(x), y: Math.round(y) }
+      const opt = pointerType ? { pointerType } : {}
+      await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: at.x, y: at.y, buttons: 0, ...opt })
+      await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: at.x, y: at.y, button: 'left', buttons: 1, clickCount: 1, ...opt })
+      for (let i = 1; i <= 4; i++) {
+        await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: at.x + i * 12, y: at.y + i * 8, button: 'left', buttons: 1, ...opt })
+        await sleep(30)
+      }
+      await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: at.x + 48, y: at.y + 32, button: 'left', buttons: 0, clickCount: 1, ...opt })
+      await sleep(260)
+    }
+    const paintPoint = await evalJs(send, `(() => {
+      const b = document.querySelector('.board.editing').getBoundingClientRect()
+      return { x: b.x + b.width * 0.4, y: b.y + b.height * 0.4 }
+    })()`)
+
+    const mouseBefore = await view()
+    await stroke(paintPoint.x + 60, paintPoint.y, '')
+    const mouseAfter = await view()
+    check('鼠标画一笔后视野不动',
+      mouseAfter.board.x === mouseBefore.board.x && mouseAfter.board.y === mouseBefore.board.y &&
+      mouseAfter.sl === mouseBefore.sl && mouseAfter.st === mouseBefore.st,
+      { board: [mouseBefore.board, mouseAfter.board], scroll: [[mouseBefore.sl, mouseBefore.st], [mouseAfter.sl, mouseAfter.st]] })
+
+    const penBefore = await view()
+    await stroke(paintPoint.x, paintPoint.y, 'pen')
+    const penAfter = await view()
+    const penChanged = penAfter.cells.reduce((n, v, i) => n + (v !== penBefore.cells[i] ? 1 : 0), 0)
+    check('笔在画布上画，不拖动画布',
+      penChanged > 0 && penAfter.board.x === penBefore.board.x && penAfter.board.y === penBefore.board.y &&
+      penAfter.sl === penBefore.sl && penAfter.st === penBefore.st,
+      { changed: penChanged, board: [penBefore.board, penAfter.board], scroll: [[penBefore.sl, penBefore.st], [penAfter.sl, penAfter.st]] })
+  }
+
   /* ---------------- 7. 控制台报错 ---------------- */
   check('控制台没有报错', errors.length === 0, errors)
 
@@ -353,6 +426,32 @@ async function main() {
       }
     })()`)
     check('平板：画布下方的工具行在（781~1099px）', legacy.panel && legacy.btn && !legacy.modal, legacy)
+    /* 浏览器窗口锁在屏幕上：页面本身不滚、不回弹，双指不能缩放页面；
+       内容改在 .studio 里自己滚，画布自己的平移 / 编辑仍走 PointerEvent。 */
+    const locked = await evalJs(send2, `(() => {
+      const html = document.documentElement
+      const studio = document.querySelector('.studio')
+      const meta = document.querySelector('meta[name="viewport"]')
+      const before = { y: scrollY, doc: document.scrollingElement.scrollTop }
+      window.scrollTo(0, 600)
+      document.scrollingElement.scrollTop = 600
+      const after = { y: scrollY, doc: document.scrollingElement.scrollTop }
+      return {
+        htmlFixed: html.classList.contains('is-editor-fixed'),
+        bodyFixed: document.body.classList.contains('is-editor-fixed'),
+        overflow: getComputedStyle(html).overflow,
+        meta: meta && meta.getAttribute('content'),
+        page: [before, after],
+        studioOverflow: studio && getComputedStyle(studio).overflowY,
+        studioScrollable: !!studio && studio.scrollHeight > studio.clientHeight + 2,
+        studioClass: studio && studio.className
+      }
+    })()`)
+    check('平板：浏览器页面固定在屏幕上，双指不能缩放页面',
+      locked.htmlFixed && locked.bodyFixed && locked.overflow === 'hidden' &&
+      /user-scalable=no/.test(locked.meta || '') &&
+      locked.page[1].y === 0 && locked.page[1].doc === 0 &&
+      locked.studioOverflow === 'auto' && locked.studioScrollable, locked)
     const noKey = await evalJs(send2, `(() => {
       const tools = [...document.querySelectorAll('.editPanel .tool[data-tip], .editPanel .tool')]
       const marked = tools.filter(b => (b.getAttribute('data-tip-key') || '').trim())
@@ -370,37 +469,54 @@ async function main() {
       check('平板：悬停工具不浮出快捷键标签', tip === false, tip)
       await hoverAt(send2, 5, 5)
 
-      /* 旧版面里画布常常正好装得下（autoFit），本来就没有可平移的范围 ——
-         先放大两档让画布超出舞台，再拖。 */
-      const zoomIn = await evalJs(send2, `(() => {
-        const b = [...document.querySelectorAll('.stageTools__btn')].find(x => (x.getAttribute('title') || '') === '放大')
-        if (!b) return false
-        b.click(); b.click(); return true
+      /* 平板锁画布：顶栏不再给缩放按钮，工具行里没有「移动」；
+         连隐藏的手机浮控被脚本点到、滚轮事件打上去都不改缩放。 */
+      const lockUi = await evalJs(send2, `(async () => {
+        const S = await window.__douzao.studio()
+        const stage = document.querySelector('.stage')
+        const zoomBarButtons = [...document.querySelectorAll('.canvasCard__toolbar .zoomBar .btn')]
+          .filter(b => getComputedStyle(b).display !== 'none')
+        const toolLabels = [...document.querySelectorAll('.editPanel .tool')].map(b => (b.textContent || '').trim())
+        const zoomBefore = S.zoom.value
+        const plus = [...document.querySelectorAll('.stageTools__btn')].find(x => (x.getAttribute('title') || '') === '放大')
+        if (plus) plus.click()
+        if (stage) stage.dispatchEvent(new WheelEvent('wheel', { deltaY: -120, bubbles: true, cancelable: true }))
+        await new Promise(r => setTimeout(r, 500))
+        return {
+          zoomBarButtons: zoomBarButtons.length,
+          hasPan: toolLabels.includes('移动'),
+          zoomBefore, zoomAfter: S.zoom.value,
+          stageLocked: !!stage && stage.classList.contains('stage--locked'),
+          stageOverflow: stage ? getComputedStyle(stage).overflow : null
+        }
       })()`)
-      if (zoomIn) await sleep(800)
+      check('平板：没有缩放按钮，隐藏浮控 / 滚轮也改不了缩放',
+        lockUi.zoomBarButtons === 0 && lockUi.zoomAfter === lockUi.zoomBefore &&
+        lockUi.stageLocked && lockUi.stageOverflow === 'hidden', lockUi)
+      check('平板：工具行没有「移动」', lockUi.hasPan === false, lockUi)
 
+      /* 中键拖动在锁画布后也不该把画布拖走 */
       const before = await evalJs(send2, `(() => {
         const s = document.querySelector('.stage'); const b = document.querySelector('.board.editing')
         if (!s || !b) return null
         const sr = s.getBoundingClientRect(); const br = b.getBoundingClientRect()
         return {
-          sl: s.scrollLeft, bx: br.x, sx: sr.x, sy: sr.y, sw: sr.width, sh: sr.height,
-          scrollW: s.scrollWidth, clientW: s.clientWidth, scrollH: s.scrollHeight, clientH: s.clientHeight
+          sl: s.scrollLeft, st: s.scrollTop, bx: br.x, by: br.y,
+          cx: Math.round(sr.x + sr.width / 2), cy: Math.round(sr.y + sr.height / 2)
         }
       })()`)
-      const scrollable = !!before && (before.scrollW > before.clientW + 2 || before.scrollH > before.clientH + 2)
-      if (before && scrollable) {
-        /* 旧版面的舞台是 grid 居中：内容溢出时只有「起点方向」那侧滑不到
-           （scrollLeft 停在 0 就没法再往左滚）。所以往能滚的那一侧拖。
-           可滚的距离也有限（scrollWidth - clientWidth），只按能滚的那段算。 */
-        const dir = before.sl <= 0 ? -120 : 120
-        const room = Math.max(0, before.scrollW - before.clientW)
-        const expect = Math.min(Math.abs(dir), room)
-        await middleDrag(send2, Math.round(before.sx + before.sw / 2), Math.round(before.sy + before.sh / 2), dir, 0)
-        const after = await evalJs(send2, `(() => { const s = document.querySelector('.stage'); const b = document.querySelector('.board.editing'); return { sl: s.scrollLeft, bx: b.getBoundingClientRect().x } })()`)
-        check('平板：中键拖动也能平移画布', Math.abs(Math.abs(after.bx - before.bx) - expect) < 12, { dx: after.bx - before.bx, dir, expect, sl: [before.sl, after.sl], room })
+      if (before) {
+        await middleDrag(send2, before.cx, before.cy, 120, 90)
+        const after = await evalJs(send2, `(() => {
+          const s = document.querySelector('.stage'); const b = document.querySelector('.board.editing')
+          return { sl: s.scrollLeft, st: s.scrollTop, bx: b.getBoundingClientRect().x, by: b.getBoundingClientRect().y }
+        })()`)
+        check('平板：中键拖动不再平移画布',
+          after.sl === before.sl && after.st === before.st &&
+          Math.abs(after.bx - before.bx) < 2 && Math.abs(after.by - before.by) < 2,
+          { before, after })
       } else {
-        check('平板：中键拖动也能平移画布', false, { reason: '画布装得下，没有可平移的范围', before })
+        check('平板：中键拖动不再平移画布', false, { reason: '找不到舞台或图纸' })
       }
     }
 
@@ -492,6 +608,33 @@ async function main() {
       const tap = await evalJs(send2, `window.__douzao.studio().then(S => S.brushColorId.value)`)
       check('平板：短按不吸色', tap !== holdPoint.id, { tap, cell: holdPoint.id, code: holdPoint.code })
 
+      /* 锁画布只锁缩放 / 平移，鼠标点格子改色照常 */
+      const editTarget = await evalJs(send2, `(async () => {
+        const S = await window.__douzao.studio()
+        const p = S.pattern.value
+        S.tool.value = 'paint'
+        const other = p.palette.find(c => c.id !== ${JSON.stringify(holdPoint.id)})
+        if (!other) return null
+        S.brushColorId.value = other.id
+        return { id: other.id, idx: ${holdPoint.idx} }
+      })()`)
+      if (editTarget) {
+        await send2('Input.dispatchMouseEvent', { type: 'mouseMoved', x: holdPoint.x, y: holdPoint.y, buttons: 0 })
+        await send2('Input.dispatchMouseEvent', { type: 'mousePressed', x: holdPoint.x, y: holdPoint.y, button: 'left', buttons: 1, clickCount: 1 })
+        await sleep(60)
+        await send2('Input.dispatchMouseEvent', { type: 'mouseReleased', x: holdPoint.x, y: holdPoint.y, button: 'left', buttons: 0, clickCount: 1 })
+        await sleep(200)
+        const edited = await evalJs(send2, `(async () => {
+          const S = await window.__douzao.studio()
+          const p = S.pattern.value
+          const k = p.cells[${holdPoint.idx}]
+          return { id: k >= 0 && p.palette[k] ? p.palette[k].id : null }
+        })()`)
+        check('平板：锁画布后鼠标点格子仍能改色', edited.id === editTarget.id, { edited, want: editTarget.id })
+      } else {
+        check('平板：锁画布后鼠标点格子仍能改色', false, '调色板里找不到第二种颜色')
+      }
+
       /* 两指同时点下去 = 撤回。前面的长按测试可能已经把瞄准格擦空，
          所以这里另找一格还有颜色的，擦掉它入历史，再两指点：整张格子回到擦之前。 */
       const painted = await evalJs(send2, `(async () => {
@@ -545,32 +688,97 @@ async function main() {
       const ay = Math.round(stageBox.y + stageBox.h * 0.45)
       const bx = Math.round(stageBox.x + stageBox.w * 0.68)
       const by = Math.round(stageBox.y + stageBox.h * 0.62)
+      /* ① 两指轻点：不动、快速抬起 = 撤回 */
       await touchAt('touchStart', [finger2(ax, ay, 1), finger2(bx, by, 2)])
       await sleep(80)
-      await touchAt('touchMove', [finger2(ax - 28, ay - 16, 1), finger2(bx + 24, by + 18, 2)])
-      await sleep(80)
-      const undone = await evalJs(send2, `(async () => {
+      await touchAt('touchEnd', [])
+      await sleep(200)
+      const tapped = await evalJs(send2, `(async () => {
         const S = await window.__douzao.studio()
         const cells = Array.from(S.pattern.value.cells)
         const before = ${JSON.stringify(painted.before || [])}
         let differ = 0
         const n = Math.max(cells.length, before.length)
         for (let i = 0; i < n; i++) if (cells[i] !== before[i]) differ++
-        const s = document.querySelector('.stage'); const b = document.querySelector('.board.editing')
-        return {
-          differ,
-          depth: S.undoDepth.value,
-          bx: b ? b.getBoundingClientRect().x : null,
-          by: b ? b.getBoundingClientRect().y : null
-        }
+        return { differ, depth: S.undoDepth.value, zoom: S.zoom.value }
+      })()`)
+      check('平板：两指轻点撤回上一步',
+        painted.wrote === true && painted.changed > 0 && tapped.differ === 0 && tapped.depth === painted.depth - 1,
+        { wrote: painted.wrote, changed: painted.changed, depth: [painted.depth, tapped.depth], differ: tapped.differ })
+
+      /* ② 两指捏合：距离拉大 = 放大画布，不能顺手撤回或改格子 */
+      const pinchBefore = await evalJs(send2, `(async () => {
+        const S = await window.__douzao.studio()
+        const b = document.querySelector('.board.editing').getBoundingClientRect()
+        return { zoom: S.zoom.value, depth: S.undoDepth.value, cells: Array.from(S.pattern.value.cells),
+          board: { x: b.x, y: b.y, w: b.width, h: b.height } }
+      })()`)
+      await touchAt('touchStart', [finger2(ax, ay, 1), finger2(bx, by, 2)])
+      await sleep(60)
+      await touchAt('touchMove', [finger2(ax - 30, ay - 16, 1), finger2(bx + 30, by + 16, 2)])
+      await sleep(60)
+      await touchAt('touchMove', [finger2(ax - 55, ay - 30, 1), finger2(bx + 55, by + 30, 2)])
+      await sleep(200)
+      const pinched = await evalJs(send2, `(async () => {
+        const S = await window.__douzao.studio()
+        const cells = Array.from(S.pattern.value.cells)
+        const before = ${JSON.stringify(pinchBefore.cells)}
+        let differ = 0
+        const n = Math.max(cells.length, before.length)
+        for (let i = 0; i < n; i++) if (cells[i] !== before[i]) differ++
+        const b = document.querySelector('.board.editing').getBoundingClientRect()
+        return { zoom: S.zoom.value, depth: S.undoDepth.value, differ,
+          board: { x: b.x, y: b.y, w: b.width, h: b.height } }
+      })()`)
+      /* 捏合锚点：手指中点下的那一格，缩放前后应该还在同一个屏幕位置 */
+      const mx = (ax + bx) / 2
+      const my = (ay + by) / 2
+      const fx = (mx - pinchBefore.board.x) / pinchBefore.board.w
+      const fy = (my - pinchBefore.board.y) / pinchBefore.board.h
+      const drift = [
+        Math.round(pinched.board.x + fx * pinched.board.w - mx),
+        Math.round(pinched.board.y + fy * pinched.board.h - my)
+      ]
+      await touchAt('touchEnd', [])
+      await sleep(150)
+      check('平板：两指捏合放大画布，且不触发撤回',
+        pinched.zoom > pinchBefore.zoom * 1.1 && pinched.depth === pinchBefore.depth && pinched.differ === 0,
+        { zoom: [pinchBefore.zoom, pinched.zoom], depth: [pinchBefore.depth, pinched.depth], differ: pinched.differ, drift })
+
+      /* ③ 两指一起拖 = 平移画布：缩放不变、不撤回、不改格子。
+         往还有滚动余量的方向拖，避免被边界夹住看不出位移。 */
+      const panBefore = await evalJs(send2, `(async () => {
+        const S = await window.__douzao.studio()
+        const s = document.querySelector('.stage')
+        return { zoom: S.zoom.value, depth: S.undoDepth.value, sl: s.scrollLeft, st: s.scrollTop,
+          roomX: s.scrollWidth - s.clientWidth - s.scrollLeft, roomY: s.scrollHeight - s.clientHeight - s.scrollTop,
+          cells: Array.from(S.pattern.value.cells) }
+      })()`)
+      const panDx = panBefore.roomX >= 30 ? -30 : 30
+      const panDy = panBefore.roomY >= 24 ? -24 : 24
+      await touchAt('touchStart', [finger2(ax, ay, 1), finger2(bx, by, 2)])
+      await sleep(60)
+      await touchAt('touchMove', [finger2(ax + panDx / 2, ay + panDy / 2, 1), finger2(bx + panDx / 2, by + panDy / 2, 2)])
+      await sleep(60)
+      await touchAt('touchMove', [finger2(ax + panDx, ay + panDy, 1), finger2(bx + panDx, by + panDy, 2)])
+      await sleep(200)
+      const panAfter = await evalJs(send2, `(async () => {
+        const S = await window.__douzao.studio()
+        const s = document.querySelector('.stage')
+        const cells = Array.from(S.pattern.value.cells)
+        const before = ${JSON.stringify(panBefore.cells)}
+        let differ = 0
+        const n = Math.max(cells.length, before.length)
+        for (let i = 0; i < n; i++) if (cells[i] !== before[i]) differ++
+        return { zoom: S.zoom.value, depth: S.undoDepth.value, sl: s.scrollLeft, st: s.scrollTop, differ }
       })()`)
       await touchAt('touchEnd', [])
-      await sleep(120)
-      const stageStill = stageBefore && undone
-        && Math.abs(undone.bx - stageBefore.bx) < 4
-        && Math.abs(undone.by - stageBefore.by) < 4
-      check('平板：两指同时点一下撤回上一步', painted.wrote === true && painted.changed > 0 && undone.differ === 0 && undone.depth === painted.depth - 1, { wrote: painted.wrote, changed: painted.changed, depth: [painted.depth, undone.depth], differ: undone.differ })
-      check('平板：两指点下去不拖动画布', stageStill === true, { stageBefore, undone })
+      await sleep(150)
+      const panMoved = Math.abs(panAfter.sl - panBefore.sl) >= 20 && Math.abs(panAfter.st - panBefore.st) >= 14
+      check('平板：两指拖动平移画布，不缩放也不撤回',
+        panMoved && Math.abs(panAfter.zoom - panBefore.zoom) < 0.01 &&
+        panAfter.depth === panBefore.depth && panAfter.differ === 0,
+        { scroll: [[panBefore.sl, panBefore.st], [panAfter.sl, panAfter.st]], want: [panDx, panDy], zoom: [panBefore.zoom, panAfter.zoom], depth: [panBefore.depth, panAfter.depth], differ: panAfter.differ })
     }
     await browser.send('Target.closeTarget', { targetId: tid2 }).catch(() => {})
   }
@@ -661,6 +869,33 @@ async function main() {
     await evalJs(send4, `sessionStorage.setItem('douwan-upgrade-notice','1'); localStorage.setItem('douwan.guide.v1','1'); 1`)
     await send4('Page.navigate', { url: `${origin}/editor/${fixtureId}` })
     await waitBridge(send4); await sleep(1600)
+    /* 横屏 iPad 走全屏工作台：手指设备同样锁画布 —— 状态栏没有缩放 / 适应按钮，
+       左侧工具栏里没有「移动」，滚轮也改不了缩放。 */
+    const wideLock = await evalJs(send4, `(async () => {
+      const S = await window.__douzao.studio()
+      const stage = document.querySelector('.stage')
+      const before = S.zoom.value
+      if (stage) stage.dispatchEvent(new WheelEvent('wheel', { deltaY: -120, bubbles: true, cancelable: true }))
+      await new Promise(r => setTimeout(r, 400))
+      const visible = els => els.filter(b => getComputedStyle(b).display !== 'none')
+      const zoomBtns = visible([...document.querySelectorAll('.csStatus .zoomBar .csStatus__btn')])
+      const fitBtns = visible([...document.querySelectorAll('.csStatus__btn')].filter(b => (b.textContent || '').includes('适应')))
+      document.querySelector('[data-rail-toggle]')?.click()
+      await new Promise(r => setTimeout(r, 200))
+      const railLabels = [...document.querySelectorAll('.csTools .tool')].map(b => (b.textContent || '').trim())
+      document.querySelector('[data-rail-collapse]')?.click()
+      await new Promise(r => setTimeout(r, 150))
+      return {
+        locked: !!stage && stage.classList.contains('stage--locked'),
+        overflow: stage ? getComputedStyle(stage).overflow : null,
+        zoomBefore: before, zoomAfter: S.zoom.value,
+        zoomBtns: zoomBtns.length, fitBtns: fitBtns.length,
+        hasPan: railLabels.includes('移动'), railLabels
+      }
+    })()`)
+    check('横屏平板：画布同样锁定（无缩放 / 适应按钮，滚轮与工具栏都改不了）',
+      wideLock.locked && wideLock.overflow === 'hidden' && wideLock.zoomAfter === wideLock.zoomBefore &&
+      wideLock.zoomBtns === 0 && wideLock.fitBtns === 0 && wideLock.hasPan === false, wideLock)
     const widePoint = await evalJs(send4, `(async () => {
       const S = await window.__douzao.studio()
       S.tool.value = 'paint'
@@ -751,45 +986,105 @@ async function main() {
         const b = document.querySelector('.board.editing').getBoundingClientRect()
         return { x: r.x, y: r.y, w: r.width, h: r.height, bx: b.x, by: b.y, sl: s.scrollLeft, st: s.scrollTop, z: 0 }
       })()`)
-      const zoomBeforeGesture = await evalJs(send4, `window.__douzao.studio().then(S => S.zoom.value)`)
       const f2 = (px, py, id) => ({ x: px, y: py, id, radiusX: 6, radiusY: 6, force: 1 })
       const p1x = Math.round(wideStage.x + wideStage.w * 0.35)
       const p1y = Math.round(wideStage.y + wideStage.h * 0.45)
       const p2x = Math.round(wideStage.x + wideStage.w * 0.68)
       const p2y = Math.round(wideStage.y + wideStage.h * 0.62)
+      /* ① 两指轻点 = 撤回 */
       await send4('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [f2(p1x, p1y, 1), f2(p2x, p2y, 2)] })
       await sleep(80)
-      await send4('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [f2(p1x - 30, p1y - 16, 1), f2(p2x + 26, p2y + 18, 2)] })
-      await sleep(80)
-      const wideUndone = await evalJs(send4, `(async () => {
+      await send4('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+      await sleep(200)
+      const wideTapped = await evalJs(send4, `(async () => {
         const S = await window.__douzao.studio()
         const cells = Array.from(S.pattern.value.cells)
         const before = ${JSON.stringify(widePainted.before || [])}
         let differ = 0
         const n = Math.max(cells.length, before.length)
         for (let i = 0; i < n; i++) if (cells[i] !== before[i]) differ++
-        const s = document.querySelector('.stage')
-        const sr = s.getBoundingClientRect()
-        const b = document.querySelector('.board.editing').getBoundingClientRect()
-        return {
-          differ, depth: S.undoDepth.value, zoom: S.zoom.value,
-          sl: s.scrollLeft, st: s.scrollTop,
-          relX: Math.round(b.x - sr.x), relY: Math.round(b.y - sr.y)
-        }
+        return { differ, depth: S.undoDepth.value, zoom: S.zoom.value }
       })()`)
+      check('横屏平板：两指轻点撤回上一步',
+        widePainted.wrote === true && widePainted.changed > 0 && wideTapped.differ === 0 && wideTapped.depth === widePainted.depth - 1,
+        { wrote: widePainted.wrote, changed: widePainted.changed, depth: [widePainted.depth, wideTapped.depth], differ: wideTapped.differ })
+
+      /* ② 两指捏合 = 放大画布，不能顺手撤回或改格子 */
+      const widePinchBefore = await evalJs(send4, `(async () => {
+        const S = await window.__douzao.studio()
+        const b = document.querySelector('.board.editing').getBoundingClientRect()
+        return { zoom: S.zoom.value, depth: S.undoDepth.value, cells: Array.from(S.pattern.value.cells),
+          board: { x: b.x, y: b.y, w: b.width, h: b.height } }
+      })()`)
+      await send4('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [f2(p1x, p1y, 1), f2(p2x, p2y, 2)] })
+      await sleep(60)
+      await send4('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [f2(p1x - 30, p1y - 16, 1), f2(p2x + 30, p2y + 16, 2)] })
+      await sleep(60)
+      await send4('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [f2(p1x - 55, p1y - 30, 1), f2(p2x + 55, p2y + 30, 2)] })
+      await sleep(250)
+      const widePinched = await evalJs(send4, `(async () => {
+        const S = await window.__douzao.studio()
+        const cells = Array.from(S.pattern.value.cells)
+        const before = ${JSON.stringify(widePinchBefore.cells)}
+        let differ = 0
+        const n = Math.max(cells.length, before.length)
+        for (let i = 0; i < n; i++) if (cells[i] !== before[i]) differ++
+        const b = document.querySelector('.board.editing').getBoundingClientRect()
+        return { zoom: S.zoom.value, depth: S.undoDepth.value, differ,
+          board: { x: b.x, y: b.y, w: b.width, h: b.height } }
+      })()`)
+      const wideMx = (p1x + p2x) / 2
+      const wideMy = (p1y + p2y) / 2
+      const wideFx = (wideMx - widePinchBefore.board.x) / widePinchBefore.board.w
+      const wideFy = (wideMy - widePinchBefore.board.y) / widePinchBefore.board.h
+      const wideDrift = [
+        Math.round(widePinched.board.x + wideFx * widePinched.board.w - wideMx),
+        Math.round(widePinched.board.y + wideFy * widePinched.board.h - wideMy)
+      ]
       await send4('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
-      /* 浏览器可能把整页滚一下。图纸相对舞台的位置不变，才说明画布没被拖走。 */
-      const relBeforeX = Math.round(wideStage.bx - wideStage.x)
-      const relBeforeY = Math.round(wideStage.by - wideStage.y)
-      /* 缩放容差 0.05：自动适配可能再算一次；真捏合这个手势会差 0.16 以上。 */
-      const wideStill = Math.abs(wideUndone.relX - relBeforeX) < 2 && Math.abs(wideUndone.relY - relBeforeY) < 2 && Math.abs(wideUndone.zoom - zoomBeforeGesture) < 0.05
+      await sleep(150)
       const wideCss = await evalJs(send4, `(() => {
         const s = document.querySelector('.stage')
         const cs = getComputedStyle(s)
         return { overflow: cs.overflow, touchAction: cs.touchAction, coarse: matchMedia('(pointer: coarse)').matches, fine: matchMedia('(pointer: fine)').matches, hover: matchMedia('(hover: hover)').matches }
       })()`)
-      check('横屏平板：两指点一下撤回', widePainted.wrote === true && widePainted.changed > 0 && wideUndone.differ === 0 && wideUndone.depth === widePainted.depth - 1, { wrote: widePainted.wrote, changed: widePainted.changed, depth: [widePainted.depth, wideUndone.depth], differ: wideUndone.differ })
-      check('横屏平板：两指点下去不拖动画布', wideStill === true, { rel: [relBeforeX, wideUndone.relX, relBeforeY, wideUndone.relY], scroll: [wideStage.sl, wideUndone.sl], zoom: [zoomBeforeGesture, wideUndone.zoom], css: wideCss })
+      check('横屏平板：两指捏合放大画布，且不触发撤回',
+        widePinched.zoom > widePinchBefore.zoom * 1.1 && widePinched.depth === widePinchBefore.depth && widePinched.differ === 0,
+        { zoom: [widePinchBefore.zoom, widePinched.zoom], depth: [widePinchBefore.depth, widePinched.depth], differ: widePinched.differ, drift: wideDrift, css: wideCss })
+
+      /* ③ 两指一起拖 = 平移画布：缩放不变、不撤回、不改格子 */
+      const widePanBefore = await evalJs(send4, `(async () => {
+        const S = await window.__douzao.studio()
+        const s = document.querySelector('.stage')
+        return { zoom: S.zoom.value, depth: S.undoDepth.value, sl: s.scrollLeft, st: s.scrollTop,
+          roomX: s.scrollWidth - s.clientWidth - s.scrollLeft, roomY: s.scrollHeight - s.clientHeight - s.scrollTop,
+          cells: Array.from(S.pattern.value.cells) }
+      })()`)
+      const widePanDx = widePanBefore.roomX >= 30 ? -30 : 30
+      const widePanDy = widePanBefore.roomY >= 24 ? -24 : 24
+      await send4('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [f2(p1x, p1y, 1), f2(p2x, p2y, 2)] })
+      await sleep(60)
+      await send4('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [f2(p1x + widePanDx / 2, p1y + widePanDy / 2, 1), f2(p2x + widePanDx / 2, p2y + widePanDy / 2, 2)] })
+      await sleep(60)
+      await send4('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [f2(p1x + widePanDx, p1y + widePanDy, 1), f2(p2x + widePanDx, p2y + widePanDy, 2)] })
+      await sleep(200)
+      const widePanAfter = await evalJs(send4, `(async () => {
+        const S = await window.__douzao.studio()
+        const s = document.querySelector('.stage')
+        const cells = Array.from(S.pattern.value.cells)
+        const before = ${JSON.stringify(widePanBefore.cells)}
+        let differ = 0
+        const n = Math.max(cells.length, before.length)
+        for (let i = 0; i < n; i++) if (cells[i] !== before[i]) differ++
+        return { zoom: S.zoom.value, depth: S.undoDepth.value, sl: s.scrollLeft, st: s.scrollTop, differ }
+      })()`)
+      await send4('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+      await sleep(150)
+      const widePanMoved = Math.abs(widePanAfter.sl - widePanBefore.sl) >= 20 && Math.abs(widePanAfter.st - widePanBefore.st) >= 14
+      check('横屏平板：两指拖动平移画布，不缩放也不撤回',
+        widePanMoved && Math.abs(widePanAfter.zoom - widePanBefore.zoom) < 0.01 &&
+        widePanAfter.depth === widePanBefore.depth && widePanAfter.differ === 0,
+        { scroll: [[widePanBefore.sl, widePanBefore.st], [widePanAfter.sl, widePanAfter.st]], want: [widePanDx, widePanDy], zoom: [widePanBefore.zoom, widePanAfter.zoom], depth: [widePanBefore.depth, widePanAfter.depth], differ: widePanAfter.differ })
     }
     await browser.send('Target.closeTarget', { targetId: tid4 }).catch(() => {})
   }

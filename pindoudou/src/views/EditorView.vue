@@ -180,15 +180,29 @@ function onWideChange() {
 const narrowQuery = window.matchMedia('(max-width: 780px)')
 const mobileConsole = ref(narrowQuery.matches)
 function onNarrowChange() { mobileConsole.value = narrowQuery.matches }
+/* 手指设备（含横屏 iPad，宽度常常 ≥1100）：不标快捷键，按键也不切工具。 */
+const coarseQuery = window.matchMedia('(pointer: coarse), (hover: none)')
+const coarsePointer = ref(coarseQuery.matches)
+function onCoarseChange() { coarsePointer.value = coarseQuery.matches }
+/* 平板档（781–1099）：旧三栏版面本身比一屏高，页面原来靠整页滚动。
+   这一档把浏览器窗口锁在屏幕上，改由 .studio 自己滚（见 global.css 的
+   html.is-editor-fixed）；画布另由 lockCanvas 锁成只编辑。 */
+const tabletQuery = window.matchMedia('(min-width: 781px) and (max-width: 1099px)')
+const tabletMode = ref(tabletQuery.matches)
+function onTabletChange() { tabletMode.value = tabletQuery.matches }
+/* 手指设备上浏览器会把双指当成页面缩放 / 平移；工作台里两指是撤回，
+   所以在工作台内锁住浏览器窗口：平板、手机、横屏 iPad 都算。 */
+const lockBrowserWindow = computed(() => tabletMode.value || coarsePointer.value)
+/* 平板档的画布也锁死：只编辑，不缩放、不平移，整张图纸固定在「适应窗口」。
+   横屏 iPad 宽度会超过 1100 走全屏工作台，手指设备同样锁；
+   手机有自己的缩放栏，保持原样。 */
+const lockCanvas = computed(() => tabletMode.value || (coarsePointer.value && !mobileConsole.value))
+
 /* 全屏 / 平板版面不再提供视图页签：画布固定停在拼豆图纸，
    分板改由右栏卡片展示。手机仍保留自己的图纸 / 原图 / 对照页签。 */
 watch([consoleMode, mobileConsole, currentView], () => {
   if (!mobileConsole.value && currentView.value !== 'pattern') currentView.value = 'pattern'
 }, { immediate: true })
-/* 手指设备（含横屏 iPad，宽度常常 ≥1100）：不标快捷键，按键也不切工具。 */
-const coarseQuery = window.matchMedia('(pointer: coarse), (hover: none)')
-const coarsePointer = ref(coarseQuery.matches)
-function onCoarseChange() { coarsePointer.value = coarseQuery.matches }
 const msSheet = ref('')
 const MS_SHEET_TITLES = { color: '颜色', more: '更多工具', menu: '更多', adjust: '图纸调整', crop: '裁切图片' }
 const msSheetTitle = computed(() => MS_SHEET_TITLES[msSheet.value] || '')
@@ -279,7 +293,10 @@ const SWAP_TOOL = {
   desc: '点一格，整张图里同色的豆全部换成当前颜色',
   shortcut: 'C'
 }
-const railTools = computed(() => [...EDIT_TOOLS, SWAP_TOOL])
+const railTools = computed(() => {
+  const base = lockCanvas.value ? EDIT_TOOLS.filter(t => t.key !== 'pan') : EDIT_TOOLS
+  return [...base, SWAP_TOOL]
+})
 
 /* 左侧绘图工具栏默认展开（用户 2026-11-03 定）；
    收起后画布左上角只剩一颗绿色按钮，点它再展开。 */
@@ -748,10 +765,52 @@ function onShortcutKey(e) {
   if (k === 'm') { e.preventDefault(); doMirror(); return }
 }
 
+/* 把浏览器窗口固定在屏幕上：页面本身不滚、不回弹，双指不能缩放页面。
+   画布仍走自己的 PointerEvent（单指编辑、两指撤回），
+   页面锁不会碰它；只是把浏览器原生手势从页面这一层拿走。 */
+let browserWindowLocked = false
+let viewportMetaBefore = ''
+
+function preventBrowserGesture(e) { e.preventDefault() }
+function preventMultiTouchMove(e) {
+  if (e.touches && e.touches.length > 1) e.preventDefault()
+}
+
+function lockBrowserViewport() {
+  if (browserWindowLocked) return
+  browserWindowLocked = true
+  document.documentElement.classList.add('is-editor-fixed')
+  document.body.classList.add('is-editor-fixed')
+  const meta = document.querySelector('meta[name="viewport"]')
+  if (meta) {
+    viewportMetaBefore = meta.getAttribute('content') || ''
+    meta.setAttribute('content', 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover')
+  }
+  /* iOS Safari 不认 user-scalable=no，用它自己的 gesture 事件挡住捏合。 */
+  window.addEventListener('gesturestart', preventBrowserGesture, { passive: false })
+  window.addEventListener('gesturechange', preventBrowserGesture, { passive: false })
+  document.addEventListener('touchmove', preventMultiTouchMove, { passive: false })
+}
+
+function unlockBrowserViewport() {
+  if (!browserWindowLocked) return
+  browserWindowLocked = false
+  document.documentElement.classList.remove('is-editor-fixed')
+  document.body.classList.remove('is-editor-fixed')
+  const meta = document.querySelector('meta[name="viewport"]')
+  if (meta && viewportMetaBefore) meta.setAttribute('content', viewportMetaBefore)
+  window.removeEventListener('gesturestart', preventBrowserGesture)
+  window.removeEventListener('gesturechange', preventBrowserGesture)
+  document.removeEventListener('touchmove', preventMultiTouchMove)
+}
+
+watch(lockBrowserWindow, v => { if (v) lockBrowserViewport(); else unlockBrowserViewport() })
+
 onMounted(() => {
   /* 手机端命令栏占住底部两排：提示条要抬到它上面，别压住按钮。
      只在工作台挂这个类，其它页面的提示位置不变。 */
   document.body.classList.add('is-editor')
+  if (lockBrowserWindow.value) lockBrowserViewport()
   /* 拖到窗口外松手时 dragleave 不一定来，兜底把提示层收掉 */
   window.addEventListener('dragend', resetDrop)
   window.addEventListener('dragover', onWindowDragOver)
@@ -761,6 +820,7 @@ onMounted(() => {
   wideQuery.addEventListener('change', onWideChange)
   narrowQuery.addEventListener('change', onNarrowChange)
   coarseQuery.addEventListener('change', onCoarseChange)
+  tabletQuery.addEventListener('change', onTabletChange)
   trackEvent('editor.open')
   /* 左栏「素材库」和空画布引导的配图都取素材库（后台已发布素材），
      进工作台就拉一次；失败时两处都会退回内置素材 */
@@ -787,6 +847,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   document.body.classList.remove('is-editor')
+  unlockBrowserViewport()
   window.removeEventListener('dragend', resetDrop)
   window.removeEventListener('dragover', onWindowDragOver)
   window.removeEventListener('drop', onWindowDrop)
@@ -797,6 +858,7 @@ onBeforeUnmount(() => {
   wideQuery.removeEventListener('change', onWideChange)
   coarseQuery.removeEventListener('change', onCoarseChange)
   narrowQuery.removeEventListener('change', onNarrowChange)
+  tabletQuery.removeEventListener('change', onTabletChange)
 })
 
 // 切到别的存档（切作品、从作品页打开）时地址变了但组件不会重建，得自己盯住参数
@@ -938,7 +1000,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
 </script>
 
 <template>
-  <div class="studio studio--console" :class="{ 'studio--mobile': mobileConsole }">
+  <div class="studio studio--console" :class="{ 'studio--mobile': mobileConsole, 'studio--tablet-fixed': tabletMode }">
     <!-- ============================ 全局命令栏（全屏工作台） ============================
          第一行：品牌 · 作品名（可改名）· 保存状态 ‖ 居中：模式切换 ‖ 保存 / 导出 / 反馈 / 个人中心
          第二行：五个功能（上传图片 / AI 生成 / 素材库 | 卡通 · 钉板 · 色板）整体居中，
@@ -1157,6 +1219,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
         ref="canvasRef"
         :chrome="consoleMode || mobileConsole ? 'console' : 'default'"
         :mode="createMode"
+        :locked="lockCanvas"
         @upload="pickMobileImage" @browse="router.push('/materials/')"
         @resize="openMobilePanel('size')" @delivery="openDelivery('export')"
         @split="showSplit"
@@ -1524,21 +1587,23 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
       <span class="csSpacer"></span>
       <span class="csDiv"></span>
       <div class="zoomBar csZoom">
-        <button class="csStatus__btn csStatus__btn--icon hit32" type="button" title="缩小" aria-label="缩小" @click="canvasRef?.zoomStep(-0.25)"><Icon name="zoom-out" :size="16" /></button>
+        <button v-if="!lockCanvas" class="csStatus__btn csStatus__btn--icon hit32" type="button" title="缩小" aria-label="缩小" @click="canvasRef?.zoomStep(-0.25)"><Icon name="zoom-out" :size="16" /></button>
         <span class="zoomText">缩放 {{ zoomPct }}%</span>
-        <button class="csStatus__btn csStatus__btn--icon hit32" type="button" title="放大" aria-label="放大" @click="canvasRef?.zoomStep(0.25)"><Icon name="zoom-in" :size="16" /></button>
+        <button v-if="!lockCanvas" class="csStatus__btn csStatus__btn--icon hit32" type="button" title="放大" aria-label="放大" @click="canvasRef?.zoomStep(0.25)"><Icon name="zoom-in" :size="16" /></button>
       </div>
-      <span class="csDiv"></span>
-      <button class="csStatus__btn hit32h" type="button" title="适应窗口" aria-label="适应窗口" @click="canvasRef?.fitStage()">
-        <Icon name="scan" :size="16" />适应
-      </button>
-      <button
-        class="csStatus__btn hit32h" :class="{ on: canvasRef?.actualMode }"
-        type="button" data-actual-btn :disabled="!hasPattern"
-        :title="hasPattern ? `按实际大小预览（成品 ${canvasRef?.finishCmText || ''}）` : '先生成图纸后才能按实际大小预览'"
-        :aria-pressed="canvasRef?.actualMode"
-        @click="canvasRef?.toggleActualSize()"
-      ><Icon name="maximize" :size="16" />实际大小</button>
+      <template v-if="!lockCanvas">
+        <span class="csDiv"></span>
+        <button class="csStatus__btn hit32h" type="button" title="适应窗口" aria-label="适应窗口" @click="canvasRef?.fitStage()">
+          <Icon name="scan" :size="16" />适应
+        </button>
+        <button
+          class="csStatus__btn hit32h" :class="{ on: canvasRef?.actualMode }"
+          type="button" data-actual-btn :disabled="!hasPattern"
+          :title="hasPattern ? `按实际大小预览（成品 ${canvasRef?.finishCmText || ''}）` : '先生成图纸后才能按实际大小预览'"
+          :aria-pressed="canvasRef?.actualMode"
+          @click="canvasRef?.toggleActualSize()"
+        ><Icon name="maximize" :size="16" />实际大小</button>
+      </template>
     </footer>
 
     <input ref="fileInput" type="file" accept="image/*" hidden @change="onPickFile">
