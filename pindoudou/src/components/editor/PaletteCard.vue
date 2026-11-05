@@ -26,11 +26,12 @@ const props = defineProps({
 const emit = defineEmits(['update:open'])
 
 /* 色系（按 Lab 色相算的粗分类）。色卡数据里没有族字段，
-   自己按色相 / 饱和度 / 明度归类，够用而且稳定。 */
+   自己按色相 / 饱和度 / 明度归类，够用而且稳定。
+   胶囊按英文色名 A–Z 排（black → yellow），「全部」固定在最前。 */
 const FAMILY_LABEL = {
-  red: '红色系', orange: '橙色系', yellow: '黄色系', green: '绿色系',
-  cyan: '青色系', blue: '蓝色系', purple: '紫色系', pink: '粉色系',
-  brown: '棕色系', white: '白色系', gray: '灰色系', black: '黑色系'
+  black: '黑色系', blue: '蓝色系', brown: '棕色系', cyan: '青色系',
+  gray: '灰色系', green: '绿色系', orange: '橙色系', pink: '粉色系',
+  purple: '紫色系', red: '红色系', white: '白色系', yellow: '黄色系'
 }
 
 function familyOf(color) {
@@ -66,9 +67,10 @@ watch(() => options.brandId, () => {
 const families = computed(() => {
   const set = new Set()
   for (const c of availableColors.value) set.add(familyOf(c))
-  return [...set]
-    .map(f => ({ key: f, label: FAMILY_LABEL[f] || f }))
-    .sort((x, y) => x.label.localeCompare(y.label, 'zh-Hans-CN'))
+  /* 键名就是英文色名，插入顺序即 A–Z；当前色卡没有的色系不出现 */
+  return Object.keys(FAMILY_LABEL)
+    .filter(f => set.has(f))
+    .map(f => ({ key: f, label: FAMILY_LABEL[f] }))
 })
 
 const list = computed(() => {
