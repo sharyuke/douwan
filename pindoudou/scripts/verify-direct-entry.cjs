@@ -28,7 +28,8 @@ const CHROME = [
   'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
   'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
   '/usr/bin/google-chrome',
-  '/usr/bin/chromium'
+  '/usr/bin/chromium',
+  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 ].find(p => fs.existsSync(p))
 
 const MIME = {
@@ -219,8 +220,18 @@ async function main() {
     /* 「我的作品」入口统一收进个人中心，工作台里不再重复放一份 */
     check('手机「⋯」菜单里没有「我的作品」', !menu.some(x => x.includes('我的作品')), menu)
     check('手机「⋯」菜单里没有「新手教程」', !menu.some(x => x.includes('新手教程')), menu)
+    check('手机「⋯」菜单里没有「保存作品」', !menu.some(x => x.includes('保存作品')), menu)
     check('手机工作台没有新手指引', !(await ev(`!!document.querySelector('[data-guide]')`)))
+    check('手机「⋯」菜单里有「个人中心」', menu.some(x => x.includes('个人中心')), menu)
     check('手机「⋯」菜单里仍有「返回首页」', menu.some(x => x.includes('返回首页')), menu)
+    await shot('mobile-menu')
+    await ev(`[...document.querySelectorAll('.msMenu button')].find(b => b.textContent.includes('个人中心')).click(); 1`)
+    await sleep(1800)
+    const account = await ev(`(() => ({
+      path: location.pathname,
+      title: document.querySelector('h1') ? document.querySelector('h1').textContent.trim() : ''
+    }))()`)
+    check('手机「⋯ → 个人中心」进入个人中心', account.path === '/account', account)
   } catch (e) {
     failed++
     console.log('FAIL 自检中断：' + (e && e.message ? e.message : e))

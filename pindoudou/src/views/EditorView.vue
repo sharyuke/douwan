@@ -1769,8 +1769,8 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
       <!-- ⋯ 更多 -->
       <div v-else-if="msSheet === 'menu'" class="msSheet__body">
         <div class="msMenu">
-          <button type="button" :disabled="!hasPattern" @click="closeMsSheet(); openSave()">
-            <Icon name="save" :size="20" /><span>保存作品</span>
+          <button type="button" @click="closeMsSheet(); router.push('/account')">
+            <Icon name="user-round" :size="20" /><span>个人中心</span>
           </button>
           <button type="button" :disabled="!hasPattern" @click="closeMsSheet(); openMobilePanel('colors')">
             <Icon name="palette" :size="20" /><span>颜色用量</span>

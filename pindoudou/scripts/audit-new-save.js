@@ -8,12 +8,12 @@
         旧作品的本机存档逐字节不变；
      ③ 再点「保存」→ 第 2 件作品，旧作品仍在，名字 / 图纸 / 缩略图都没变；
      ③-2 在同一张画布上继续改再保存 → 更新第 2 件，不新建、地址不变；
-     ③-3 手机「⋯ → 保存作品」对已保存的画布直接落盘，不再弹名字框；
+     ③-3 手机顶栏「保存」对已保存的画布直接落盘，不再弹名字框；
      ④ 打开旧作品 → 它的图纸还是原来那张（不是新图）；
      ⑤ 回归：打开旧作品改一格再保存 → 仍是同一件作品，不新建、不动别的作品；
      ⑥ 打开旧作品后拖新图再保存 → 第 3 件作品，前两件都不受影响。
 
-   注意：保存按钮走真实界面（桌面顶栏「保存」；手机「更多 → 保存作品 → 弹层确认」），
+   注意：保存按钮走真实界面（桌面顶栏「保存」；手机顶栏「保存」），
    上传走真实的 file input change，不直接调 saveProject。 */
 (async () => {
   const d = window.__douzao
@@ -178,20 +178,18 @@
     `${beforeReSaveAt} → ${(recOf(idB) || {}).updatedAt}`)
   step('同一张画布保存后地址不变', location.pathname === `/editor/${idB}`, location.pathname)
 
-  /* ------- ③-3 手机「⋯ → 保存作品」：已保存的画布直接落盘，不再问名字 ------- */
+  /* ------- ③-3 手机顶栏「保存」：已保存的画布直接落盘，不再问名字 ------- */
   if (document.querySelector('.msTop')) {
     const beforeMenuAt = (recOf(idB) || {}).updatedAt || 0
     S.paintAt(2, 2)
     await sleep(120)
-    const moreBtn = document.querySelector('.msTop .msIcon')
-    if (moreBtn) moreBtn.click()
-    await sleep(320)
-    const menuSave = [...document.querySelectorAll('.msMenu button')].find(b => /保存作品/.test(b.textContent))
-    if (menuSave) menuSave.click()
+    const topSave = [...document.querySelectorAll('.msTop .msPill')]
+      .find(b => isVisible(b) && b.textContent.trim() === '保存')
+    if (topSave) topSave.click()
     await sleep(900)
     const nameDlg = [...document.querySelectorAll('.modal.show .dialog')].find(d => /保存作品/.test(d.textContent))
-    step('手机「保存作品」对已保存的画布直接保存（不再问名字）',
-      !!menuSave && !nameDlg && (recOf(idB) || {}).updatedAt > beforeMenuAt,
+    step('手机顶栏「保存」对已保存的画布直接保存（不再问名字）',
+      !!topSave && !nameDlg && (recOf(idB) || {}).updatedAt > beforeMenuAt,
       `${beforeMenuAt} → ${(recOf(idB) || {}).updatedAt}`)
     if (nameDlg) {
       const cancel = [...nameDlg.querySelectorAll('button')].find(b => b.textContent.trim() === '取消')
