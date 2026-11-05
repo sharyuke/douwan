@@ -319,9 +319,9 @@ async function main() {
   check('点「原图」页签切换', /原图/.test(viewNow || ''), viewNow)
   await shotEl(send, '.studio__canvas', 'view-original')
 
-  /* 2026-11-05：图纸调整与成品尺寸合并成右侧一行「图纸调整」。
-     命令行不再有图纸调整入口；点右侧入口打开的面板里同时有成品尺寸滑杆与图纸设置，
-     原图调整（亮度 / 对比度 / 饱和度）已经去掉。 */
+  /* 2026-11-05：图纸调整与成品尺寸合并成右侧一行「图纸调整」；
+     智能抠图也从命令行并进这块面板。命令行不再有图纸调整 / 智能抠图入口，
+     面板里同时有成品尺寸滑杆、智能抠图开关与图纸设置，原图调整已经去掉。 */
   {
     await evalJs(send, `(async () => {
       const d = window.__douzao
@@ -343,12 +343,13 @@ async function main() {
       const first = side ? side.firstElementChild : null
       return {
         topAdjust: !!(cmd && [...cmd.querySelectorAll('button')].some(b => /图纸调整/.test(txt(b)))),
+        topMatte: !!(cmd && [...cmd.querySelectorAll('button')].some(b => /智能抠图/.test(txt(b)))),
         firstMerged: !!first && first.hasAttribute('data-side-adjust'),
         firstText: txt(first)
       }
     })()`)
-    check('图纸转换：命令行没有图纸调整入口，右侧第一行是合并后的图纸调整',
-      !merged.topAdjust && merged.firstMerged && /图纸调整/.test(merged.firstText), merged)
+    check('图纸转换：命令行没有图纸调整 / 智能抠图入口，右侧第一行是合并后的图纸调整',
+      !merged.topAdjust && !merged.topMatte && merged.firstMerged && /图纸调整/.test(merged.firstText), merged)
 
     await evalJs(send, `document.querySelector('[data-side-adjust]').click(); 1`)
     await sleep(700)
@@ -356,15 +357,56 @@ async function main() {
       const txt = el => (el ? el.textContent : '').replace(/\\s+/g, ' ').trim()
       const d = document.querySelector('.csDrawer')
       const body = d && d.querySelector('.csDrawer__body')
+      const matte = body && body.querySelector('[data-adjust-matte]')
       return {
         title: txt(d && d.querySelector('.csDrawer__head b')),
         size: !!(d && d.querySelector('.szq__range')),
+        matte: !!matte,
+        matteSwitch: !!(matte && matte.querySelector('[role="switch"]')),
+        oldToggle: /保留透明区域/.test(txt(body)),
         settings: /图纸设置/.test(txt(body)),
         oldAdjust: /原图调整|亮度|对比度|饱和度/.test(txt(body))
       }
     })()`)
-    check('合并面板：成品尺寸 + 图纸设置，且没有原图调整',
-      mergedPanel.title === '图纸调整' && mergedPanel.size && mergedPanel.settings && !mergedPanel.oldAdjust, mergedPanel)
+    check('合并面板：成品尺寸 + 智能抠图 + 图纸设置，且没有原图调整 / 保留透明区域',
+      mergedPanel.title === '图纸调整' && mergedPanel.size && mergedPanel.matte &&
+      mergedPanel.matteSwitch && mergedPanel.settings && !mergedPanel.oldToggle && !mergedPanel.oldAdjust,
+      mergedPanel)
+
+    /* 真点智能抠图开关：三档力度出现；选「保守」写回 options；再关掉。
+       预置作品可能本来就开着抠图，先按真实开关把它关掉，保证下面从「关」开始。 */
+    await evalJs(send, `(() => {
+      const sw = document.querySelector('[data-adjust-matte] [role="switch"]')
+      if (sw && sw.getAttribute('aria-checked') === 'true') sw.click()
+      return 1
+    })()`)
+    await sleep(700)
+    await evalJs(send, `document.querySelector('[data-adjust-matte] [role="switch"]').click(); 1`)
+    await sleep(600)
+    const matteOn = await evalJs(send, `(() => {
+      const txt = el => (el ? el.textContent : '').replace(/\\s+/g, ' ').trim()
+      const box = document.querySelector('[data-adjust-matte]')
+      const sw = box && box.querySelector('[role="switch"]')
+      const levels = [...(box ? box.querySelectorAll('.iap__levels button') : [])].map(txt)
+      return { checked: sw && sw.getAttribute('aria-checked'), levels }
+    })()`)
+    check('图纸调整：打开智能抠图后出现 保守 / 标准 / 激进 三档',
+      matteOn.checked === 'true' && matteOn.levels.join('/') === '保守/标准/激进', matteOn)
+
+    await evalJs(send, `[...document.querySelectorAll('[data-adjust-matte] .iap__levels button')].find(b => b.textContent.includes('保守')).click(); 1`)
+    await sleep(600)
+    const matteLevel = await evalJs(send, `(async () => { const S = await window.__douzao.studio(); return S.options.matteLevel })()`)
+    check('图纸调整：抠图力度选「保守」写回状态', matteLevel === 'soft', matteLevel)
+
+    await evalJs(send, `document.querySelector('[data-adjust-matte] [role="switch"]').click(); 1`)
+    await sleep(600)
+    const matteOff = await evalJs(send, `(async () => {
+      const S = await window.__douzao.studio()
+      const sw = document.querySelector('[data-adjust-matte] [role="switch"]')
+      return { removeBg: S.options.removeBg, checked: sw && sw.getAttribute('aria-checked') }
+    })()`)
+    check('图纸调整：再点开关关掉智能抠图', matteOff.removeBg === false && matteOff.checked === 'false', matteOff)
+
     await evalJs(send, `document.querySelector('.csDrawer__head .csIconBtn').click(); 1`)
     await sleep(400)
   }

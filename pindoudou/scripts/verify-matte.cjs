@@ -141,39 +141,38 @@ const RESET = `(async () => {
   return { ok: true, removeBg: S.options.removeBg }
 })()`
 
-/** 真点「智能抠图」：电脑端点页签，手机端先点「换图」把创建面板拉起来再选下拉 */
+/** 真点「智能抠图」：平板点左栏页签；桌面 / 手机先打开「图纸调整」面板再拨开关 */
 const PICK_CUTOUT = `(async () => {
   const sleep = ms => new Promise(r => setTimeout(r, ms))
   const visible = el => !!(el && el.offsetParent !== null)
+  const txt = el => (el ? el.textContent : '').replace(/\\s+/g, ' ').trim()
   const findCtl = () => {
-    const tab = [...document.querySelectorAll('.procTab')].find(b => b.textContent.includes('智能抠图') && visible(b))
+    const tab = [...document.querySelectorAll('.procTab')].find(b => txt(b).includes('智能抠图') && visible(b))
     if (tab) return { el: tab, kind: 'tab' }
-    /* 全屏创作工作台：命令栏里的「智能抠图 关 / 保守 / 标准 / 激进」分段控件 */
-    const matte = [...document.querySelectorAll('.csMatte')].find(el => visible(el))
-    if (matte) {
-      const btns = [...matte.querySelectorAll('.csSeg button')]
-      const std = btns.find(b => b.textContent.trim() === '标准') || btns[1]
-      if (std) return { el: std, kind: 'console' }
-    }
+    /* 桌面全屏工作台 / 手机：智能抠图并进了「图纸调整」面板 */
+    const sw = [...document.querySelectorAll('[data-adjust-matte] [role="switch"]')].find(visible)
+    if (sw) return { el: sw, kind: 'adjust' }
     const sel = [...document.querySelectorAll('select[aria-label="图片处理方式"]')].find(visible)
     if (sel) return { el: sel, kind: 'select' }
     return null
   }
   let ctl = findCtl()
   if (!ctl) {
-    /* 手机端：侧栏在底部抽屉里，得先点工具条上的「换图」把它拉出来 */
-    const swap = [...document.querySelectorAll('.quickItem')].find(b => b.textContent.includes('换图') && visible(b))
-    if (!swap) return { ok: false, err: '找不到「换图」入口（手机端要先打开创建面板）' }
-    swap.click()
+    const entry = [...document.querySelectorAll('[data-side-adjust], .msEditBar__pills button')]
+      .find(b => (b.hasAttribute('data-side-adjust') || txt(b).includes('图纸调整')) && visible(b))
+    if (!entry) return { ok: false, err: '找不到「图纸调整」入口' }
+    entry.click()
     await sleep(500)
     ctl = findCtl()
-    if (!ctl) return { ok: false, err: '「换图」面板里没有可见的「智能抠图」入口' }
+    if (!ctl) return { ok: false, err: '「图纸调整」面板里没有智能抠图开关' }
   }
-  if (ctl.kind === 'tab' || ctl.kind === 'console') {
-    ctl.el.click()
-  } else {
+  if (ctl.kind === 'select') {
     ctl.el.value = 'cutout'
     ctl.el.dispatchEvent(new Event('change', { bubbles: true }))
+  } else if (ctl.kind === 'adjust') {
+    if (ctl.el.getAttribute('aria-checked') !== 'true') ctl.el.click()
+  } else {
+    ctl.el.click()
   }
   await sleep(400)
   return { ok: true, how: ctl.kind }

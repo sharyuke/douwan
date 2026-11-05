@@ -27,7 +27,7 @@ import {
   tool, brushSize, eraserSize, BRUSH_MAX, toolSizeOf, setToolSize, brushColorId,
   mirrorPattern, removeSpecks, options, currentView,
   zoom, setZoom, layout, availableColors, maxCells, brand,
-  setCanvasCapacity, setMatteLevel, setRemoveBg, matteLevels,
+  setCanvasCapacity, setRemoveBg,
   cropSource,
   undo, redo, canUndo, canRedo,
   openColorReplace, ensureBlankCanvas,
@@ -122,7 +122,7 @@ function onReplaceColor(id) {
   if (!openColorReplace(id)) toastWarn('没有在当前图纸上找到这个颜色')
 }
 
-/* 智能抠图：命令栏一颗开关，力度在左侧「图片与处理」卡里选 */
+/* 智能抠图：桌面已并进「图纸调整」面板；手机编辑条上仍留一颗快捷开关 */
 function toggleMatte() {
   if (!sourceUrl.value) return
   void setRemoveBg(!options.removeBg)
@@ -242,14 +242,6 @@ function pickBoard(o) {
   if (o.current) return
   setCanvasCapacity(o.w, o.h)
 }
-
-/* 智能抠图三档 + 关闭：与左栏「图片处理 → 智能抠图」同一套状态 */
-function matteOn(key) {
-  if (!options.removeBg) { setRemoveBg(true); setMatteLevel(key); return }
-  if (options.matteLevel === key) return
-  setMatteLevel(key)
-}
-function matteOff() { setRemoveBg(false) }
 
 /* 视图页签与画布组件里的那一组完全一致（chrome='console' 时组件自己那条被隐藏） */
 const views = [
@@ -1028,9 +1020,6 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
           <Icon name="images" :size="20" /><span>素材库</span>
         </button>
         <span class="csDiv csDiv--v"></span>
-        <button class="csCmd__btn hit36h" :class="{ on: options.removeBg }" :disabled="!sourceUrl" @click="toggleMatte">
-          <Icon name="wand-sparkles" :size="24" /><span>智能抠图</span>
-        </button>
         <button class="csCmd__btn is-soon hit36h" type="button" disabled title="卡通风格：对接中，敬请期待">
           <Icon name="wand-sparkles" :size="24" /><span>卡通</span><em>对接中</em>
         </button>
