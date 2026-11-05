@@ -12,7 +12,9 @@ const props = defineProps({
   keyword: { type: String, default: '' },
   /* 「我的收藏」只在登录后出现在排序标签行末尾 */
   favVisible: { type: Boolean, default: false },
-  favActive: { type: Boolean, default: false }
+  favActive: { type: Boolean, default: false },
+  /* 收藏视图换一条更贴切的搜索提示；空字符串时用素材库默认文案 */
+  searchPlaceholder: { type: String, default: '' }
 })
 const emit = defineEmits([
   'update:sort', 'update:diff', 'update:purpose', 'update:keyword', 'select-favorites'
@@ -32,8 +34,8 @@ function clearSearch() {
       <div class="sortTabs" role="tablist" aria-label="排序">
         <button
           v-for="s in SORT_TABS" :key="s.value"
-          type="button" role="tab" :class="{ on: !favActive && sort === s.value }"
-          :aria-selected="!favActive && sort === s.value"
+          type="button" role="tab" :class="{ on: sort === s.value }"
+          :aria-selected="sort === s.value"
           @click="emit('update:sort', s.value)"
         >{{ s.label }}</button>
         <button
@@ -72,8 +74,8 @@ function clearSearch() {
         <Icon name="search" :size="16" />
         <input
           :value="keyword" type="search"
-          :placeholder="SEARCH_PLACEHOLDER"
-          aria-label="搜索当前分类的素材"
+          :placeholder="searchPlaceholder || SEARCH_PLACEHOLDER"
+          :aria-label="searchPlaceholder ? '搜索我的收藏' : '搜索当前分类的素材'"
           @input="onSearch"
         >
         <button v-if="keyword" type="button" class="filters__clear" aria-label="清空搜索" @click="clearSearch">

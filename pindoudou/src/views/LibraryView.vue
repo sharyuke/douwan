@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter, RouterLink } from 'vue-router'
 import Icon from '../components/ui/Icon.vue'
 import LibraryBanner from '../components/library/LibraryBanner.vue'
 import LibraryCategoryTabs from '../components/library/LibraryCategoryTabs.vue'
@@ -329,9 +329,8 @@ function onKeyword(v) {
   libKeyword.value = v
 }
 
-/* 排序标签是「视图」的一部分：点任何一个排序都退出「我的收藏」 */
+/* 排序只改顺序：在「我的收藏」里排序不离开收藏列表 */
 function onSort(v) {
-  favOnly.value = false
   sortMode.value = v
 }
 
@@ -388,11 +387,11 @@ function onDocKey(e) {
 </script>
 
 <template>
-  <div class="wrap main--pad libPage">
+  <div class="wrap main--pad libPage" :class="{ 'libPage--fav': favOnly }">
     <div class="libMain">
-      <LibraryBanner />
+      <LibraryBanner v-if="!favOnly" />
 
-      <div ref="navPanelRef" class="libNavWrap">
+      <div v-if="!favOnly" ref="navPanelRef" class="libNavWrap">
         <LibraryCategoryTabs
           :active="libCol"
           :panel-open="panelOpen"
@@ -414,13 +413,26 @@ function onDocKey(e) {
         />
       </div>
 
+      <!-- 素材收藏：个人空间的一页，标题与操作跟其余三页同一套 pagehead -->
+      <div v-if="favOnly" ref="resultsRef" class="pagehead libFavHead">
+        <div>
+          <h1>素材收藏</h1>
+          <p>从素材库收藏的灵感都在这里，打开后会另存为你的作品。{{ summary }}</p>
+        </div>
+        <div class="row row--wrap">
+          <button v-if="hasActiveFilters" type="button" class="btn btn-secondary" @click="resetFilters">清空筛选</button>
+          <RouterLink to="/materials/" class="btn btn-secondary">去素材库</RouterLink>
+        </div>
+      </div>
+
       <LibraryFilters
         :sort="sortMode"
         :diff="diffFilter"
         :purpose="purposeFilter"
         :keyword="libKeyword"
-        :fav-visible="isLoggedIn"
+        :fav-visible="isLoggedIn && !favOnly"
         :fav-active="favOnly"
+        :search-placeholder="favOnly ? '搜索我的收藏…' : ''"
         @update:sort="onSort"
         @update:diff="diffFilter = $event"
         @update:purpose="purposeFilter = $event"
@@ -428,14 +440,13 @@ function onDocKey(e) {
         @select-favorites="selectFavorites"
       />
 
-      <div ref="resultsRef" class="libResultBar">
+      <div v-if="!favOnly" ref="resultsRef" class="libResultBar">
         <div class="libResultBar__title">
           <h1>{{ heading }}</h1>
           <span v-if="subFilter" class="libSubChip">{{ subFilter }}</span>
         </div>
         <div class="libResultBar__right">
           <p>{{ summary }}</p>
-          <button v-if="favOnly" type="button" class="libReset" @click="clearAll">查看全部素材</button>
           <button v-if="hasActiveFilters" type="button" class="libReset" @click="resetFilters">清空筛选</button>
         </div>
       </div>
@@ -467,7 +478,7 @@ function onDocKey(e) {
         </div>
       </template>
 
-      <p class="libCopyright">
+      <p v-if="!favOnly" class="libCopyright">
         素材均为豆玩平台原创或已获得授权，全部免费开放。用户上传图片需确认拥有或已获得使用权利；
         如发现侵权内容，可通过帮助页的举报入口提交，我们会在核实后下架。
       </p>
@@ -483,6 +494,9 @@ function onDocKey(e) {
 
 <style scoped>
 .libPage{padding-top:22px;display:flex;flex-direction:column}
+/* 素材收藏是个人空间的一页：留白跟个人中心其余三页（main--pad）一致 */
+.libPage--fav{padding-top:24px}
+.libFavHead{margin-bottom:0}
 .libMain{min-width:0;display:flex;flex-direction:column;gap:14px}
 .libNavWrap{min-width:0;display:flex;flex-direction:column}
 .libResultBar{
@@ -529,6 +543,7 @@ function onDocKey(e) {
 }
 @media(max-width:780px){
   .libPage{padding-top:12px;padding-bottom:104px}
+  .libPage--fav{padding-top:18px}
   .libMain{gap:12px}
   .materialGrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
   .libResultBar h1{font-size:14px;line-height:var(--ty-body-lh)}

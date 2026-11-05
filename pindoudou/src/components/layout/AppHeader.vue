@@ -27,8 +27,12 @@ const route = useRoute()
 const router = useRouter()
 const isHome = computed(() => route.name === 'home')
 
-/* 主导航在桌面 / 平板的左侧栏与手机底部标签栏，顶栏不放导航，避免双导航。 */
-const isLibrary = computed(() => route.name === 'materials-center' || route.name === 'material-category')
+/* 主导航在桌面 / 平板的左侧栏与手机底部标签栏，顶栏不放导航，避免双导航。
+   素材库的搜索与上传只在素材库本体出现；「我的收藏」（col=fav）是个人空间的
+   素材收藏页，顶栏跟个人中心其余页面一样只留品牌与账号。 */
+const isLibrary = computed(() =>
+  (route.name === 'materials-center' || route.name === 'material-category') &&
+  !(route.name === 'materials-center' && route.query.col === 'fav'))
 
 /** 素材库顶栏的上传入口：沿用首页那条 pendingUpload → /editor 的链路 */
 function triggerUpload() {

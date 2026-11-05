@@ -42,8 +42,11 @@ const fullscreenStudio = computed(() => !!route.meta.studio && (wideViewport.val
    手机端两边都不渲染这份外壳，继续用底部标签栏。 */
 const isHome = computed(() => route.name === 'home')
 /* 个人空间（个人概览 / 我的作品 / 我的库存 / 设置）不用左侧站点导航：
-   分区切换与去创作、素材库的入口都收在顶部 AccountNav 一条里（2026-11-05）。 */
-const inAccountArea = computed(() => !!route.meta.account)
+   分区切换与去创作、素材库的入口都收在顶部 AccountNav 一条里（2026-11-05）。
+   素材收藏是素材库的收藏视图（/materials/?col=fav），同样算个人空间的一页。 */
+const isFavorites = computed(() =>
+  route.name === 'materials-center' && route.query.col === 'fav')
+const inAccountArea = computed(() => !!route.meta.account || isFavorites.value)
 const showSidebar = computed(() =>
   showSiteChrome.value && !isHome.value && !fullscreenStudio.value && !inAccountArea.value)
 
