@@ -1542,7 +1542,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
       </aside>
 
       <!-- 右侧滑出面板：复用左栏 / 右栏那张卡本身（focus 模式只显示它） -->
-      <aside v-if="consoleMode && drawerKey" class="csDrawer no-print" aria-label="设置面板">
+      <aside v-if="consoleMode && drawerKey" class="csDrawer no-print" :class="{ 'csDrawer--fit': drawerKey === 'adjust' }" aria-label="设置面板">
         <header class="csDrawer__head">
           <b>{{ drawerTitle }}</b>
           <button type="button" class="csIconBtn" aria-label="关闭面板" @click="closeDrawer">
@@ -2394,6 +2394,8 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
     box-shadow:0 8px 32px rgba(26,45,34,.12);animation:csSlide .18s ease;
   }
   @keyframes csSlide{from{transform:translateX(18px);opacity:.5}to{transform:none;opacity:1}}
+  /* 图纸调整只剩成品尺寸与智能抠图：面板按内容高度收，不再撑满整列 */
+  .csDrawer--fit{top:48px;bottom:auto;max-height:calc(100% - 64px)}
   .csDrawer__head{
     display:flex;align-items:center;justify-content:space-between;gap:10px;
     padding:12px 12px 10px 16px;border-bottom:1px solid var(--cs-line);flex:0 0 auto;
