@@ -1,8 +1,9 @@
 <script setup>
 /* 图纸调整（设计稿「豆玩 · 图纸调整展开」）
-   把「成品尺寸 → 智能抠图 → 图纸尺寸 → 色板 → 用色上限」收在一块面板里，
-   底部「应用并生成图纸」一次落到画布。左栏卡片版面与这里共用同一份 options，
-   在哪儿改都一样，这里只是把生成前要定的几件事按设计稿的顺序排好。
+   把「成品尺寸 → 智能抠图 → 图纸尺寸 → 色板 → 用色上限」收在一块面板里。
+   面板没有「应用 / 取消」按钮（2026-11-05 去掉）：尺寸、色板、抠图各自的 setter
+   已经即时落到画布，色数在松手（change）时重算。左栏卡片版面与这里共用同一份
+   options，在哪儿改都一样，这里只是把要调的几件事按设计稿的顺序排好。
    原图调整（亮度 / 对比度 / 饱和度）已按 2026-11-05 的要求去掉；
    智能抠图原先在命令行有一颗独立按钮，2026-11-05 也并进这块面板。 */
 import { computed, ref } from 'vue'
@@ -11,12 +12,9 @@ import SizeQuickCard from './SizeQuickCard.vue'
 import { BOARD_SPECS } from '../../lib/boardSpec.js'
 import { PALETTE_BRANDS } from '../../lib/palettes.js'
 import {
-  options, sourceUrl, availableColors, regenerate, setCanvasCapacity,
+  options, sourceUrl, availableColors, regenerate, setCanvasCapacity, yieldForBusyPaint,
   setRemoveBg, setMatteLevel, matteLevels, matteInfo, stats
 } from '../../composables/useStudio.js'
-import { toastWarn } from '../../composables/useToast.js'
-
-const emit = defineEmits(['cancel', 'applied'])
 
 /** 抠图那一行的状态文案（与左栏「图片处理 → 智能抠图」同一套口径） */
 const matteNote = computed(() => {
@@ -60,22 +58,24 @@ function applyCustom() {
   customOpen.value = false
   setCanvasCapacity(w, h)
 }
-function pickBrand(e) {
+/* 换色板同样选择即应用：按新色板重跑一次生成（HEAD 里还没有换色板重匹配，
+   这一步保证下拉换完，画布上的色号跟着变） */
+async function pickBrand(e) {
   options.brandId = e.target.value
+  if (!sourceUrl.value) return
+  await yieldForBusyPaint()
+  regenerate()
 }
 
+/* 色数：拖动时只改读数，松手（change）才重算 —— 每拖一格都重跑一次生成会卡住滑杆 */
 function onColors(e) {
   const v = Math.round(Number(e.target.value) || 4)
   options.targetColors = Math.max(4, Math.min(colorMax.value, v))
 }
-
-function apply() {
-  if (!sourceUrl.value) {
-    toastWarn('先选一张图片')
-    return
-  }
+async function onColorsCommit() {
+  if (!sourceUrl.value) return
+  await yieldForBusyPaint()
   regenerate()
-  emit('applied')
 }
 </script>
 
@@ -152,7 +152,7 @@ function apply() {
         </div>
         <input
           type="range" min="4" :max="colorMax" step="1" :value="options.targetColors"
-          aria-label="用色上限" @input="onColors"
+          aria-label="用色上限" @input="onColors" @change="onColorsCommit"
         >
         <div class="iap__scale">
           <span>4 色</span>
@@ -162,13 +162,6 @@ function apply() {
         <p class="iap__hint">上限越低所选颜色越少，当前最多 {{ colorMax }} 色</p>
       </div>
     </section>
-
-    <footer class="iap__foot">
-      <button type="button" class="btn" @click="emit('cancel')">取消</button>
-      <button type="button" class="btn primary" @click="apply">
-        <Icon name="grid-3x3" :size="16" />应用并生成图纸
-      </button>
-    </footer>
   </div>
 </template>
 
@@ -208,6 +201,4 @@ function apply() {
 .iap__switch i{display:block;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(31,31,29,.2);transition:transform var(--t)}
 .iap__switch.on{background:var(--primary);border-color:var(--primary-deep)}
 .iap__switch.on i{transform:translateX(18px)}
-.iap__foot{display:flex;gap:8px;padding-top:4px}
-.iap__foot .btn{flex:1}
 </style>

@@ -128,13 +128,6 @@ function toggleMatte() {
   void setRemoveBg(!options.removeBg)
 }
 
-/* 图纸调整面板应用后回到图纸视图（图纸转换里调的，不要顺手切到自由画布） */
-function onAdjustApplied() {
-  closeDrawer()
-  closeMsSheet()
-  currentView.value = 'pattern'
-}
-
 /* 图纸转换的视图名：进来先看原图（先调原图再生成），导入图像后停在拼豆图纸 */
 const editViewLabel = computed(() => {
   if (currentView.value === 'original') return '原图预览'
@@ -1557,10 +1550,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
           </button>
         </header>
         <div class="csDrawer__body">
-          <ImageAdjustPanel
-            v-if="drawerKey === 'adjust'" class="csAdjust"
-            @cancel="closeDrawer" @applied="onAdjustApplied"
-          />
+          <ImageAdjustPanel v-if="drawerKey === 'adjust'" class="csAdjust" />
           <template v-else>
             <EditorSidebar
               v-if="drawerIsSidebar" :key="drawerKey"
@@ -1860,7 +1850,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
 
       <!-- 图纸调整 -->
       <div v-else-if="msSheet === 'adjust'" class="msSheet__body msSheet__body--adjust">
-        <ImageAdjustPanel @cancel="closeMsSheet" @applied="onAdjustApplied" />
+        <ImageAdjustPanel />
       </div>
 
       <!-- 裁切图片 -->
@@ -2708,7 +2698,6 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
   .msSheet__body{flex:1 1 auto;min-height:0;overflow-y:auto;padding:0 16px 14px;overscroll-behavior:contain}
   .msSheet__body--adjust{display:flex;flex-direction:column;padding:0 12px 12px}
   .msSheet__body--adjust :deep(.iap){flex:1 1 auto;min-height:0;overflow-y:auto;padding-bottom:8px}
-  .msSheet__body--adjust :deep(.iap__foot){position:sticky;bottom:0;background:#fff;padding-top:10px}
 
   /* 颜色 */
   .msColorTop{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px}
