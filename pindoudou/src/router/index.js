@@ -174,8 +174,8 @@ export const routes = [
   { path: '/library', name: 'library-old', redirect: to => ({ path: '/materials/', query: to.query }) },
   { path: '/library/:slug', name: 'asset-old', component: AssetDetail, meta: { title: '素材详情', noindex: true } },
 
-  { path: '/projects', name: 'projects', component: Projects, meta: { title: '我的作品', noindex: true } },
-  { path: '/projects/:id', name: 'project', component: Projects, meta: { title: '作品详情', noindex: true } },
+  { path: '/projects', name: 'projects', component: Projects, meta: { title: '我的作品', noindex: true, account: true } },
+  { path: '/projects/:id', name: 'project', component: Projects, meta: { title: '作品详情', noindex: true, account: true } },
   /* 「材料清单」是这个作品的采购清单，属于应用内页面。
      它原来占用 /materials/:projectId，与新的公开素材地址撞车，
      所以挪到 /project-materials/。站内链接都已同步。 */
@@ -184,11 +184,11 @@ export const routes = [
      /build 同时承担「拼制中」和「已完成」两种状态（finishedAt 在作品存档上），
      不再是一条只有 Pro 能进的死路。 */
   { path: '/build/:projectId?', name: 'build', component: Build, meta: { title: '拼制与完成', noindex: true } },
-  { path: '/inventory', name: 'inventory', component: Inventory, meta: { title: '我的库存', noindex: true } },
-  { path: '/account', name: 'account', component: Account, meta: { title: '我的账户', noindex: true } },
+  { path: '/inventory', name: 'inventory', component: Inventory, meta: { title: '我的库存', noindex: true, account: true } },
+  { path: '/account', name: 'account', component: Account, meta: { title: '我的账户', noindex: true, account: true } },
   /* 微信登录 / 绑定的前端回调页：令牌放在 hash query 里，读完立刻抹掉 */
   { path: '/auth/callback', name: 'auth-callback', component: AuthCallback, meta: { title: '登录回调', noindex: true } },
-  { path: '/settings', name: 'settings', component: Settings, meta: { title: '设置', noindex: true } },
+  { path: '/settings', name: 'settings', component: Settings, meta: { title: '设置', noindex: true, account: true } },
   { path: '/help', name: 'help', component: Help, meta: { title: '拼豆教程与常见问题' } },
   { path: '/colors', name: 'colors', component: Colors, meta: { title: '拼豆色号与色卡对照' } },
   { path: '/about', redirect: '/help/' },

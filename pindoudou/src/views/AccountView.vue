@@ -347,21 +347,6 @@ const inventoryUpdatedLabel = computed(() => {
 
 <template>
   <div class="ac">
-    <!-- ============================ 个人空间导航 ============================ -->
-    <nav class="acNav" aria-label="个人空间">
-      <div class="acNav__inner">
-        <span class="acNav__tab is-on">个人概览</span>
-        <RouterLink class="acNav__tab" to="/projects">我的作品</RouterLink>
-        <RouterLink class="acNav__tab" to="/materials/?col=fav">素材收藏</RouterLink>
-        <RouterLink class="acNav__tab" to="/inventory">我的库存</RouterLink>
-        <span class="acNav__spacer"></span>
-        <RouterLink class="acNav__tab acNav__tab--quiet" to="/settings">设置</RouterLink>
-        <RouterLink class="acNav__lib" to="/materials/">
-          <Icon name="images" :size="16" />素材库
-        </RouterLink>
-      </div>
-    </nav>
-
     <div class="acInner">
       <!-- ============================ 欢迎行 ============================ -->
       <header class="acHero">
@@ -738,38 +723,6 @@ const inventoryUpdatedLabel = computed(() => {
   padding-bottom:32px;
 }
 
-/* ---------------- 个人空间导航 ---------------- */
-.acNav{
-  background:var(--ty-surface);
-  border-bottom:1px solid var(--ty-line);
-}
-.acNav__inner{
-  width:min(1440px,100%);margin:0 auto;
-  padding:0 64px;
-  display:flex;align-items:center;gap:28px;height:50px;
-}
-.acNav__tab{
-  position:relative;display:inline-flex;align-items:center;height:50px;
-  font-family:var(--font-sans);font-size:var(--ty-label);font-weight:500;
-  line-height:var(--ty-label-lh);letter-spacing:0;color:var(--ty-body-ink);
-  text-decoration:none;white-space:nowrap;
-}
-.acNav__tab:hover{color:var(--ty-ink)}
-.acNav__tab.is-on{font-weight:700;color:var(--ty-ink)}
-.acNav__tab.is-on::after{
-  content:'';position:absolute;left:0;right:0;bottom:-1px;height:2px;
-  background:var(--ty-accent);border-radius:2px 2px 0 0;
-}
-.acNav__tab--quiet{color:var(--ty-muted)}
-.acNav__spacer{flex:1 1 auto}
-.acNav__lib{
-  display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;
-  border:1px solid var(--ty-line);border-radius:99px;background:var(--ty-surface);
-  font-family:var(--font-sans);font-size:var(--ty-label);font-weight:500;
-  line-height:var(--ty-label-lh);letter-spacing:0;color:var(--ty-ink);text-decoration:none;
-}
-.acNav__lib:hover{background:var(--ty-surface-soft)}
-
 /* ---------------- 内容区 ---------------- */
 .acInner{width:min(1440px,100%);margin:0 auto;padding:32px 64px 0}
 
@@ -976,14 +929,12 @@ const inventoryUpdatedLabel = computed(() => {
 
 /* ---------------- 平板 / 手机 ---------------- */
 @media(max-width:1180px){
-  .acInner,.acNav__inner{padding-left:32px;padding-right:32px}
+  .acInner{padding-left:32px;padding-right:32px}
   .acGrid{grid-template-columns:minmax(0,1fr)}
   .acStats{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
 @media(max-width:780px){
-  .acInner,.acNav__inner{padding-left:16px;padding-right:16px}
-  .acNav__inner{gap:18px;overflow-x:auto}
-  .acNav__lib{display:none}
+  .acInner{padding-left:16px;padding-right:16px}
   .acHero{flex-direction:column;align-items:flex-start;gap:14px}
   .acStats{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
   .acStat{padding:0 14px}

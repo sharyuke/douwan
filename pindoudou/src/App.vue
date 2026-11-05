@@ -4,6 +4,7 @@ import { RouterView, useRoute } from 'vue-router'
 import AppHeader from './components/layout/AppHeader.vue'
 import AppFooter from './components/layout/AppFooter.vue'
 import DesktopSidebar from './components/layout/DesktopSidebar.vue'
+import AccountNav from './components/layout/AccountNav.vue'
 import MobileTabbar from './components/layout/MobileTabbar.vue'
 import FeedbackWidget from './components/layout/FeedbackWidget.vue'
 import ToastHost from './components/ui/ToastHost.vue'
@@ -40,7 +41,11 @@ const fullscreenStudio = computed(() => !!route.meta.studio && (wideViewport.val
 /* 首页的主导航放在顶栏（设计稿红框位置），进入内页后才换成左侧栏。
    手机端两边都不渲染这份外壳，继续用底部标签栏。 */
 const isHome = computed(() => route.name === 'home')
-const showSidebar = computed(() => showSiteChrome.value && !isHome.value && !fullscreenStudio.value)
+/* 个人空间（个人概览 / 我的作品 / 我的库存 / 设置）不用左侧站点导航：
+   分区切换与去创作、素材库的入口都收在顶部 AccountNav 一条里（2026-11-05）。 */
+const inAccountArea = computed(() => !!route.meta.account)
+const showSidebar = computed(() =>
+  showSiteChrome.value && !isHome.value && !fullscreenStudio.value && !inAccountArea.value)
 
 
 /* 左侧导航默认状态：电脑展开、平板（768–1099）收起成图标轨、工作台收起。
@@ -107,6 +112,7 @@ onMounted(async () => {
 <template>
   <div class="app">
     <AppHeader v-if="showSiteChrome && !fullscreenStudio" />
+    <AccountNav v-if="showSiteChrome && inAccountArea" />
 
     <div
       class="appBody"
