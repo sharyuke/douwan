@@ -534,7 +534,7 @@ const moreFunctions = [
 const mobileTools = [
   { key: 'paint', label: '画笔', icon: 'pencil' },
   { key: 'erase', label: '橡皮', icon: 'eraser' },
-  { key: 'fill', label: '填充', icon: 'paint-bucket' },
+  { key: 'swap', label: '换色', icon: 'arrow-left-right' },
   { key: 'pick', label: '取色', icon: 'pipette' }
 ]
 
@@ -553,6 +553,8 @@ function pickMobileTool(key) {
   const same = tool.value === key
   tool.value = key
   mobileMore.value = 'none'
+  /* 从「更多工具」抽屉里点填充：选中后收起，和底部工具同一套手感 */
+  if (msSheet.value === 'more') closeMsSheet()
   if (key === 'paint' || key === 'erase') brushParams.value = same ? !brushParams.value : true
   else brushParams.value = false
 }
@@ -1151,10 +1153,6 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
       @dragenter="onDragEnter" @dragover="onDragOver"
       @dragleave="onDragLeave" @drop="onDropImage"
     >
-      <div v-if="mobileConsole && createMode === 'edit'" class="msEditName no-print">
-        <b>{{ projectName }}</b>
-      </div>
-
       <EditorCanvas
         ref="canvasRef"
         :chrome="consoleMode || mobileConsole ? 'console' : 'default'"
@@ -1224,7 +1222,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
         </button>
       </div>
 
-      <!-- 手机端工具轨：画笔 / 橡皮 / 填充 / 颜色 / 更多工具 -->
+      <!-- 手机端工具轨：画笔 / 橡皮 / 换色 / 颜色 / 更多工具 -->
       <div v-if="mobileConsole" class="msTools no-print" role="toolbar" aria-label="编辑工具">
         <button
           v-for="t in mobileTools.slice(0, 3)" :key="t.key" type="button"
@@ -1240,7 +1238,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
           </span>
           <span>颜色</span>
         </button>
-        <button type="button" class="msTool" :class="{ on: msSheet === 'more' }" :disabled="!hasPattern" @click="openMsSheet('more')">
+        <button type="button" class="msTool" :disabled="!hasPattern" :aria-expanded="msSheet === 'more'" @click="openMsSheet('more')">
           <Icon name="ellipsis" :size="20" /><span>更多工具</span>
         </button>
       </div>
@@ -1756,8 +1754,8 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
 
         <p class="msGroupTitle">图纸处理</p>
         <div class="msTriple">
-          <button type="button" class="msTriple__btn" @click="openMsSheet('color')">
-            <Icon name="arrow-left-right" :size="20" /><span>换色</span>
+          <button type="button" class="msTriple__btn" :class="{ on: tool === 'fill' }" @click="pickMobileTool('fill')">
+            <Icon name="paint-bucket" :size="20" /><span>填充</span>
           </button>
           <button type="button" class="msTriple__btn" @click="onRemoveSpecks">
             <Icon name="wand-sparkles" :size="20" /><span>去除杂色</span>
@@ -2495,13 +2493,6 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
 
   /* ---------------- 图纸转换：视图页签已去掉 ---------------- */
 
-  .msEditName{
-    display:flex;align-items:center;justify-content:center;flex:0 0 auto;
-    padding:8px 16px 0;
-    font-family:var(--font-sans);font-size:13px;font-weight:500;line-height:var(--ty-label-lh);letter-spacing:0;
-  }
-  .msEditName b{font-weight:700;color:var(--ms-ink)}
-
   /* ---------------- 图纸转换：状态行 ---------------- */
   .msEditBar{flex:0 0 auto;padding:6px 12px 2px;display:flex;flex-direction:column;gap:6px}
   .msEditBar__status{
@@ -2652,6 +2643,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
     height:64px;border:1px solid var(--ms-line);border-radius:12px;background:#fff;
     font-family:var(--font-sans);font-size:13px;font-weight:500;line-height:var(--ty-label-lh);letter-spacing:0;color:var(--ms-ink-2);
   }
+  .msTriple__btn.on{border-color:var(--ms-accent);background:#F8FBDF;color:var(--ms-ink);font-weight:700}
   .msTriple__btn:active{background:var(--ms-fill)}
 
   /* ⋯ 更多 */

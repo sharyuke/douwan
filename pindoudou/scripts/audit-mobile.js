@@ -176,7 +176,7 @@
     out.ok = out.top.logo && out.top.save === '保存' && out.top.export === '导出' && out.top.more &&
       !!out.cmd.ok &&
       out.zoom.shown && out.zoom.undo && out.zoom.redo && out.zoom.fit &&
-      out.tools.count === 5 && out.tools.labels.join(',') === '画笔,橡皮,填充,颜色,更多工具' && out.tools.sameRow &&
+      out.tools.count === 5 && out.tools.labels.join(',') === '画笔,橡皮,换色,颜色,更多工具' && out.tools.sameRow &&
       out.noPageScroll && out.toolsAtBottom && out.legacyGone && !!out.menuSheet.ok &&
       !!out.adjustSheet?.ok &&
       (hasCanvas
