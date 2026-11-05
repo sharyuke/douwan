@@ -843,8 +843,8 @@ function doSave() {
 /** 登录成功：把登录前挂起的那次保存补上 */
 function onLoginSuccess() {
   if (loginReason.value === 'save') {
-    if (mobileConsole.value && !currentProjectId.value) {
-      /* 手机端第一次保存新画布还要问作品名，登录完继续走那个弹窗 */
+    if (mobileConsole.value) {
+      /* 手机端的保存还要问作品名，登录完继续走那个弹窗 */
       mobileMore.value = 'none'
       saveName.value = projectName.value || ''
       saveOpen.value = true
@@ -869,12 +869,6 @@ function openSave() {
   if (needAccount.value) {
     loginReason.value = 'save'
     loginOpen.value = true
-    return
-  }
-  /* 已经保存过的画布：直接存当下画面的最新状态，不再问名字。
-     问名字只在第一次保存（换图后的新画布）时出现，避免每次保存都像另存一件。 */
-  if (currentProjectId.value) {
-    doSave()
     return
   }
   saveName.value = projectName.value || ''

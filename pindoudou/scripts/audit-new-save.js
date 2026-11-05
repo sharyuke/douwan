@@ -7,8 +7,6 @@
      ② 再拖一张新图进来：与旧作品解除关联（currentProjectId 归空、状态回「未保存」），
         旧作品的本机存档逐字节不变；
      ③ 再点「保存」→ 第 2 件作品，旧作品仍在，名字 / 图纸 / 缩略图都没变；
-     ③-2 在同一张画布上继续改再保存 → 更新第 2 件，不新建、地址不变；
-     ③-3 手机「⋯ → 保存作品」对已保存的画布直接落盘，不再弹名字框；
      ④ 打开旧作品 → 它的图纸还是原来那张（不是新图）；
      ⑤ 回归：打开旧作品改一格再保存 → 仍是同一件作品，不新建、不动别的作品；
      ⑥ 打开旧作品后拖新图再保存 → 第 3 件作品，前两件都不受影响。
@@ -165,44 +163,6 @@
   step('新作品带的是新图的图纸', !!recB && sig(second) !== aSig && sig(pat()) === sig(second),
     `${sig(second)}（旧 ${aSig}）`)
 
-  /* ------------------- ③-2 同一张画布继续改再保存：更新这一件，不再新建 */
-  const beforeReSaveAt = (recOf(idB) || {}).updatedAt || 0
-  step('在同一张画布上继续改一格', S.paintAt(1, 1))
-  await sleep(120)
-  const howReSave = await saveViaUI()
-  await waitFor(() => (recOf(idB) || {}).updatedAt > beforeReSaveAt, 6000)
-  step('同一张画布再保存仍用界面保存', !!howReSave, howReSave)
-  step('同一张画布再保存还是这一件', S.projects.value.length === 2 && S.currentProjectId.value === idB,
-    `${S.projects.value.length} 件 / ${S.currentProjectId.value}`)
-  step('同一张画布保存写入最新状态', (recOf(idB) || {}).updatedAt > beforeReSaveAt,
-    `${beforeReSaveAt} → ${(recOf(idB) || {}).updatedAt}`)
-  step('同一张画布保存后地址不变', location.pathname === `/editor/${idB}`, location.pathname)
-
-  /* ------- ③-3 手机「⋯ → 保存作品」：已保存的画布直接落盘，不再问名字 ------- */
-  if (document.querySelector('.msTop')) {
-    const beforeMenuAt = (recOf(idB) || {}).updatedAt || 0
-    S.paintAt(2, 2)
-    await sleep(120)
-    const moreBtn = document.querySelector('.msTop .msIcon')
-    if (moreBtn) moreBtn.click()
-    await sleep(320)
-    const menuSave = [...document.querySelectorAll('.msMenu button')].find(b => /保存作品/.test(b.textContent))
-    if (menuSave) menuSave.click()
-    await sleep(900)
-    const nameDlg = [...document.querySelectorAll('.modal.show .dialog')].find(d => /保存作品/.test(d.textContent))
-    step('手机「保存作品」对已保存的画布直接保存（不再问名字）',
-      !!menuSave && !nameDlg && (recOf(idB) || {}).updatedAt > beforeMenuAt,
-      `${beforeMenuAt} → ${(recOf(idB) || {}).updatedAt}`)
-    if (nameDlg) {
-      const cancel = [...nameDlg.querySelectorAll('button')].find(b => b.textContent.trim() === '取消')
-      if (cancel) cancel.click()
-      await sleep(300)
-    }
-  }
-
-  /* 这一件刚被 ③-2 / ③-3 更新过，后面「别的作品没被顺手改写」要拿这一刻的存档做基线 */
-  const recBAfter = recText(idB)
-
   /* --------------------------------------- ④ 打开旧作品：图纸还是原来那张 */
   step('打开旧作品', S.openProject(idA))
   await sleep(200)
@@ -220,7 +180,7 @@
   step('改完保存仍是同一件作品', S.projects.value.length === 2 && S.currentProjectId.value === idA,
     `${S.projects.value.length} 件 / ${S.currentProjectId.value}`)
   step('旧作品确实被更新了', (recA2.updatedAt || 0) > beforeEditAt, `${beforeEditAt} → ${recA2.updatedAt}`)
-  step('别的作品没被顺手改写', recText(idB) === recBAfter)
+  step('别的作品没被顺手改写', recText(idB) === JSON.stringify(recB))
 
   /* --------------------- ⑥ 打开旧作品后拖新图：再保存应另建第 3 件 */
   const recA3 = recText(idA)
@@ -232,7 +192,7 @@
   step('第三次界面保存可用', !!how4, how4)
   step('保存后是 3 件作品', S.projects.value.length === 3, `${S.projects.value.length} 件`)
   step('第三件是新 id', !!idC && idC !== idA && idC !== idB, `${idC}`)
-  step('前两件都没被改写', recText(idA) === recA3 && recText(idB) === recBAfter)
+  step('前两件都没被改写', recText(idA) === recA3 && recText(idB) === JSON.stringify(recB))
 
   out.ids = { old: idA, second: idB, third: idC }
   out.persisted = rawList().map(p => ({ id: p.id, name: p.name, updatedAt: p.updatedAt }))
