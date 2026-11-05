@@ -6,7 +6,7 @@ import {
   options, currentView, canvasEl, paintAt, fillAt, pickAt, undo, redo,
   canUndo, canRedo, undoDepth, redoDepth, beginEdit, endEdit, cancelEdit, revertEdit,
   mirrorPattern, replaceColorEverywhere,
-  stats, sourceUrl, sourceImg, sourceCssFilter, generating, genMs, fitNotice,
+  stats, sourceUrl, sourceImg, sourceCssFilter, generating, genMs,
   selectedBoard, layout, materials
 } from '../../composables/useStudio.js'
 import { toastOk, toastWarn } from '../../composables/useToast.js'
@@ -22,7 +22,7 @@ import EditorEmptyGuide from './EditorEmptyGuide.vue'
 import CanvasRuler from './CanvasRuler.vue'
 
 /* 手机端：上传命令直接放在画布空状态里（桌面端仍指向左栏的 ① 创建） */
-const emit = defineEmits(['upload', 'browse', 'resize', 'delivery', 'split'])
+const emit = defineEmits(['upload', 'browse', 'delivery', 'split'])
 
 /* chrome:
    'default' —— 卡片自带「页签 + 缩放」顶栏与底部两行工具条（手机 / 平板版面）
@@ -344,35 +344,6 @@ function centerStage() {
   stage.scrollLeft = Math.max(0, (stage.scrollWidth - stage.clientWidth) / 2)
   stage.scrollTop = Math.max(0, (stage.scrollHeight - stage.clientHeight) / 2)
 }
-/* ---------------------------------------------------------------- 手机端上传结果
-   长 toast 换成一张紧凑卡：显示真实当前尺寸，来源像素等细节收进「详情」。
-   12 秒后自动收起；用户展开详情时不再自动关。 */
-const noticeClosed = ref(false)
-const noticeDetail = ref(false)
-let noticeTimer = null
-const noticeSuggested = computed(() => {
-  const n = fitNotice.value
-  if (!n) return null
-  return (n.suggestedW !== width.value || n.suggestedH !== height.value) ? n : null
-})
-function dismissNotice() {
-  fitNotice.value = null
-  noticeClosed.value = true
-}
-function openNoticeDetails() {
-  noticeDetail.value = !noticeDetail.value
-  clearTimeout(noticeTimer)
-}
-watch(fitNotice, v => {
-  noticeClosed.value = false
-  noticeDetail.value = false
-  clearTimeout(noticeTimer)
-  if (!v) return
-  noticeTimer = setTimeout(() => {
-    if (!noticeDetail.value) fitNotice.value = null
-  }, 12000)
-})
-
 /* 标尺画在哪儿：默认版面（手机 / 平板）仍旧画进图纸位图；
    全屏工作台改成贴边覆盖层（见下面的 CanvasRuler），位图里不再带标尺 ——
    否则同一张图上会有两条标尺，而且位图里那条会跟着图纸一起缩放、被裁掉。 */
@@ -1544,42 +1515,6 @@ defineExpose({
          紧贴顶栏下方；桌面端不渲染 -->
     <slot name="quick" />
 
-    <!-- 手机端上传结果：非阻塞的紧凑卡，放在画布上方（不压画布中心、不吃触摸）。
-         当前尺寸读实时 width/height，用户改过画布后这里跟着变。 -->
-    <div
-      v-if="fitNotice && !noticeClosed && !showEmpty"
-      class="genNotice no-print" role="status"
-    >
-      <div class="genNotice__head">
-        <span class="genNotice__badge"><Icon name="check" :size="16" /></span>
-        <b>已生成图纸</b>
-        <button class="genNotice__close" type="button" aria-label="关闭提示" @click="dismissNotice"><Icon name="x" :size="16" /></button>
-      </div>
-      <div class="genNotice__body">
-        <img v-if="sourceUrl" class="genNotice__thumb" :src="sourceUrl" alt="">
-        <div class="genNotice__meta">
-          <p><span>当前图纸</span><b>{{ width }} × {{ height }} 格</b></p>
-          <p v-if="noticeSuggested" class="genNotice__suggest">
-            <span>建议尺寸</span><b>{{ noticeSuggested.suggestedW }} × {{ noticeSuggested.suggestedH }} 格</b>
-          </p>
-          <div class="genNotice__actions">
-            <button type="button" class="genNotice__link" @click="emit('resize')">调整尺寸</button>
-            <button type="button" class="genNotice__link" :aria-expanded="noticeDetail" @click="openNoticeDetails">
-              详情<Icon class="icoInline" :name="noticeDetail ? 'chevron-up' : 'chevron-down'" :size="16" />
-            </button>
-          </div>
-        </div>
-      </div>
-      <p v-if="noticeDetail" class="genNotice__detail">
-        来源 {{ fitNotice.sourceW }} × {{ fitNotice.sourceH }} 像素
-        · 一格约 {{ fitNotice.perCell.toFixed(1) }} 个源像素
-        · {{ fitNotice.colors }} 色
-        <template v-if="fitNotice.raisedColors">（颜色数从 {{ fitNotice.raisedColors }} 提到 {{ fitNotice.colors }}）</template>
-        · 共 {{ fitNotice.cells.toLocaleString() }} 格
-        <template v-if="fitNotice.boardSpec">· 图案{{ fitNotice.levelName }}，推荐 1 块 {{ fitNotice.boardSpec }} 钉板</template>
-      </p>
-    </div>
-
     <!-- 手机端画布框：右侧工具窄栏 + 更多抽屉；桌面端仍是画布下方的两行工具条。 -->
     <div ref="wrapEl" class="stageWrap">
       <!-- 实际大小的状态条：贴在画布左上角，直接写成品厘米；
@@ -2059,9 +1994,9 @@ defineExpose({
 /* 平板锁画布：整张图纸固定在「适应窗口」，舞台自身不再滚动 */
 .stage--locked{overflow:hidden}
 .editPanel{display:block}
-/* 手机端才出现的部件：画布浮控 / 上传提示。桌面端全部不占位。
+/* 手机端才出现的部件：画布浮控。桌面端不占位。
    顶栏浮层（.cmdPop）的显隐在 global.css：功能浮层由 EditorView 渲染。 */
-.stageTools,.genNotice{display:none}
+.stageTools{display:none}
 /* 手机端顶栏的适应按钮与缩放胶囊；桌面端仍是原来的缩放组 */
 .fitTop,.zoomIco{display:none}
 .zoomPill{display:contents}
@@ -2207,42 +2142,6 @@ canvas{display:block}
   /* 工具条 + 笔刷条在手机上整块隐藏：工具进顶栏「编辑 ▾」浮层，
      省下的两行高度全部给 .stage。 */
   .editPanel{display:none}
-
-  /* 上传结果：紧凑卡放在画布上方，不覆盖画布中心、不吞触摸 */
-  .genNotice{
-    display:block;flex:0 0 auto;margin-top:6px;padding:8px 9px;
-    border:1px solid var(--line);border-radius:12px;background:var(--surface);
-    box-shadow:var(--sh-1);
-  }
-  .genNotice__head{display:flex;align-items:center;gap:6px;font-size:var(--fs-2xs);line-height:var(--ty-caption-lh)}
-  .genNotice__head b{font-size:var(--fs-xs);font-weight:700;color:var(--ink);line-height:var(--ty-label-lh)}
-  .genNotice__badge{
-    width:16px;height:16px;flex:0 0 auto;border-radius:50%;display:grid;place-items:center;
-    background:var(--green-soft);color:var(--green-deep);
-  }
-  .genNotice__close{
-    margin-left:auto;width:28px;height:28px;flex:0 0 auto;border:0;border-radius:8px;
-    display:grid;place-items:center;background:transparent;color:var(--muted);
-  }
-  .genNotice__close:active{background:var(--surface-3)}
-  .genNotice__body{display:flex;align-items:flex-start;gap:8px;margin-top:5px}
-  .genNotice__thumb{
-    width:42px;height:42px;flex:0 0 auto;object-fit:contain;border-radius:8px;
-    background:var(--surface-2);border:1px solid var(--line);
-  }
-  .genNotice__meta{min-width:0;flex:1}
-  .genNotice__meta p{display:flex;align-items:baseline;gap:6px;margin:0;font-size:var(--fs-2xs);color:var(--muted);line-height:var(--ty-caption-lh)}
-  .genNotice__meta p b{font-size:var(--fs-2xs);font-weight:700;color:var(--ink);line-height:var(--ty-caption-lh)}
-  .genNotice__suggest b{color:var(--primary-ink)}
-  .genNotice__actions{display:flex;align-items:center;gap:12px;margin-top:4px}
-  .genNotice__link{
-    padding:0;border:0;background:transparent;color:var(--coral-deep);
-    font:inherit;font-size:var(--fs-2xs);font-weight:700;text-decoration:underline;line-height:var(--ty-caption-lh)
-  }
-  .genNotice__detail{
-    margin:6px 0 0;padding-top:6px;border-top:1px dashed var(--line);
-    font-size:12px;line-height:var(--ty-caption-lh);color:var(--muted);
-  }
 
   /* 画布右侧浮控：四颗方形按钮贴在画布右上角，不随图纸滚动。
      它们是 overlay，不参与 .stage 排版；stage 只留一条窄内边距。 */

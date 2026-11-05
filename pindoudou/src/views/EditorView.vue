@@ -605,7 +605,6 @@ async function onPickFile(e) {
   if (!f) return
   mobileBusy.value = true
   try {
-    /* 成功结果由画布上方的「已生成图纸」卡承担；这里再弹一条会盖住画布。 */
     await useImageFile(f)
   } catch (err) {
     toastWarn(err.message || '图片载入失败')
@@ -1153,7 +1152,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
       @dragleave="onDragLeave" @drop="onDropImage"
     >
       <div v-if="mobileConsole && createMode === 'edit'" class="msEditName no-print">
-        <b>{{ projectName }}</b><span>示例图片</span>
+        <b>{{ projectName }}</b>
       </div>
 
       <EditorCanvas
@@ -1162,7 +1161,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
         :mode="createMode"
         :locked="lockCanvas"
         @upload="pickMobileImage" @browse="router.push('/materials/')"
-        @resize="openMobilePanel('size')" @delivery="openDelivery('export')"
+        @delivery="openDelivery('export')"
         @split="showSplit"
       >
         <template #above>
@@ -2497,12 +2496,11 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
   /* ---------------- 图纸转换：视图页签已去掉 ---------------- */
 
   .msEditName{
-    display:flex;align-items:center;justify-content:center;gap:6px;flex:0 0 auto;
+    display:flex;align-items:center;justify-content:center;flex:0 0 auto;
     padding:8px 16px 0;
     font-family:var(--font-sans);font-size:13px;font-weight:500;line-height:var(--ty-label-lh);letter-spacing:0;
   }
   .msEditName b{font-weight:700;color:var(--ms-ink)}
-  .msEditName span{font-family:var(--font-sans);font-size:12px;font-weight:400;line-height:var(--ty-caption-lh);letter-spacing:0;color:var(--ms-muted)}
 
   /* ---------------- 图纸转换：状态行 ---------------- */
   .msEditBar{flex:0 0 auto;padding:6px 12px 2px;display:flex;flex-direction:column;gap:6px}

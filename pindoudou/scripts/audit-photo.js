@@ -431,14 +431,8 @@
   const normalBadge = await readBoardBadge()
   out.photoNormal.badge = normalBadge
   out.photoNormal.badgeOk = !normalBadge || /104/.test(normalBadge.itemText)
-  /* 手机上「已生成图纸」卡里的推荐文案也要跟着是 104 */
-  const normalNotice = S.fitNotice.value
-  out.photoNormal.notice = normalNotice ? { boardSpec: normalNotice.boardSpec, levelName: normalNotice.levelName } : null
-  out.photoNormal.noticeOk = window.innerWidth > 780 ||
-    (!!normalNotice && normalNotice.boardSpec === 104)
   out.photoNormal.ok = out.photoNormal.specOk && out.photoNormal.boardOk &&
-    out.photoNormal.aspectOk && out.photoNormal.colorsOk && out.photoNormal.badgeOk &&
-    out.photoNormal.noticeOk
+    out.photoNormal.aspectOk && out.photoNormal.colorsOk && out.photoNormal.badgeOk
 
   /* ---------- ②d 细节极密的照片：才推荐最大的一块 120 钉板 ----------
      大半径高对比色块 + 更强噪点 → 复杂度「极复杂」→ 1 块 120 板；
@@ -461,13 +455,8 @@
   const extremeBadge = await readBoardBadge()
   out.photoExtreme.badge = extremeBadge
   out.photoExtreme.badgeOk = !extremeBadge || /120/.test(extremeBadge.itemText)
-  const extremeNotice = S.fitNotice.value
-  out.photoExtreme.notice = extremeNotice ? { boardSpec: extremeNotice.boardSpec, levelName: extremeNotice.levelName } : null
-  out.photoExtreme.noticeOk = window.innerWidth > 780 ||
-    (!!extremeNotice && extremeNotice.boardSpec === 120)
   out.photoExtreme.ok = out.photoExtreme.specOk && out.photoExtreme.boardOk &&
-    out.photoExtreme.aspectOk && out.photoExtreme.colorsOk && out.photoExtreme.badgeOk &&
-    out.photoExtreme.noticeOk
+    out.photoExtreme.aspectOk && out.photoExtreme.colorsOk && out.photoExtreme.badgeOk
 
   out.ok = !!(out.sticker.ok && out.photo.ok && out.big.ok && out.photoNormal.ok && out.photoExtreme.ok &&
     out.colors.ok && out.colors.cartoonPinned && out.matteMask.ok && (!out.fine || out.fine.ok) &&

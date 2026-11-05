@@ -170,12 +170,6 @@ export const sourceFromPattern = ref(false)
  */
 let sourceSnapshot = null
 /**
- * 手机上「已生成图纸」的紧凑提示（桌面端仍走原来的 toast）。
- * 只在 ≤780px 上传照片、自动匹配画布后写入；字段全部来自真实生成结果，
- * 界面上的「当前图纸」另外读 pattern 的宽高，用户改过尺寸就以实时值为准。
- */
-export const fitNotice = ref(null)
-/**
  * 导入图片后按**图案复杂度**给出的钉板推荐（2026-11-04 用户口径）：
  * `{ spec, tier, w, h, level, name, desc, score, colors, sourceCapped, planCapped, keepCustom }`。
  *
@@ -2235,7 +2229,6 @@ function applyWorkspace(snap) {
   sourceSnapshot = snap.sourceSnapshot
   rebuildSourceGrid = snap.rebuildSourceGrid
   buildProgress.value = snap.buildProgress
-  fitNotice.value = null
   cartoonPreviewUrl.value = ''
   previewMode.value = 'source'
   currentView.value = snap.currentView
@@ -2263,7 +2256,6 @@ export function resetWorkspace({ blank = false } = {}) {
   sourceSnapshot = null
   rebuildSourceGrid = null
   buildProgress.value = new Set()
-  fitNotice.value = null
   cartoonPreviewUrl.value = ''
   previewMode.value = 'source'
   clearHistory()
@@ -3144,7 +3136,7 @@ export async function useImageFile(file) {
   enterConversionWorkspace()
   loadImageSource(img, url, file.name.replace(/\.[^.]+$/, ''))
   autoFitForSource(img)
-  /* 手机上成功结果由画布上方的「已生成图纸」卡承担，不再弹长 toast；
+  /* 手机上成功不再弹长 toast（画布上方那张「已生成图纸」卡已去掉）；
      只有抠背景没生效这种需要用户知道的失败才补一条短提示。 */
   const mobile = isMobileViewport()
   const ok = regenerate({ silent: mobile })
@@ -3152,8 +3144,6 @@ export async function useImageFile(file) {
      换图 / 拖图完成后如果还停在那儿，用户看到的仍是原图，会以为图纸没生成。
      生成失败就留在原图，让用户看清是哪张图出的问题。 */
   if (ok) currentView.value = 'pattern'
-  /* 生成失败时撤掉提示卡：卡上写的是「已生成图纸」，不能和失败 toast 同时出现。 */
-  if (mobile && !ok) fitNotice.value = null
   if (mobile && ok && options.removeBg) {
     const m = variants.value[0] && variants.value[0].matte
     if (m && !m.applied) toastWarn(`没能去背景：${m.reason || '未检测到明显背景'}`)
@@ -3187,13 +3177,6 @@ export async function useImageFile(file) {
  */
 function isMobileViewport() {
   return typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(max-width:780px)').matches
-}
-
-/** 手机上传后的紧凑提示：只写结构化数据，文案与关闭交互交给编辑器 */
-function publishFitNotice(data) {
-  if (!isMobileViewport()) return false
-  fitNotice.value = { ...data, at: Date.now() }
-  return true
 }
 
 /** 在 capW × capH 的底板里按图片比例摆成品区域（居中留空由 padToCanvas 处理） */
@@ -3294,36 +3277,16 @@ function autoFitForSource(img) {
     keepCustom
   }
 
-  /* 手机上不再用 7 秒长 toast 挡住画布：结构化提示卡自己读实时宽高，
-     详情里才展开来源像素 / 每格摊多少 / 颜色数变化。 */
-  const mobileNotice = publishFitNotice({
-    subject: !!subject,
-    sourceW: Math.round(sw), sourceH: Math.round(sh),
-    boxW: Math.round(box.w), boxH: Math.round(box.h),
-    suggestedW: w, suggestedH: h,
-    cells,
-    perCell,
-    raisedColors: raisedColors || 0,
-    colors: options.targetColors,
-    boardSpec: spec,
-    level: picked.level,
-    levelName: picked.name,
-    levelDesc: picked.desc,
-    sourceCapped,
-    planCapped,
-    cap,
-    autoMax: AUTO_MAX
-  })
-
   /* 换图时画布规格跟着这张图重算：容量 = 推荐的那一块板（或用户保留的自定义底板），
-     成品尺寸滑块从「这张图推荐的大小」开始往上限走。 */
+     成品尺寸滑块从「这张图推荐的大小」开始往上限走。
+     手机端不再弹推荐 toast，也不再盖一张「已生成图纸」卡——尺寸写在画布下方的状态行里。 */
   options.canvasMaxW = capW
   options.canvasMaxH = capH
   if (w === options.canvasW && h === options.canvasH) return false
 
   options.canvasW = w
   options.canvasH = h
-  if (!mobileNotice) {
+  if (!isMobileViewport()) {
     toast(
       `已按图案复杂度推荐 1 块 ${spec} 钉板（${picked.name}）：${w} × ${h} 格`
       + `，一格摊到约 ${perCell.toFixed(1)} 个源像素`

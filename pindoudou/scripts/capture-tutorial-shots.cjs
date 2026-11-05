@@ -226,7 +226,6 @@ async function main() {
       Inv.useInventory.value = true
       S.regenerate({ keys: ['high'], silent: true })
       await new Promise(r => setTimeout(r, 1400))
-      if (S.fitNotice) S.fitNotice.value = null
       return {
         ok, hasPattern: S.hasPattern.value, name: S.sourceName ? S.sourceName.value : '',
         cells: S.width.value + 'x' + S.height.value,
@@ -236,15 +235,7 @@ async function main() {
     })()`, true)
     console.log('  upload:', JSON.stringify(res))
     if (!res || !res.ok) throw new Error('演示图片没有生成图纸')
-    await sleep(1200)
-    // 清掉上传后的提示卡，画面更干净
-    await evalJS(`(async () => {
-      const d = window.__douzao
-      if (!d) return
-      const S = await d.studio()
-      if (S.fitNotice) S.fitNotice.value = null
-    })()`, true)
-    await sleep(300)
+    await sleep(1500)
   }
 
   async function seedAsset() {
@@ -258,9 +249,7 @@ async function main() {
       S.setCanvasSize(52, 52)
       S.options.removeBg = false
       if (!S.regenerate({ keys: ['high'], silent: true })) return { err: 'regen' }
-      if (S.fitNotice) S.fitNotice.value = null
       await new Promise(r => setTimeout(r, 1800))
-      if (S.fitNotice) S.fitNotice.value = null
       return { ok: true, name: asset.name }
     })()`, true)
     if (!res || !res.ok) throw new Error('素材预置失败：' + JSON.stringify(res))
@@ -279,14 +268,6 @@ async function main() {
       await evalJS(opts.prepare, true)
       await sleep(opts.wait || 500)
     }
-    /* 上传提示卡 / 生成成功的 toast 会在截图里抢画面：截图前统一收掉 */
-    await evalJS(`(async () => {
-      const d = window.__douzao
-      if (!d) return
-      const S = await d.studio()
-      if (S.fitNotice) S.fitNotice.value = null
-    })()`, true)
-    await sleep(120)
     await evalJS('new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))', true)
 
     const focus = await evalJS(`(() => {
