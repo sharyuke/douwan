@@ -1786,7 +1786,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
 
       <!-- 图纸调整 -->
       <div v-else-if="msSheet === 'adjust'" class="msSheet__body msSheet__body--adjust">
-        <ImageAdjustPanel />
+        <ImageAdjustPanel mobile @need-pro="needPro" />
       </div>
     </section>
 
