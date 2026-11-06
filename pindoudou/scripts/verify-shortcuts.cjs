@@ -5,10 +5,10 @@
    断言的都是**真实输入**（CDP 的 Input 域），不是脚本里改状态：
      · 中键按住拖动 → 画布真的跟着走（图纸在屏幕上的位置变了），
        而且没有顺手在图上落一笔（格子逐格不变）；
-     · 电脑端（≥1100）：P / E / G / I / C 切工具、R 去除杂色、M 左右镜像；
+     · 电脑端（≥1100）：B / E / G / I / C 切工具、R 去除杂色、M 左右镜像；
      · 输入框里打字不切工具；Ctrl+Z 仍然是撤销（快捷键不抢浏览器的键）；
      · 电脑端鼠标停在工具上 → 浮出标签，标签里有工具名与快捷键标注，移开就消失；
-     · 平板（781–1099）与手机（≤780）：工具上不标快捷键，按 P 不切工具；
+     · 平板（781–1099）与手机（≤780）：工具上不标快捷键，按 B 不切工具；
        手指长按一格吸到这一格的颜色并切回画笔，短按不吸色；
        两指同时点下去撤回上一步，而且不把画布拖走。
    产物：.tmp/verify-shortcuts/（截图 + report.json）
@@ -177,7 +177,7 @@ async function main() {
 
   /* ---------------- 1. 键盘快捷键：切工具 ---------------- */
   const TOOL_KEYS = [
-    ['p', 'KeyP', 80, 'paint'],
+    ['b', 'KeyB', 66, 'paint'],
     ['e', 'KeyE', 69, 'erase'],
     ['g', 'KeyG', 71, 'fill'],
     ['i', 'KeyI', 73, 'pick'],
@@ -228,7 +228,7 @@ async function main() {
   check('快捷键 R 触发了「去除杂色」', /杂色|孤立豆/.test(speckToast), speckToast)
 
   /* ---------------- 4. 输入框里打字不切工具 ---------------- */
-  await pressKey(send, 'p', 'KeyP', 80)
+  await pressKey(send, 'b', 'KeyB', 66)
   const beforeType = await toolNow()
   await evalJs(send, `(() => { const i = document.createElement('input'); i.id = '__probeInput'; document.body.appendChild(i); i.focus(); return 1 })()`)
   await pressKey(send, 'e', 'KeyE', 69)
@@ -281,7 +281,7 @@ async function main() {
   console.log('rail geometry:', JSON.stringify(railGeo))
   const TOOL_TIPS = [
     ['移动', '中键'],
-    ['画笔', 'P'], ['橡皮', 'E'], ['填充', 'G'], ['吸色', 'I'],
+    ['画笔', 'B'], ['橡皮', 'E'], ['填充', 'G'], ['吸色', 'I'],
     ['换色', 'C'], ['去除杂色', 'R'], ['左右镜像', 'M']
   ]
   for (const [label, key] of TOOL_TIPS) {
@@ -465,10 +465,10 @@ async function main() {
     })()`)
     check('平板：工具按钮上不标快捷键', noKey.n > 0 && noKey.marked.length === 0, noKey)
     const toolBeforeKey = await evalJs(send2, `window.__douzao.studio().then(S => S.tool.value)`)
-    await pressKey(send2, 'p', 'KeyP', 80)
+    await pressKey(send2, 'b', 'KeyB', 66)
     await pressKey(send2, 'i', 'KeyI', 73)
     const toolAfterKey = await evalJs(send2, `window.__douzao.studio().then(S => S.tool.value)`)
-    check('平板：按 P / I 不切工具', toolBeforeKey === toolAfterKey, { toolBeforeKey, toolAfterKey })
+    check('平板：按 B / I 不切工具', toolBeforeKey === toolAfterKey, { toolBeforeKey, toolAfterKey })
     if (legacy.btn && legacy.inView && !legacy.modal) {
       await hoverAt(send2, legacy.x, legacy.y)
       const tip = await evalJs(send2, `!!document.querySelector('[data-shortcut-tip]')`)

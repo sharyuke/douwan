@@ -151,7 +151,7 @@ export const ICON_ALIASES = {
    desc = 标签里那一句说明（跟 title 去掉「工具名：」前缀之后一样）。 */
 export const EDIT_TOOLS = [
   { key: 'pan', icon: 'hand', label: '移动', title: '移动画布：按住鼠标中键拖动平移视野，不修改图纸', desc: '按住鼠标中键拖动平移视野，不修改图纸', shortcut: '中键' },
-  { key: 'paint', icon: 'pencil', label: '画笔', title: '画笔：点一下格子就改成当前颜色', desc: '点一下格子就改成当前颜色', shortcut: 'P' },
+  { key: 'paint', icon: 'pencil', label: '画笔', title: '画笔：点一下格子就改成当前颜色', desc: '点一下格子就改成当前颜色', shortcut: 'B' },
   { key: 'erase', icon: 'eraser', label: '橡皮', title: '橡皮：擦掉这一格（不放豆）', desc: '擦掉这一格（不放豆）', shortcut: 'E' },
   { key: 'fill', icon: 'paint-bucket', label: '填充', title: '填充：整块同色区域一次性替换', desc: '整块同色区域一次性替换', shortcut: 'G' },
   { key: 'pick', icon: 'pipette', label: '吸色', title: '吸色：取格子上的颜色当画笔色', desc: '取格子上的颜色当画笔色', shortcut: 'I' }

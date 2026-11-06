@@ -300,7 +300,7 @@ const deskQuery = typeof window !== 'undefined' && window.matchMedia
   : null
 const desk = ref(deskQuery ? deskQuery.matches : true)
 function onDeskChange(e) { desk.value = e.matches }
-/** 工具的原生 tooltip。电脑端带上快捷键（P / E / G / I…），
+/** 工具的原生 tooltip。电脑端带上快捷键（B / E / G / I…），
     悬停时另有浮动标签写同一份信息。平板 / 手机没有这套键，标题里不写键名。 */
 function toolTitle(t) {
   if (!desk.value) return t.title
