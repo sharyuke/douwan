@@ -10,7 +10,7 @@
    手机端没有命令行那两行，钉板与品牌色系在这里补回来（mobile 时才渲染）。 */
 import { computed, ref } from 'vue'
 import SizeQuickCard from './SizeQuickCard.vue'
-import { BOARD_SPECS, boardOf } from '../../lib/boardSpec.js'
+import { BOARD_SPECS, BOARD_SPEC_LIST_TEXT, boardOf } from '../../lib/boardSpec.js'
 import { PALETTE_BRANDS } from '../../lib/palettes.js'
 import {
   options, setRemoveBg, setMatteLevel, matteLevels, matteInfo, stats,
@@ -124,12 +124,17 @@ function pickBrand(e) {
             <span>宽 × 高</span>
           </button>
         </div>
-        <div v-if="customOpen" class="iap__custom">
-          <input v-model="customW" type="number" min="8" :max="maxCells" aria-label="钉板宽（格）">
-          <span>×</span>
-          <input v-model="customH" type="number" min="8" :max="maxCells" aria-label="钉板高（格）">
-          <button type="button" class="btn sm" @click="applyCustom">确定</button>
-        </div>
+        <template v-if="customOpen">
+          <div class="iap__custom">
+            <input v-model="customW" type="number" min="8" :max="maxCells" aria-label="钉板宽（格）">
+            <span>×</span>
+            <input v-model="customH" type="number" min="8" :max="maxCells" aria-label="钉板高（格）">
+            <button type="button" class="btn sm" @click="applyCustom">确定</button>
+          </div>
+          <p class="iap__hint" data-adjust-custom-hint>
+            宽高按 {{ BOARD_SPEC_LIST_TEXT }} 的倍数填，等于多拼几块同规格钉板。
+          </p>
+        </template>
         <p class="iap__hint">钉板是画布上限，成品尺寸在下面调。</p>
       </div>
 
