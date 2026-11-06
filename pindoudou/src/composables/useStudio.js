@@ -41,6 +41,9 @@ export { BEADS, BEAD_KEYS, BOARD_SPECS, BOARD_MIN, SIZE_TIERS, beadOf, boardsTex
 const LS_PROJECTS = 'douzao-projects-v2'
 const LS_CURRENT = 'douzao-current-v2'
 const LS_SETTINGS = 'douzao-settings-v2'
+/* 编辑中的会话草稿。刷新时把当下图纸铺回去，不退回上传页。
+   和「我的作品」分开存：草稿不是用户点过保存的作品，也不跟着同步到账号。 */
+const LS_EDIT_DRAFT = 'douzao-edit-draft-v1'
 
 /* 画布上限只写在 useMembership 的 ENTITLEMENTS 里（'canvas.cells'），这里不再留第二份数字：
    两处各写一个上限，迟早会改漏一处，然后出现「界面说能到 1000、生成却被裁到 116」这种怪事。
@@ -1876,6 +1879,8 @@ export function endEdit() {
   /* 挂起的统计重算在这里补上：整笔编辑期间只算这一次 */
   flushPendingStats()
   if (!snap || sameAsCurrent(snap)) return false
+  /* 这一笔已经落在格子上。去抖写一份草稿，刷新时按这一笔恢复。 */
+  scheduleEditDraft()
   undoStack.push(snap)
   if (undoStack.length > historyLimit()) undoStack.shift()
   redoStack.length = 0
@@ -2204,6 +2209,7 @@ export function discardBlankDraft() {
   if (beadCountOf(p.cells) > 0) return false
   variants.value = []
   clearHistory()
+  clearEditDraft()
   return true
 }
 
@@ -2306,6 +2312,8 @@ export function resetWorkspace({ blank = false } = {}) {
   resetBrandTargetColors()
   currentView.value = blank ? 'pattern' : 'original'
   if (blank) ensureBlankCanvas()
+  /* 工作区清空后，刷新不该再把刚才那张图铺回来 */
+  clearEditDraft()
   return true
 }
 
@@ -2886,6 +2894,7 @@ export function regenerate({ silent = false, keys, keepSizeCache = false } = {})
     trackUsage('generated')
     trackEvent('pattern.generate')
     if (options.removeBg) trackEvent('pattern.matte')
+    scheduleEditDraft()
     if (!silent) {
       const rec = list.find(p => p.key === recommendedKey)
       const m = list[0] && list[0].matte
@@ -3025,6 +3034,8 @@ export function loadImageSource(img, url, name = '', kind = 'raster') {
   if (currentProjectId.value) currentProjectId.value = ''
   if (buildProgress.value.size) buildProgress.value = new Set()
   saveStatus.value = '未保存'
+  /* 上一张图的草稿作废。新图还没生成，刷新不该把旧格子铺回来。 */
+  clearEditDraft()
   newCanvasAt.value += 1
   sourceImg.value = img
   sourceUrl.value = url
@@ -3425,6 +3436,7 @@ export async function useAsset(asset) {
   const ok = regenerate({ silent: isMobileViewport() })
   /* 选素材也是导入图像：同样回到拼豆图纸，不停在原图（见 useImageFile 的说明） */
   if (ok) currentView.value = 'pattern'
+  if (ok) scheduleEditDraft()
   return ok
 }
 
@@ -3581,6 +3593,194 @@ function persist() {
     }
   }
   return true
+}
+
+/* ------------------------------------------------------------------ 编辑会话草稿
+   画布上的格子以前只活在内存里。刷新 /editor 会走「没有图纸就留上传卡」，
+   正在改的图案就没了。这里按存档格式写进 sessionStorage：关标签就消失，
+   不进「我的作品」，也不跟着同步到账号。下次打开工作台直接铺回去。 */
+
+const EDIT_DRAFT_VERSION = 1
+/** 草稿比正式存档松一档。它是这一次会话的，不和作品列表抢那 5 MB。 */
+const DRAFT_SAFE_CHARS = 3500000
+
+let editDraftTimer = 0
+let editDraftArmed = false
+
+function readEditDraftRecord() {
+  try {
+    if (typeof sessionStorage === 'undefined') return null
+    const raw = JSON.parse(sessionStorage.getItem(LS_EDIT_DRAFT) || 'null')
+    if (!raw || raw.v !== EDIT_DRAFT_VERSION || !raw.project) return null
+    return raw
+  } catch {
+    return null
+  }
+}
+
+/** 模块初始化时读一次。有图案才算一份能铺回去的草稿。 */
+function peekEditDraft() {
+  const raw = readEditDraftRecord()
+  if (!raw) return null
+  const proj = unpackProjectRecord(raw.project)
+  if (!proj || !Array.isArray(proj.variants) || !proj.variants.length) return null
+  return { project: proj, savedAt: Number(raw.savedAt) || 0 }
+}
+
+/** 不带作品 id 打开工作台时，这份草稿该不该铺上来。
+ *  未保存的新图、以及还挂在当前作品上的已保存图纸，都要铺。
+ *  草稿是另一件已保存作品，而「最近打开」已经换成别的：用户是来开那一件的，不铺。 */
+export function bareEditorDraftMatches() {
+  const pending = pendingEditDraft || peekEditDraft()
+  if (!pending) return false
+  const id = pending.project.id || ''
+  if (!id || !projects.value.some(p => p.id === id)) return true
+  let openId = ''
+  try {
+    openId = localStorage.getItem(LS_CURRENT) || ''
+  } catch {
+    openId = ''
+  }
+  return !openId || openId === id
+}
+
+const pendingEditDraft = peekEditDraft()
+
+/** 把当前图纸收成一份草稿。太大就只留当前方案，再大就放弃这一次。 */
+function buildEditDraftRecord() {
+  const p = pattern.value
+  if (!p || !p.cells || !p.cells.length) return null
+  if (p.blankDraft && beadCountOf(p.cells) === 0) return null
+  const existing = projects.value.find(x => x.id === currentProjectId.value)
+  const payload = {
+    id: currentProjectId.value || '',
+    name: projectName.value || '我的拼豆作品',
+    updatedAt: Date.now(),
+    createdAt: existing ? existing.createdAt : Date.now(),
+    canvasW: options.canvasW,
+    canvasH: options.canvasH,
+    canvasMaxW: options.canvasMaxW,
+    canvasMaxH: options.canvasMaxH,
+    brandId: options.brandId,
+    targetColors: options.targetColors,
+    activeKey: activeKey.value,
+    manualEdited: manualEdited.value,
+    variants: variants.value.map(v => {
+      const t = v.active || v
+      const extra = {}
+      const edits = packEditMap(t)
+      if (edits) extra.edits = edits
+      const layer = packEditLayer(t)
+      if (layer) extra.layer = layer
+      const master = packMasterEntry(v, t)
+      if (master) extra.master = master
+      return {
+        key: v.key,
+        label: v.label,
+        tagline: v.tagline,
+        stats: v.stats,
+        recommended: v.recommended,
+        data: packPattern(t, extra)
+      }
+    }),
+    source: (sourceFromPattern.value || !sourceSnapshot)
+      ? null
+      : {
+          url: sourceSnapshot.url,
+          aspect: Math.round((sourceKind.value === 'vector' ? 1 : sourceAspect.value) * 10000) / 10000
+        },
+    buildProgress: buildProgress.value.size ? [...buildProgress.value] : null,
+    createMode: 'edit',
+    /* 写草稿这一刻是不是刚保存过。刷新后据此显示「已保存」或「未保存」，不把已保存的作品标成未保存。 */
+    draftClean: saveStatus.value === '已保存' || saveStatus.value === '已打开存档'
+  }
+  let record = { v: EDIT_DRAFT_VERSION, savedAt: Date.now(), project: packProjectRecord(payload) }
+  if (charsOf(record) <= DRAFT_SAFE_CHARS) return record
+  const active = payload.variants.filter(v => v.key === payload.activeKey)
+  payload.variants = active.length ? active : payload.variants.slice(0, 1)
+  record = { v: EDIT_DRAFT_VERSION, savedAt: Date.now(), project: packProjectRecord(payload) }
+  if (charsOf(record) > DRAFT_SAFE_CHARS) return null
+  return record
+}
+
+function writeEditDraftNow() {
+  editDraftTimer = 0
+  if (!editDraftArmed && !hasPattern.value) return false
+  editDraftArmed = true
+  try {
+    if (typeof sessionStorage === 'undefined') return false
+    const record = buildEditDraftRecord()
+    if (!record) {
+      sessionStorage.removeItem(LS_EDIT_DRAFT)
+      return false
+    }
+    sessionStorage.setItem(LS_EDIT_DRAFT, JSON.stringify(record))
+    return true
+  } catch {
+    /* 隐私模式或配额不够。这一次写不进去，画面仍留在内存里。 */
+    return false
+  }
+}
+
+/** 画笔结束、生成完成、换尺寸之后调用。连着改时合并成一次写盘。 */
+export function scheduleEditDraft() {
+  if (typeof window === 'undefined') return
+  editDraftArmed = true
+  if (editDraftTimer) window.clearTimeout(editDraftTimer)
+  editDraftTimer = window.setTimeout(writeEditDraftNow, 400)
+}
+
+/* 刷新发生在去抖计时器之前，或一笔还没松手时，必须当场写完。
+   工作区已经清空（armed 为 false、也没有图纸）时不写，避免把刚删的草稿补回去。 */
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', () => {
+    if (editDraftTimer) window.clearTimeout(editDraftTimer)
+    if (!editDraftArmed && !hasPattern.value) return
+    if (!hasPattern.value) return
+    editDraftArmed = true
+    writeEditDraftNow()
+  })
+}
+
+/** 换图或清空工作区。旧草稿不能在下次刷新时冒出来。 */
+export function clearEditDraft() {
+  if (typeof window !== 'undefined' && editDraftTimer) window.clearTimeout(editDraftTimer)
+  editDraftTimer = 0
+  /* 先收起，再关页面离开时的补写。顺序反了的话，pagehide 会把刚删的草稿写回去。 */
+  editDraftArmed = false
+  try {
+    if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem(LS_EDIT_DRAFT)
+  } catch {
+    /* 隐私模式下忽略 */
+  }
+}
+
+/**
+ * 刷新后把会话草稿铺回画布。
+ * 内存里已经有图纸时不动：素材页先导进图再跳过来的那条路不能被草稿盖掉。
+ * @param {string} [forId] 地址栏上的作品 id。草稿属于另一件时不铺。
+ * @returns {string|null} 铺回去的作品 id（没保存过是空串）。没有草稿或铺失败返回 null。
+ */
+export function restoreEditDraft(forId) {
+  if (hasPattern.value) return null
+  const pending = pendingEditDraft || peekEditDraft()
+  if (!pending) return null
+  const id = pending.project.id || ''
+  if (forId && id !== forId) return null
+  const ok = openProject(id, { ...pending.project, id })
+  if (!ok) return null
+  /* openProject 会写入 currentProjectId。没保存过的草稿不能占这个位置，
+     否则下一次点保存会去改一件并不存在的作品。 */
+  if (id && projects.value.some(p => p.id === id)) currentProjectId.value = id
+  else currentProjectId.value = ''
+  /* 保存之后没再改：草稿和存档是同一版，状态保持已保存。
+     保存后又画过、或这张图还没进过「我的作品」：状态是未保存。 */
+  const stored = id && projects.value.find(p => p.id === id)
+  /* draftClean 在写入时看的是当时的状态：刚保存或刚打开、之后没再改，就是已保存。 */
+  saveStatus.value = pending.project.draftClean && stored ? '已保存' : '未保存'
+  currentView.value = 'pattern'
+  editDraftArmed = true
+  return currentProjectId.value || ''
 }
 
 export function projectLimit() {
@@ -3799,6 +3999,8 @@ export function saveProject(name, extra) {
   currentProjectId.value = payload.id
   projectName.value = title
   saveStatus.value = '已保存'
+  /* 正式存档已经带上当下画面。草稿改记这一份，刷新后打开的是已保存的作品。 */
+  scheduleEditDraft()
   trackEvent('pattern.save')
   toastOk(`已保存「${title}」`)
   if (trimmed.dropped > 0) {
@@ -3849,8 +4051,8 @@ export function ensureProjectLoaded(id) {
   return openProject(id)
 }
 
-export function openProject(id) {
-  const proj = projects.value.find(p => p.id === id)
+export function openProject(id, record) {
+  const proj = record || projects.value.find(p => p.id === id)
   if (!proj) {
     toastErr('作品不存在')
     return false
@@ -3989,6 +4191,16 @@ export function openProject(id) {
     } else {
       rebuildThumbSource()
     }
+    /* 刚打开、还没改过：会话里已经有这一件的草稿时不写。
+       那份是刷新前的修改，存档不能把它盖掉。 */
+    let draftedId = ''
+    try {
+      const raw = JSON.parse(sessionStorage.getItem(LS_EDIT_DRAFT) || 'null')
+      draftedId = raw && raw.project && raw.project.id || ''
+    } catch {
+      draftedId = ''
+    }
+    if (draftedId !== proj.id) scheduleEditDraft()
     return true
   } catch (e) {
     toastErr('打开失败')
@@ -4811,6 +5023,7 @@ function applyCanvasSize(w, h, { silent = false, announce = true } = {}) {
     const kept = applyEditLayers(layers)
     if (kept) manualEdited.value = true
     saveStatus.value = '未保存'
+    scheduleEditDraft()
     /* 这条路不跑 regenerate，生成中的标记得自己关掉（滑杆每次落地都先把它打开） */
     generating.value = false
     if (announce) {
@@ -4853,6 +5066,7 @@ function applyCanvasSize(w, h, { silent = false, announce = true } = {}) {
       manualEdited.value = true
       saveStatus.value = '未保存'
     }
+    scheduleEditDraft()
     if (announce) {
       const colorNote = raisedColors ? `，颜色数 ${raisedColors} → ${options.targetColors}` : ''
       toastOk(`已按原图重新缩放到 ${cw} × ${ch} 格${colorNote}${kept ? '，手工修改按原尺寸保留' : ''}`)
@@ -4865,6 +5079,7 @@ function applyCanvasSize(w, h, { silent = false, announce = true } = {}) {
     const oldCaches = collectSizeCaches()
     const r = resizeVariantsPreserving(cw, ch, { silent, announce })
     attachSizeCachesAfterResize(oldCaches, key)
+    scheduleEditDraft()
     return r
   }
   return null
@@ -4899,6 +5114,7 @@ export function setCanvasCapacity(w, h, { silent = false, announce = true } = {}
     repadVariants(cw, ch)
     if (buildProgress.value.size) buildProgress.value = new Set()
     saveStatus.value = '未保存'
+    scheduleEditDraft()
   }
   return true
 }

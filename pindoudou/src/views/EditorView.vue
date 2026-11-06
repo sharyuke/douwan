@@ -20,6 +20,7 @@ import { PALETTE_BRANDS, getColorById } from '../lib/palettes.js'
 import {
   hasPattern, projectName, stats, pattern, saveStatus,
   currentProjectId, ensureProjectLoaded, saveProject, generating,
+  restoreEditDraft, bareEditorDraftMatches,
   projectLimit, projects, useImageFile, sourceUrl,
   tool, brushSize, eraserSize, BRUSH_MAX, toolSizeOf, setToolSize, brushColorId,
   mirrorPattern, removeSpecks, options, currentView,
@@ -800,10 +801,23 @@ onMounted(() => {
   // 带 projectId 进来时先打开存档（/editor/:projectId）
   const id = route.params.projectId
   if (id) {
-    if (!openWorkspaceProject(id)) toastErr('该作品打不开，可能已被删除')
+    /* 地址写明了作品。草稿属于这一件（刷新前没点保存的改动）才铺，
+       另一件作品的草稿不能盖上来。 */
+    const drafted = restoreEditDraft(id)
+    if (drafted === id) {
+      activateCreateMode('edit', { loaded: true })
+    } else if (!openWorkspaceProject(id)) {
+      toastErr('该作品打不开，可能已被删除')
+    }
+  } else if (hasPattern.value) {
+    /* 已经有文档：素材页点「用这个素材生成图纸」会先把图导进来再跳过来。 */
+  } else if (bareEditorDraftMatches() && restoreEditDraft() != null) {
+    /* 刷新页面：未保存的新图，以及还挂在当前作品上的已保存图纸，都铺回去。
+       停在画布上，不退回上传页。已保存的作品地址补回 /editor/<id>。 */
+    activateCreateMode('edit', { loaded: true })
+    if (currentProjectId.value) router.replace(`/editor/${currentProjectId.value}`)
   } else if (!hasPattern.value || mobileConsole.value) {
     /* 打开工作台就是图纸转换（上传图片出图纸）。
-       已经有文档时留着：素材页 / 工具页点「用这个素材生成图纸」会先把图导进来再跳过来。
        进空白页时顺手清掉上次的作品关联 —— 否则接着点「保存」会把那件没装载的作品覆盖掉。 */
     activateCreateMode('edit')
   }
