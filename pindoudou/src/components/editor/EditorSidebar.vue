@@ -1494,6 +1494,7 @@ function onSave() {
             <option v-for="o in specOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
             <option value="custom">自定义尺寸（规格 × 块数）</option>
           </select>
+          <p class="sizeCustom__sum" data-board-multiple-hint>按钉板规格的倍数填，等于多拼几块板。</p>
 
           <!-- 自定义尺寸：规格 × 横向几块 × 纵向几块（Pro 单边可到 1000 格） -->
           <div v-if="sizeCustomOpen" class="sizeCustom" data-size-custom>
@@ -1679,6 +1680,7 @@ function onSave() {
             <option v-for="o in boardSpecOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
             <option value="custom">自定义尺寸</option>
           </select>
+          <p class="sizeCustom__sum" data-board-multiple-hint>按钉板规格的倍数填，等于多拼几块板。</p>
           <div v-if="boardCustomOpen" class="sizeCustom" data-board-custom>
             <div class="sizeCustom__row sizeCustom__row--n">
               <label for="boardCustomW">宽</label>

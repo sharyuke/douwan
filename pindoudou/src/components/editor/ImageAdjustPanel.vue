@@ -124,6 +124,7 @@ function pickBrand(e) {
             <span>宽 × 高</span>
           </button>
         </div>
+        <p class="iap__hint" data-board-multiple-hint>按钉板规格的倍数填，等于多拼几块板。</p>
         <div v-if="customOpen" class="iap__custom">
           <input v-model="customW" type="number" min="8" :max="maxCells" aria-label="钉板宽（格）">
           <span>×</span>

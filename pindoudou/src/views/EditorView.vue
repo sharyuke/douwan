@@ -1051,6 +1051,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
               <span>宽 × 高</span>
               <Icon v-if="boardCustom" name="check" :size="16" />
             </button>
+            <p class="csBoard__hint" data-board-multiple-hint>按钉板规格的倍数填，等于多拼几块板。</p>
             <div v-if="boardCustomOpen" class="csBoard__custom" data-board-custom-box>
               <input v-model="boardCustomW" type="number" min="8" :max="maxCells" aria-label="钉板宽（格）">
               <span>×</span>
@@ -2333,6 +2334,9 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
   .csBoard__item:hover{background:var(--cs-fill)}
   .csBoard__item.on{background:rgba(200,230,60,.22)}
   .csBoard__item.locked{color:var(--cs-disabled)}
+  .csBoard__hint{
+    margin:2px 8px 4px;font-size:12px;line-height:var(--ty-caption-lh);color:var(--cs-muted);
+  }
   .csBoard__custom{
     display:flex;align-items:center;gap:6px;margin:4px 6px 2px;
   }

@@ -153,7 +153,8 @@
         title: txt(document.querySelector('.msSheet__head b')),
         boards: sec ? [...sec.querySelectorAll('.iap__board')].map(txt) : [],
         brandOptions: sec ? sec.querySelectorAll('select option').length : 0,
-        hint: txt(sec && sec.querySelector('.iap__hint')),
+        hint: txt(sec && [...sec.querySelectorAll('.iap__hint')].find(p => !p.hasAttribute('data-board-multiple-hint'))),
+        multiple: txt(sec && sec.querySelector('[data-board-multiple-hint]')),
         matte: !!document.querySelector('[data-adjust-matte]'),
         order: kids.map(el => el.hasAttribute('data-adjust-board-brand') ? 'board'
           : el.hasAttribute('data-size-card') ? 'size'
@@ -168,7 +169,7 @@
         out.adjustSheet.brandOptions > 1 && out.adjustSheet.matte &&
         out.adjustSheet.order.join(',') === 'board,size,matte' &&
         /成品尺寸在下面调/.test(out.adjustSheet.hint) &&
-        !/倍数/.test(txt(sec)) &&
+        /多拼几块板/.test(out.adjustSheet.multiple) &&
         out.adjustSheet.closed
     }
 
