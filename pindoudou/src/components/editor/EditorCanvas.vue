@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   pattern, hasPattern, width, height, zoom, setZoom, tool, brushColorId,
   BRUSH_MAX, toolSizeOf, setToolSize, beadKey,
-  options, currentView, canvasEl, paintAt, fillAt, pickAt, shiftPattern, undo, redo,
+  options, currentView, canvasEl, paintAt, paintLine, fillAt, pickAt, shiftPattern, undo, redo,
   canUndo, canRedo, undoDepth, redoDepth, beginEdit, endEdit, cancelEdit, revertEdit,
   mirrorPattern, replaceColorEverywhere,
   stats, sourceUrl, sourceImg, sourceCssFilter, generating, genMs,
@@ -436,8 +436,6 @@ function redrawCells() {
   if (!el || !p) return
   const o = redrawOpts.value
   const g = chartGeometry(p, o)
-  /* 有豆子停在画布外时，脏矩形盖不住格子区域外面，整张重画。 */
-  if (p.offscreen && p.offscreen.length) { invalidateLayer(); draw(); return }
   if (!o.useLayer) { invalidateLayer(); draw(); return }
   /* 几何与倍率必须和上次完整绘制完全一致，脏矩形才换算出正确的像素位置 */
   const dpr = canvasDpr(el, g.width, g.height)
@@ -448,6 +446,8 @@ function redrawCells() {
     return
   }
   lastGeo = g
+  /* 格子没变、只是画布外的豆子又挪了一格时，脏矩形不会重画，覆盖层仍要跟上。 */
+  syncHeldOverlay()
 }
 
 function drawCompare() {
@@ -575,6 +575,8 @@ let startY = 0
 let startLeft = 0
 let startTop = 0
 let painting = false
+/** 按住 Shift 按下左键：直线的起点格子。没有它时这一笔是普通涂抹。 */
+let lineStroke = null
 
 /* 触屏上的分工：单指 / 笔只编辑，画布固定。
    浏览器默认会把单指拖动解释成滚动（画布跟着手指跑），
@@ -656,6 +658,7 @@ function runFingerPick(clientX, clientY) {
   if (painting) {
     revertEdit()
     painting = false
+    lineStroke = null
   }
   const hit = hitTest(cv.value, pattern.value, { clientX, clientY }, hitOpts.value)
   if (!hit) { clearFingerPick(); return }
@@ -702,6 +705,7 @@ function twoFingerUndoNow() {
      先退回这一笔，再撤上一步已提交的编辑，才是用户要的「撤回」。 */
   if (painting) revertEdit()
   painting = false
+  lineStroke = null
   /* 套索拖到一半来了第二根手指：这一下是撤回，半次平移退回按下前。
      还在拉选框时格子没改过，把框丢掉就行。 */
   if (lassoDrag.value) revertEdit()
@@ -723,6 +727,7 @@ function startTwoFingerGesture(stage) {
   clearFingerPick()
   if (painting) revertEdit()
   painting = false
+  lineStroke = null
   if (lassoDrag.value) revertEdit()
   lassoDrag.value = false
   lassoTrace.value = null
@@ -1018,7 +1023,8 @@ function tracePoints(points) {
 const lassoScroll = ref(0)
 function bumpLassoScroll() {
   if (lasso.value || lassoTrace.value) lassoScroll.value++
-  if (heldCanvas.value) syncHeldOverlay()
+  const held = pattern.value && pattern.value.offscreen
+  if (held && held.length) syncHeldOverlay()
 }
 
 /* 拖出画布的豆子：叠在图纸外面，不写进图纸位图，格子坐标保持原样。 */
@@ -1052,7 +1058,8 @@ function syncHeldOverlay() {
     x1: Math.ceil((sr.right - gridLeft) / (cell * sx)) + 1,
     y1: Math.ceil((sr.bottom - gridTop) / (cell * sy)) + 1
   }
-  const drawn = renderOffscreen(p.palette, held, cell, view)
+  const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1))
+  const drawn = renderOffscreen(p.palette, held, cell * dpr, view)
   if (!drawn) {
     heldCanvas.value = null
     heldStyle.value = null
@@ -1062,9 +1069,23 @@ function syncHeldOverlay() {
   heldStyle.value = {
     left: `${gridLeft - wr.left + drawn.x0 * cell * sx}px`,
     top: `${gridTop - wr.top + drawn.y0 * cell * sy}px`,
-    width: `${drawn.canvas.width * sx}px`,
-    height: `${drawn.canvas.height * sy}px`
+    width: `${(drawn.canvas.width / dpr) * sx}px`,
+    height: `${(drawn.canvas.height / dpr) * sy}px`
   }
+}
+const heldEl = ref(null)
+watch(heldCanvas, () => nextTick(paintHeldNow))
+/** 覆盖层每次都是一张新位图。元素还在时也要重贴，否则拖动中画面不跟着走。 */
+function paintHeldNow() {
+  const el = heldEl.value
+  const src = heldCanvas.value
+  if (!el || !src) return
+  const ctx = el.getContext('2d')
+  if (!ctx) return
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
+  ctx.clearRect(0, 0, el.width, el.height)
+  ctx.imageSmoothingEnabled = false
+  ctx.drawImage(src, 0, 0)
 }
 const lassoShape = computed(() => {
   void lassoScroll.value
@@ -1092,9 +1113,12 @@ function startLasso(e, stage) {
     toastWarn('画布上还没有图案')
     return
   }
-  const hit = lassoHit(e, p)
+  /* 点在画布外的豆子上时用真实格子，不能夹到边上，否则拖不回来。 */
+  const raw = lassoHit(e, p, { clamp: false })
+  if (!raw) return
+  const hit = offscreenBeadAt(p, raw.x, raw.y) ? raw : lassoHit(e, p)
   if (!hit) return
-  const hasBead = p.cells[hit.y * p.width + hit.x] >= 0 || offscreenBeadAt(p, hit.x, hit.y)
+  const hasBead = boardBeadAt(p, hit.x, hit.y) || offscreenBeadAt(p, hit.x, hit.y)
   /* 点在已有局部选区里的豆子上：拖这一块。
      点在其它豆子上：选中整张，按住直接拖。
      点在空格上：从这里画一圈手绘轨迹。 */
@@ -1151,14 +1175,10 @@ function moveLasso(e) {
   if (!lasso.value) clearLasso()
 }
 
-/** 把画布外的位图贴到覆盖层上。覆盖层每次都是新 canvas，要在挂上之后再画一次。 */
-function paintHeldCanvas(el) {
-  const src = heldCanvas.value
-  if (!el || !src) return
-  const ctx = el.getContext('2d')
-  if (!ctx) return
-  ctx.clearRect(0, 0, el.width, el.height)
-  ctx.drawImage(src, 0, 0)
+/** 这一格在画布内，并且上面有豆子。 */
+function boardBeadAt(p, x, y) {
+  if (!p || !p.cells || x < 0 || y < 0 || x >= p.width || y >= p.height) return false
+  return p.cells[y * p.width + x] >= 0
 }
 
 /** 画布外暂存里，这一格上有没有正在拖的豆子。 */
@@ -1267,8 +1287,16 @@ function onPointerDown(e) {
     painting = true
     capturePointer(stage, e.pointerId)
     /* 一整笔（按下 → 拖动 → 松开）算一步撤销：applyPaint 会随 pointermove
-       反复调用，靠 beginEdit 的嵌套计数把这一笔合成一条历史 */
+       反复调用，靠 beginEdit 的嵌套计数把这一笔合成一条历史。
+       画笔按住 Shift 时这一笔改成直线：起点是按下的格子，终点跟着指针走。 */
     beginEdit()
+    if (tool.value === 'paint' && e.shiftKey && e.pointerType !== 'touch') {
+      const hit = cv.value && pattern.value ? hitTest(cv.value, pattern.value, e, hitOpts.value) : null
+      lineStroke = hit ? { x: hit.x, y: hit.y } : null
+      if (hit) paintLine(hit.x, hit.y, hit.x, hit.y)
+      return
+    }
+    lineStroke = null
     applyPaint(e)
     return
   }
@@ -1323,6 +1351,14 @@ function applyPaint(e) {
   paintAt(hit.x, hit.y)
 }
 
+/** 直线笔：整条线始终从按下的格子连到当前格子，不把鼠标走过的弯路画进去。 */
+function applyLine(e) {
+  if (!lineStroke || !cv.value || !pattern.value) return
+  const hit = hitTest(cv.value, pattern.value, e, hitOpts.value)
+  if (!hit) return
+  paintLine(lineStroke.x, lineStroke.y, hit.x, hit.y)
+}
+
 function onPointerMove(e) {
   const stage = stageEl.value
   if (e.pointerType === 'touch' && touchPoints.has(e.pointerId)) {
@@ -1343,7 +1379,8 @@ function onPointerMove(e) {
   }
   if (e.pointerType === 'touch' && touchPoints.size >= 2) return
   if (painting) {
-    applyPaint(e)
+    if (lineStroke) applyLine(e)
+    else applyPaint(e)
     return
   }
   if (lassoDrag.value || (lassoAnchor && lassoAnchor.mode === 'draw')) {
@@ -1364,6 +1401,7 @@ function onPointerUp(e) {
   // 松手才提交这一笔：中途每一格共用同一个「操作前快照」
   if (painting) endEdit()
   painting = false
+  lineStroke = null
   /* 拖豆子：松手才入历史。没挪动时 endEdit 发现格子没变，不会入栈，
      这次记下的平移也要丢掉。拉选框：格子没改，只把框收成选区。 */
   if (lassoDrag.value) {
@@ -1421,6 +1459,7 @@ function onPointerCancel(e) {
   }
   if (painting) cancelEdit()
   painting = false
+  lineStroke = null
   /* 指针被抢走时保留已经挪过的格子（和画笔同一口径），只是不再继续拖。
      轨迹还没松手就丢掉，不当成一次选区。 */
   if (lassoDrag.value) endEdit()
@@ -1849,6 +1888,7 @@ onBeforeUnmount(() => {
   if (stageEl.value) stageEl.value.removeEventListener('touchmove', onStageTouchMove)
   if (painting) cancelEdit()
   painting = false
+  lineStroke = null
   if (lassoDrag.value) endEdit()
   lassoDrag.value = false
   lassoTrace.value = null
@@ -2012,8 +2052,9 @@ defineExpose({
       </svg>
 
       <canvas
-        v-if="heldCanvas && heldStyle" class="heldBeads" :width="heldCanvas.width" :height="heldCanvas.height"
-        :style="heldStyle" aria-hidden="true" :ref="paintHeldCanvas"
+        v-if="heldCanvas && heldStyle" ref="heldEl" class="heldBeads"
+        :width="heldCanvas.width" :height="heldCanvas.height"
+        :style="heldStyle" aria-hidden="true"
       ></canvas>
 
       <div
@@ -2204,7 +2245,7 @@ defineExpose({
       <div v-if="!showEmpty && currentView === 'pattern'" class="chartNote">
         <span class="hintWheel">滚轮缩放 · 按住鼠标中键拖动平移</span>
         <span class="hintTouch">双指同时点一下撤回 · 单指编辑 · 长按一格吸色</span>
-        <span v-if="tool !== 'pan'" class="only-lg">· {{ tool === 'lasso' ? '点住豆子拖动整张图案，从空格画出一圈只选圈里的豆子，Esc 取消选区（当前工具：套索）' : '直接点格子改色（当前工具：' + (tool === 'paint' ? '画笔' : tool === 'erase' ? '橡皮' : tool === 'pick' ? '吸色' : '填充') + '）' }}</span>
+        <span v-if="tool !== 'pan'" class="only-lg">· {{ tool === 'lasso' ? '点住豆子拖动整张图案，从空格画出一圈只选圈里的豆子，Esc 取消选区（当前工具：套索）' : tool === 'paint' ? '点格子改色，按住 Shift 拖左键画直线（当前工具：画笔）' : '直接点格子改色（当前工具：' + (tool === 'erase' ? '橡皮' : tool === 'pick' ? '吸色' : '填充') + '）' }}</span>
       </div>
 
       <!-- 画布太大就不逐格印色号了（见 CODES_CELL_LIMIT）。必须说清楚去哪儿看：

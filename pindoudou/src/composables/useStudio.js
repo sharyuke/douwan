@@ -2451,6 +2451,54 @@ export function paintAt(x, y, { record = true } = {}) {
   }
 }
 
+/**
+ * 在当前这一笔里画一条直线：从落笔前的格子重画，起点到终点走格子直线。
+ * 拖动时反复调用，终点跟着指针走，松手仍是一步撤销。
+ * 必须先 beginEdit()：没有「按下前」的快照时不画，避免直线叠在已经画过的斜线上。
+ */
+export function paintLine(x0, y0, x1, y1) {
+  const p = pattern.value
+  if (!p || !pendingSnap || !pendingSnap.cells || pendingSnap.cells.length !== p.cells.length) return false
+  x0 = Math.trunc(x0)
+  y0 = Math.trunc(y0)
+  x1 = Math.trunc(x1)
+  y1 = Math.trunc(y1)
+  if (x0 < 0 || y0 < 0 || x0 >= p.width || y0 >= p.height) return false
+  if (x1 < 0 || y1 < 0 || x1 >= p.width || y1 >= p.height) return false
+  const color = getColorByIdSafe(brushColorId.value) || p.palette[p.palette.length - 1]
+  if (!color) return false
+  const pi = ensurePaletteIndex(color)
+  if (pi < 0) return false
+  const size = Math.min(BRUSH_MAX, Math.max(1, Math.round(toolSizeOf('paint')) || 1))
+  const half = Math.floor(size / 2)
+  const cells = Int32Array.from(pendingSnap.cells)
+  const dx = Math.abs(x1 - x0)
+  const dy = Math.abs(y1 - y0)
+  const sx = x0 < x1 ? 1 : -1
+  const sy = y0 < y1 ? 1 : -1
+  let err = dx - dy
+  let x = x0
+  let y = y0
+  while (true) {
+    const startX = Math.max(0, x - half)
+    const startY = Math.max(0, y - half)
+    const endX = Math.min(p.width, startX + size)
+    const endY = Math.min(p.height, startY + size)
+    for (let yy = startY; yy < endY; yy++) {
+      const row = yy * p.width
+      for (let xx = startX; xx < endX; xx++) cells[row + xx] = pi
+    }
+    if (x === x1 && y === y1) break
+    const e2 = err * 2
+    if (e2 > -dy) { err -= dy; x += sx }
+    if (e2 < dx) { err += dx; y += sy }
+  }
+  for (let i = 0; i < cells.length; i++) if (cells[i] !== p.cells[i]) {
+    return replaceCells(activeKey.value, cells, { deferStats: editDepth > 0 })
+  }
+  return false
+}
+
 /** 橡皮的语义在 pattern.js 里由 EMPTY 表达（不放豆），这里不再需要"最浅色"的兜底 */
 
 function getColorByIdSafe(id) {
