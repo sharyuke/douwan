@@ -1094,19 +1094,26 @@ input[type=checkbox]:focus-visible,input[type=radio]:focus-visible{outline:2.5px
 .stage.panning{cursor:grabbing}
 /* 中键拖动平移：画布自己是 crosshair，会盖住舞台的 grab 光标，这里补一条 */
 .stage.mid-pan,.stage.mid-pan .board.editing canvas{cursor:grabbing}
-/* 套索：默认十字，方便拉框；选区拖动时改成抓手 */
+/* 套索：默认十字，方便画圈；选区拖动时改成抓手 */
 .stage.stage--lasso,.stage.stage--lasso .board.editing canvas{cursor:crosshair}
 .stage.stage--lasso.panning,.stage.stage--lasso.panning .board.editing canvas{cursor:grabbing}
-.lassoBox{
-  position:absolute;z-index:4;pointer-events:none;box-sizing:border-box;
-  border:1.5px solid #1A2D22;border-radius:2px;
-  background:rgba(200,230,60,.18);
-  box-shadow:0 0 0 1px rgba(255,255,255,.7) inset;
+.lassoSvg{
+  position:absolute;inset:0;z-index:4;width:100%;height:100%;
+  pointer-events:none;overflow:visible;
 }
-.lassoBox.is-partial{border-style:dashed}
-.lassoBox.is-drag{background:rgba(200,230,60,.30);cursor:grabbing}
-.lassoBox--rubber{
-  border-style:dashed;background:rgba(200,230,60,.10);z-index:5;
+.lassoShape{
+  fill:rgba(200,230,60,.22);stroke:#1A2D22;stroke-width:1.5;
+  stroke-linejoin:round;stroke-linecap:round;
+}
+.lassoShape.is-drag{fill:rgba(200,230,60,.34)}
+.lassoTrace{
+  fill:none;stroke:#1A2D22;stroke-width:1.5;stroke-dasharray:4 3;
+  stroke-linejoin:round;stroke-linecap:round;
+}
+/* 套索拖出画布的豆子：叠在舞台上，图纸滚动时跟着舞台重算位置 */
+.heldBeads{
+  position:absolute;z-index:3;pointer-events:none;
+  image-rendering:pixelated;image-rendering:crisp-edges;
 }
 .board{
   background:#fff;border:1px solid var(--line-strong);border-radius:var(--r-xs);

@@ -62,7 +62,7 @@ function packHex(hex) {
  * 色板 → 查找表（下标 → { color 用于比对的键, hex, packed }）。
  * 每次绘制都建一次：色板最多几十项，比起逐格判断可以忽略。
  */
-function colorLUT(palette) {
+export function colorLUT(palette) {
   const list = palette || []
   const lut = new Array(list.length)
   for (let i = 0; i < list.length; i++) {
@@ -77,6 +77,9 @@ function colorLUT(palette) {
  * 只画豆子：按颜色分组，一组一条路径。
  * 返回值全部来自「先把同色格子的下标收集起来，再一次性 fill」，
  * 所以它和原来的「逐格 fillRect」在几何上完全等价 —— 20 万格只切几十次 fillStyle。
+ *
+ * outside 是套索拖出画布、暂时停在画布外的豆子（画布坐标可以是负数）。
+ * 它们画在格子区域之外，拖回来时再写回 cells。
  */
 function paintCells(ctx, gw, gh, cells, lut, ox, oy, cell, emptyFill = EMPTY_FILL) {
   const groups = new Map()
@@ -122,6 +125,50 @@ function paintCells(ctx, gw, gh, cells, lut, ox, oy, cell, emptyFill = EMPTY_FIL
     }
     ctx.fill()
   }
+}
+
+/**
+ * 套索拖出画布的豆子铺到一张透明位图上。
+ * 只画 view 这块格子范围（含画布外的负坐标），调用方把它叠在图纸外面。
+ * @param {{x0:number,y0:number,x1:number,y1:number}} view 格子坐标，x1/y1 不含
+ * @returns {{canvas:HTMLCanvasElement,x0:number,y0:number}|null}
+ */
+export function renderOffscreen(palette, outside, cell, view) {
+  if (!outside || !outside.length || !view || cell <= 0) return null
+  const x0 = Math.floor(view.x0)
+  const y0 = Math.floor(view.y0)
+  const x1 = Math.ceil(view.x1)
+  const y1 = Math.ceil(view.y1)
+  if (x1 <= x0 || y1 <= y0) return null
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, Math.ceil((x1 - x0) * cell))
+  canvas.height = Math.max(1, Math.ceil((y1 - y0) * cell))
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return null
+  const lut = colorLUT(palette)
+  const groups = new Map()
+  for (let i = 0; i < outside.length; i++) {
+    const bead = outside[i]
+    if (bead.x + 1 <= x0 || bead.y + 1 <= y0 || bead.x >= x1 || bead.y >= y1) continue
+    const c = lut[bead.k]
+    if (!c) continue
+    let g = groups.get(c.color)
+    if (!g) { g = { hex: c.hex, list: [] }; groups.set(c.color, g) }
+    g.list.push(bead)
+  }
+  if (!groups.size) return null
+  const ox = -x0 * cell
+  const oy = -y0 * cell
+  for (const g of groups.values()) {
+    ctx.fillStyle = g.hex
+    ctx.beginPath()
+    const list = g.list
+    for (let i = 0; i < list.length; i++) {
+      ctx.rect(ox + list[i].x * cell, oy + list[i].y * cell, cell, cell)
+    }
+    ctx.fill()
+  }
+  return { canvas, x0, y0 }
 }
 
 /* ---------------------------------------------------- 图案层（1 格 = 1 像素的离屏缓存）

@@ -1749,7 +1749,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
         <p class="msGroupTitle">辅助绘制</p>
         <button type="button" class="msRowBtn" :class="{ on: tool === 'lasso' }" @click="pickMobileTool('lasso')">
           <span class="msRowBtn__ico"><Icon name="lasso" :size="20" /></span>
-          <span class="msRowBtn__main"><b>套索</b><em>点一下全选，拖出框选局部再移动</em></span>
+          <span class="msRowBtn__main"><b>套索</b><em>点住拖动整张，画出一圈只选圈里的豆子</em></span>
         </button>
         <button type="button" class="msRowBtn" :class="{ on: tool === 'pick' }" @click="pickMobileTool('pick')">
           <span class="msRowBtn__ico"><Icon name="pipette" :size="20" /></span>

@@ -1782,7 +1782,9 @@ function snapshotOf(key) {
     editLayer: t.editLayer,
     /* 底稿是不可变对象（每次改动都换新的一份），快照直接存引用就够 ——
        撤销时连底稿一起回退，否则「撤销掉的一笔」会被下一次放大从底稿里带回来。 */
-    master: t.master
+    master: t.master,
+    /* 套索拖出画布的豆子。撤销要连画布外那一截一起回去。 */
+    offscreen: t.offscreen ? t.offscreen.map(b => ({ x: b.x, y: b.y, k: b.k, marked: !!b.marked })) : null
   }
 }
 
@@ -1797,6 +1799,17 @@ function sameAsCurrent(snap) {
   const palette = t.palette || []
   if (palette.length !== snap.palette.length) return false
   for (let i = 0; i < palette.length; i++) if (palette[i].id !== snap.palette[i].id) return false
+  if (!sameOffscreen(snap.offscreen, t.offscreen)) return false
+  return true
+}
+
+/** 画布外暂存是否同一份。两边都没有暂存算相同。 */
+function sameOffscreen(a, b) {
+  if (!a && !b) return true
+  if (!a || !b || a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].x !== b[i].x || a[i].y !== b[i].y || a[i].k !== b[i].k || !!a[i].marked !== !!b[i].marked) return false
+  }
   return true
 }
 
@@ -1950,12 +1963,14 @@ let pendingStatsKey = ''
  * 逐格都重算的话画一笔要好几秒、手指跟画面对不上。所以一笔之内先只换 cells
  * （画面立刻正确），统计等这一笔收尾时算一次（见 endEdit 的 flushPendingStats）。
  */
-function replaceCells(key, cells, { deferStats = false } = {}) {
+function replaceCells(key, cells, { deferStats = false, offscreen } = {}) {
   const idx = variants.value.findIndex(v => v.key === key)
   if (idx < 0) return false
   const v = variants.value[idx]
   const target = v.active || v
   const next = { ...target, cells: Int32Array.from(cells) }
+  /* 只有套索传入时才改画布外暂存。别的编辑（画笔、换色）不能把它清掉。 */
+  if (offscreen !== undefined) next.offscreen = offscreen && offscreen.length ? offscreen : null
   // 重算统计，保持「统计与数据一致」
   if (deferStats) pendingStatsKey = key
   else recalcStats(next)
@@ -1996,7 +2011,8 @@ function applySnapshot(snap) {
     /* 撤销 / 重做连手工修改记录与修改层一起回退（见 snapshotOf 的说明） */
     editMap: snap.edits ? new Map(snap.edits) : undefined,
     editLayer: snap.editLayer,
-    master: snap.master
+    master: snap.master,
+    offscreen: snap.offscreen ? snap.offscreen.map(b => ({ x: b.x, y: b.y, k: b.k, marked: !!b.marked })) : null
   }
   recalcStats(next)
   const list = variants.value.slice()
@@ -2065,7 +2081,15 @@ function recalcStats(p) {
   const used = new Int32Array(p.palette.length)
   for (let i = 0; i < p.cells.length; i++) {
     const k = p.cells[i]
-    if (k >= 0) used[k]++
+    if (k >= 0 && k < used.length) used[k]++
+  }
+  /* 拖出画布的豆子还在，它们的色号不能被当成死色剪掉。 */
+  const held = p.offscreen
+  if (held) {
+    for (let i = 0; i < held.length; i++) {
+      const k = held[i].k
+      if (k >= 0 && k < used.length) used[k]++
+    }
   }
   let dead = 0
   for (let i = 0; i < used.length; i++) if (!used[i]) dead++
@@ -2086,9 +2110,19 @@ function recalcStats(p) {
       p.cells = cells
       p.palette = palette
       p.colors = palette.map(c => c.id)
+      if (held && held.length) {
+        const nextHeld = []
+        for (let i = 0; i < held.length; i++) {
+          const k = held[i].k
+          const nk = k >= 0 && k < keepMap.length ? keepMap[k] : -1
+          if (nk < 0) continue
+          nextHeld.push({ ...held[i], k: nk })
+        }
+        p.offscreen = nextHeld.length ? nextHeld : null
+      }
     }
   }
-  const beads = beadCountOf(p.cells)
+  const beads = beadCountOf(p.cells) + (p.offscreen ? p.offscreen.length : 0)
   const build = buildability(p.cells, p.width, p.height, p.palette.length)
   /* 空格只数成品区域里的：画布四周的留白不是「去背景」，不该进这个数字 */
   const { w: aw, h: ah } = artBoxOf(p)
@@ -2639,14 +2673,17 @@ export function mirrorPattern(axis = 'h') {
 /**
  * 套索：把选中的豆子平移 (dx, dy) 格。
  *
- * region 缺省时搬整张图上所有有豆的格子。传入 {x0,y0,x1,y1} 时只搬这个矩形里的豆子，
- * 矩形外的格子留在原地。空格不搬。挪出画布的豆子丢掉，空出来的位置留空。
+ * region 缺省时搬整张图上所有有豆的格子，也搬已经停在画布外的那一截。
+ * 传入 { mask } 时只搬掩码里标了 1 的格子，掩码外（含画布外没被选中的）留在原地。
+ * 空格不搬。
+ *
+ * 挪出画布的豆子不丢掉：按原格坐标记在画布外，拖回来时按同样的相对位置落回去。
  * 选中的豆子落到还留在原地的豆子上时，选中的盖住原地的。
  *
  * 一次拖动是一步可撤销的操作：调用方在按下时 beginEdit({ progress: true })、
  * 松手时 endEdit()，中途每次跨格都复用外层那份快照。
  * 手工修改记录跟着格子走（recordEdits）；拼制进度也跟着被搬走的格子走，
- * 撤销时由快照里的 progress 一起回到拖之前。
+ * 画布外的勾先摘掉，拖回来再挂上。撤销时由快照里的 progress 一起回到拖之前。
  * @returns {boolean} 是否真的挪动了（dx、dy 都是 0，或选区里没有豆，返回 false）
  */
 export function shiftPattern(dx, dy, region) {
@@ -2659,57 +2696,77 @@ export function shiftPattern(dx, dy, region) {
   dy = Math.trunc(dy) || 0
   if (!dx && !dy) return false
 
-  const x0 = region ? Math.max(0, Math.min(region.x0, region.x1)) : 0
-  const y0 = region ? Math.max(0, Math.min(region.y0, region.y1)) : 0
-  const x1 = region ? Math.min(w - 1, Math.max(region.x0, region.x1)) : w - 1
-  const y1 = region ? Math.min(h - 1, Math.max(region.y0, region.y1)) : h - 1
-
+  const mask = region && region.mask
   const own = editDepth === 0
   if (own) beginEdit({ progress: true })
   const cells = p.cells
   const next = Int32Array.from(cells)
   const picked = []
-  for (let y = y0; y <= y1; y++) {
+  for (let y = 0; y < h; y++) {
     const row = y * w
-    for (let x = x0; x <= x1; x++) {
-      const k = cells[row + x]
+    for (let x = 0; x < w; x++) {
+      const i = row + x
+      if (mask && !mask[i]) continue
+      const k = cells[i]
       if (k < 0) continue
-      next[row + x] = EMPTY
-      picked.push({ x, y, k, i: row + x })
+      next[i] = EMPTY
+      picked.push({ x, y, k, i })
     }
+  }
+  /* 已经停在画布外的豆子：全选时一起搬。
+     局部选区只搬 region.outside 里记下的那几颗，避免把别的画布外豆子捎上。 */
+  const parked = []
+  const outsideKey = region && region.outside ? outsideKeys(region.outside) : null
+  const held = Array.isArray(p.offscreen) ? p.offscreen : []
+  for (let i = 0; i < held.length; i++) {
+    const bead = held[i]
+    if (mask && !(outsideKey && outsideKey.has(bead.x + ',' + bead.y))) {
+      parked.push(bead)
+      continue
+    }
+    picked.push({ x: bead.x, y: bead.y, k: bead.k, i: -1, marked: !!bead.marked })
   }
   if (!picked.length) {
     if (own) cancelEdit()
     return false
   }
+  const progress = buildProgress.value
+  const marks = []
   for (const bead of picked) {
     const nx = bead.x + dx
     const ny = bead.y + dy
-    if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue
-    next[ny * w + nx] = bead.k
-  }
-  replaceCells(activeKey.value, next, { deferStats: true })
-
-  /* 拼制进度按格子下标记。被搬走的那几颗，打勾跟着走；没选中的勾留在原地。 */
-  const progress = buildProgress.value
-  if (progress.size) {
-    const lifted = new Map()
-    for (const bead of picked) {
-      if (!progress.has(bead.i)) continue
-      const nx = bead.x + dx
-      const ny = bead.y + dy
-      if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue
-      if (next[ny * w + nx] < 0) continue
-      lifted.set(bead.i, ny * w + nx)
+    const marked = bead.i >= 0 ? progress.has(bead.i) : !!bead.marked
+    if (nx < 0 || ny < 0 || nx >= w || ny >= h) {
+      parked.push({ x: nx, y: ny, k: bead.k, marked })
+      continue
     }
-    if (lifted.size) {
+    next[ny * w + nx] = bead.k
+    if (marked) marks.push(ny * w + nx)
+  }
+  replaceCells(activeKey.value, next, { deferStats: true, offscreen: parked })
+
+  /* 拼制进度按格子下标记。被搬走的那几颗，打勾跟着走；
+     暂时停在画布外的勾先摘掉，拖回来时再挂上。没选中的勾留在原地。 */
+  if (progress.size || marks.length) {
+    const lifted = new Set()
+    for (const bead of picked) {
+      if (bead.i >= 0 && progress.has(bead.i)) lifted.add(bead.i)
+    }
+    if (lifted.size || marks.length) {
       const moved = new Set()
-      for (const i of progress) moved.add(lifted.has(i) ? lifted.get(i) : i)
+      for (const i of progress) if (!lifted.has(i)) moved.add(i)
+      for (let i = 0; i < marks.length; i++) moved.add(marks[i])
       buildProgress.value = moved
     }
   }
   if (own) return endEdit()
   return true
+}
+
+function outsideKeys(list) {
+  const set = new Set()
+  for (let i = 0; i < list.length; i++) set.add(list[i].x + ',' + list[i].y)
+  return set
 }
 
 /** 吸色：把点击处的颜色设为当前画笔色（空格上没有颜色，保持画笔不变） */
@@ -3691,6 +3748,8 @@ function buildEditDraftRecord() {
       if (layer) extra.layer = layer
       const master = packMasterEntry(v, t)
       if (master) extra.master = master
+      const held = packOffscreen(t)
+      if (held) extra.offscreen = held
       return {
         key: v.key,
         label: v.label,
@@ -3808,6 +3867,37 @@ export function projectLimit() {
    一格里只多 3 个数，正常「逐颗改过」是几十到几百格；超过上限就不存
    （那种量级的改动更像整体换色，存下来也只会把存档撑爆）。 */
 const MAX_SAVED_EDITS = 20000
+
+/** 画布外的豆子 → 存档 [x, y, code, marked, …]。坐标可以是负数。 */
+function packOffscreen(p) {
+  const held = p && p.offscreen
+  if (!held || !held.length) return null
+  const out = []
+  for (let i = 0; i < held.length; i++) {
+    const bead = held[i]
+    const color = p.palette[bead.k]
+    if (!color) continue
+    out.push(bead.x, bead.y, color.code, bead.marked ? 1 : 0)
+  }
+  return out.length ? out : null
+}
+
+/** 存档里的画布外豆子 → { x, y, k, marked }。色号对不上的丢掉。 */
+function unpackOffscreen(p, raw) {
+  if (!p || !Array.isArray(raw) || raw.length < 4) return null
+  const byCode = new Map()
+  for (let i = 0; i < p.palette.length; i++) byCode.set(p.palette[i].code, i)
+  const out = []
+  for (let i = 0; i + 3 < raw.length; i += 4) {
+    const k = byCode.get(raw[i + 2])
+    if (k == null) continue
+    const x = raw[i] | 0
+    const y = raw[i + 1] | 0
+    if (x >= 0 && y >= 0 && x < p.width && y < p.height) continue
+    out.push({ x, y, k, marked: !!raw[i + 3] })
+  }
+  return out.length ? out : null
+}
 
 /** 手工修改记录 → 存档用的一维数组 [x, y, id, x, y, id, …] */
 function packEditMap(p) {
@@ -3955,6 +4045,8 @@ export function saveProject(name, extra) {
          存档里的源图只有 512 px，靠它重新取样回不到保存前的细节。 */
       const master = packMasterEntry(v, t)
       if (master) extra.master = master
+      const held = packOffscreen(t)
+      if (held) extra.offscreen = held
       return {
         key: v.key,
         label: v.label,
@@ -4088,6 +4180,7 @@ export function openProject(id, record) {
         /* 底稿：保存时见过的最大的成品尺寸（比存档里的图纸大时才有），
            重新打开后放大回这个尺寸要逐格还原，不能靠 512 px 的源图重新取样 */
         master: unpackMasterEntry(p, v.data && v.data.master),
+        offscreen: unpackOffscreen(p, v.data && v.data.offscreen),
         key: v.key,
         label: v.label,
         tagline: v.tagline,

@@ -11,7 +11,7 @@ import {
 } from '../../composables/useStudio.js'
 import { toastOk, toastWarn } from '../../composables/useToast.js'
 import { useShortcutTip } from '../../composables/useShortcutTip.js'
-import { drawChart, drawPixels, drawBoard, hitTest, chartGeometry, chartCellCap, updateChartLayer, markChartLayer, canvasDpr } from '../../lib/render.js'
+import { drawChart, drawPixels, drawBoard, hitTest, chartGeometry, chartCellCap, updateChartLayer, markChartLayer, canvasDpr, renderOffscreen } from '../../lib/render.js'
 import { boardBeadCounts } from '../../lib/pattern.js'
 import { beadOf, boardOf, BOARD_SPEC_LIST_TEXT } from '../../lib/boardSpec.js'
 import { EDIT_TOOLS, EDIT_HISTORY, EDIT_ACTIONS } from '../../data/icons.js'
@@ -414,6 +414,7 @@ function draw() {
   } else {
     invalidateLayer()
   }
+  syncHeldOverlay()
   /* 画布尺寸刚变过：贴边标尺的格子像素、成品标注都要跟着重算 */
   scheduleRuler()
   /* 换钉板 / 换图后画布有了新尺寸：手动缩放过（autoFit 关着，没有「适应」
@@ -435,6 +436,8 @@ function redrawCells() {
   if (!el || !p) return
   const o = redrawOpts.value
   const g = chartGeometry(p, o)
+  /* 有豆子停在画布外时，脏矩形盖不住格子区域外面，整张重画。 */
+  if (p.offscreen && p.offscreen.length) { invalidateLayer(); draw(); return }
   if (!o.useLayer) { invalidateLayer(); draw(); return }
   /* 几何与倍率必须和上次完整绘制完全一致，脏矩形才换算出正确的像素位置 */
   const dpr = canvasDpr(el, g.width, g.height)
@@ -490,12 +493,12 @@ watch([undoDepth, redoDepth], () => {
   const target = undoDepth.value
   while (lassoShiftAt > target && lassoShiftAt > 0) {
     const step = lassoShifts[lassoShiftAt - 1]
-    lasso.value = shiftBox(lasso.value, -step.dx, -step.dy, width.value, height.value) || lasso.value
+    lasso.value = shiftSelection(lasso.value, -step.dx, -step.dy, width.value, height.value) || lasso.value
     lassoShiftAt--
   }
   while (lassoShiftAt < target && lassoShiftAt < lassoShifts.length) {
     const step = lassoShifts[lassoShiftAt]
-    lasso.value = shiftBox(lasso.value, step.dx, step.dy, width.value, height.value) || lasso.value
+    lasso.value = shiftSelection(lasso.value, step.dx, step.dy, width.value, height.value) || lasso.value
     lassoShiftAt++
   }
 })
@@ -703,7 +706,7 @@ function twoFingerUndoNow() {
      还在拉选框时格子没改过，把框丢掉就行。 */
   if (lassoDrag.value) revertEdit()
   lassoDrag.value = false
-  lassoRubber.value = null
+  lassoTrace.value = null
   lassoAnchor = null
   dragging.value = false
   moved = true
@@ -722,7 +725,7 @@ function startTwoFingerGesture(stage) {
   painting = false
   if (lassoDrag.value) revertEdit()
   lassoDrag.value = false
-  lassoRubber.value = null
+  lassoTrace.value = null
   lassoAnchor = null
   dragging.value = false
   midPan.value = false
@@ -831,52 +834,34 @@ function moveTwoFingerGesture(stage) {
    以前这里裸调用，一抛就中断整个 pointerdown —— 落笔那一格没画上，
    而且后面每个 pointermove 都各自变成一步历史，撤销要按很多次才退回原位。 */
 /* ---------------------------------------------------------------- 套索
-   点一下：选中整张图案（所有有豆的格子）。
-   拖出矩形：只选这个框里的豆子，松手后可以再拖这块局部。
-   点在已有选区里：拖动选中的豆子。点在选区外：重新框选。
+   点在豆子上：选中整张图案，按住就能直接拖走。
+   从空格拉出手绘轨迹：松手后轨迹收口，只选轨迹围住的豆子。
+   点在已有局部选区的豆子上：拖动这一块。点在选区外：重新画一圈。
    一次拖动是一步撤销。 */
-const lasso = ref(null) // { x0, y0, x1, y1, partial } | null
+const lasso = ref(null) // { kind: 'all' } | { kind: 'part', mask, outline }
 const lassoDrag = ref(false) // 正在拖动选中的豆子
-const lassoRubber = ref(null) // 正在拉的选框 { x0, y0, x1, y1 }
-let lassoAnchor = null // { cellX, cellY, mode: 'move' | 'box' }
-/* 每次真正挪动选区时记下移动了几格。撤销 / 重做按这个把框退回去，
-   不能按「框里现在有哪些豆子」重算——框里还有本来就没被选中的豆子。 */
+const lassoTrace = ref(null) // 正在画的轨迹，屏幕坐标 [[x, y], ...]
+let lassoAnchor = null // { cellX, cellY, mode: 'move' | 'draw', sx, sy }
+/* 每次真正挪动选区时记下移动了几格。撤销 / 重做按这个把选区退回去。 */
 const lassoShifts = []
 let lassoShiftAt = 0
 
-/** 全部有豆格子的包围盒。partial 标记这是「全选」还是「框选的一块」。 */
-function patternBounds(p, partial = false) {
-  if (!p || !p.cells) return null
-  const w = p.width
-  const h = p.height
-  let x0 = w
-  let y0 = h
-  let x1 = -1
-  let y1 = -1
-  let beads = 0
-  for (let y = 0; y < h; y++) {
-    const row = y * w
-    for (let x = 0; x < w; x++) {
-      if (p.cells[row + x] < 0) continue
-      beads++
-      if (x < x0) x0 = x
-      if (y < y0) y0 = y
-      if (x > x1) x1 = x
-      if (y > y1) y1 = y
-    }
-  }
-  if (!beads) return null
-  return { x0, y0, x1, y1, partial }
+/** 图纸上有没有豆子。画布外暂存的也算，拖出去的图案还能再拖回来。 */
+function patternHasBeads(p) {
+  if (!p) return false
+  if (p.offscreen && p.offscreen.length) return true
+  if (!p.cells) return false
+  for (let i = 0; i < p.cells.length; i++) if (p.cells[i] >= 0) return true
+  return false
 }
 
 function clampCell(n, max) {
   return Math.max(0, Math.min(max - 1, n))
 }
 
-/** 指针下的格子。点在图纸外时夹到边上，方便把框拉到画布边缘。 */
-function lassoHit(e, p) {
-  const hit = cv.value ? hitTest(cv.value, p, e, hitOpts.value) : null
-  if (hit) return hit
+/** 指针下的格子。拖动中可以落到画布外，越界的豆子才拖得回来。
+    拉轨迹时仍夹在画布边上，手绘选区本身不伸出画布。 */
+function lassoHit(e, p, { clamp = true } = {}) {
   const el = cv.value
   if (!el) return null
   const g = chartGeometry(p, hitOpts.value)
@@ -884,221 +869,362 @@ function lassoHit(e, p) {
   if (!rect.width || !rect.height) return null
   const scaleX = g.width / rect.width
   const scaleY = g.height / rect.height
-  const x = Math.floor(((e.clientX - rect.left) * scaleX - g.originX) / g.cell)
-  const y = Math.floor(((e.clientY - rect.top) * scaleY - g.originY) / g.cell)
+  let x = Math.floor(((e.clientX - rect.left) * scaleX - g.originX) / g.cell)
+  let y = Math.floor(((e.clientY - rect.top) * scaleY - g.originY) / g.cell)
+  if (!clamp) return { x, y }
+  if (x < 0 || y < 0 || x >= p.width || y >= p.height) {
+    return { x: clampCell(x, p.width), y: clampCell(y, p.height) }
+  }
+  return { x, y }
+}
+
+/** 这一格在不在当前选区里。全选时画布外也算。
+    局部选区：画布里看掩码，画布外看 outside 里记下的格子。 */
+function cellSelected(x, y, sel, p) {
+  if (!sel || !p) return false
+  if (sel.kind === 'all') return true
+  if (x < 0 || y < 0 || x >= p.width || y >= p.height) {
+    const list = sel.outside
+    if (!list) return false
+    for (let i = 0; i < list.length; i++) if (list[i].x === x && list[i].y === y) return true
+    return false
+  }
+  return !!(sel.mask && sel.mask[y * p.width + x])
+}
+
+/** 射线法：点在不在这条手绘轨迹围成的多边形里。边上的点算在里面。 */
+function pointInPolygon(x, y, poly) {
+  let inside = false
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i][0]
+    const yi = poly[i][1]
+    const xj = poly[j][0]
+    const yj = poly[j][1]
+    if (yi === yj && yi === y) {
+      const lo = Math.min(xi, xj)
+      const hi = Math.max(xi, xj)
+      if (x >= lo && x <= hi) return true
+    }
+    const intersect = ((yi > y) !== (yj > y)) &&
+      (x < (xj - xi) * (y - yi) / ((yj - yi) || 1e-12) + xi)
+    if (intersect) inside = !inside
+  }
+  return inside
+}
+
+/** 屏幕坐标落到哪一格。点在图纸外时夹到边上。 */
+function clientToCell(clientX, clientY, p) {
+  const el = cv.value
+  if (!el) return null
+  const hit = hitTest(el, p, { clientX, clientY }, hitOpts.value)
+  if (hit) return hit
+  const g = chartGeometry(p, hitOpts.value)
+  const rect = el.getBoundingClientRect()
+  if (!rect.width || !rect.height) return null
+  const scaleX = g.width / rect.width
+  const scaleY = g.height / rect.height
+  const x = Math.floor(((clientX - rect.left) * scaleX - g.originX) / g.cell)
+  const y = Math.floor(((clientY - rect.top) * scaleY - g.originY) / g.cell)
   return { x: clampCell(x, p.width), y: clampCell(y, p.height) }
 }
 
-function cellInBox(x, y, box) {
-  if (!box) return false
-  const x0 = Math.min(box.x0, box.x1)
-  const x1 = Math.max(box.x0, box.x1)
-  const y0 = Math.min(box.y0, box.y1)
-  const y1 = Math.max(box.y0, box.y1)
-  return x >= x0 && x <= x1 && y >= y0 && y <= y1
-}
-
-/** 框里有没有豆子。空框不当成选区。 */
-function boxHasBeads(p, box) {
-  const x0 = Math.max(0, Math.min(box.x0, box.x1))
-  const x1 = Math.min(p.width - 1, Math.max(box.x0, box.x1))
-  const y0 = Math.max(0, Math.min(box.y0, box.y1))
-  const y1 = Math.min(p.height - 1, Math.max(box.y0, box.y1))
-  for (let y = y0; y <= y1; y++) {
-    const row = y * p.width
-    for (let x = x0; x <= x1; x++) if (p.cells[row + x] >= 0) return true
+/**
+ * 手绘轨迹收成选区：轨迹围住的格子标进掩码。
+ * 轨迹太短、围不住一格时，改成轨迹扫过的那一串格子。
+ */
+function selectionFromTrace(points, p) {
+  if (!points || points.length < 2) return null
+  const cells = []
+  for (const [sx, sy] of points) {
+    const hit = clientToCell(sx, sy, p)
+    if (!hit) continue
+    const last = cells[cells.length - 1]
+    if (!last || last.x !== hit.x || last.y !== hit.y) cells.push(hit)
   }
-  return false
-}
-
-/** 选区跟着被搬走的豆子收紧，框外的空边不要一直留着。 */
-function tightenBox(p, box) {
-  if (!box) return null
-  const x0 = Math.max(0, Math.min(box.x0, box.x1))
-  const x1 = Math.min(p.width - 1, Math.max(box.x0, box.x1))
-  const y0 = Math.max(0, Math.min(box.y0, box.y1))
-  const y1 = Math.min(p.height - 1, Math.max(box.y0, box.y1))
-  let nx0 = p.width
-  let ny0 = p.height
-  let nx1 = -1
-  let ny1 = -1
-  for (let y = y0; y <= y1; y++) {
-    const row = y * p.width
-    for (let x = x0; x <= x1; x++) {
-      if (p.cells[row + x] < 0) continue
-      if (x < nx0) nx0 = x
-      if (y < ny0) ny0 = y
-      if (x > nx1) nx1 = x
-      if (y > ny1) ny1 = y
+  if (!cells.length) return null
+  const g = chartGeometry(p, hitOpts.value)
+  const rect = cv.value.getBoundingClientRect()
+  const scaleX = g.width / rect.width
+  const scaleY = g.height / rect.height
+  const poly = points.map(([sx, sy]) => [
+    ((sx - rect.left) * scaleX - g.originX) / g.cell,
+    ((sy - rect.top) * scaleY - g.originY) / g.cell
+  ])
+  let x0 = p.width
+  let y0 = p.height
+  let x1 = 0
+  let y1 = 0
+  for (const [x, y] of poly) {
+    x0 = Math.min(x0, Math.floor(x))
+    y0 = Math.min(y0, Math.floor(y))
+    x1 = Math.max(x1, Math.ceil(x))
+    y1 = Math.max(y1, Math.ceil(y))
+  }
+  x0 = clampCell(x0, p.width)
+  y0 = clampCell(y0, p.height)
+  x1 = clampCell(x1, p.width)
+  y1 = clampCell(y1, p.height)
+  const mask = new Uint8Array(p.width * p.height)
+  let n = 0
+  const span = Math.max(x1 - x0, y1 - y0)
+  if (span >= 1 && poly.length >= 3) {
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) {
+        if (!pointInPolygon(x + 0.5, y + 0.5, poly)) continue
+        mask[y * p.width + x] = 1
+        n++
+      }
     }
   }
-  if (nx1 < 0) return null
-  return { x0: nx0, y0: ny0, x1: nx1, y1: ny1, partial: !!box.partial }
+  if (!n) {
+    for (const c of cells) {
+      mask[c.y * p.width + c.x] = 1
+      n++
+    }
+  }
+  let beads = 0
+  for (let i = 0; i < mask.length; i++) if (mask[i] && p.cells[i] >= 0) beads++
+  if (!beads) return null
+  return { kind: 'part', mask, outline: poly.map(q => [q[0], q[1]]) }
 }
 
-/** 画布格子坐标 → 舞台里的像素（套索框跟着图纸缩放） */
-function lassoStyle(box) {
+/** 选区轮廓换成舞台里的 SVG 坐标。全选没有轮廓。 */
+function lassoOutline(sel) {
   const el = cv.value
   const p = pattern.value
-  if (!el || !p || !box) return null
+  const wrap = wrapEl.value
+  if (!el || !p || !wrap || !sel || sel.kind !== 'part' || !sel.outline) return ''
   const g = chartGeometry(p, hitOpts.value)
   const rect = el.getBoundingClientRect()
-  const stage = stageEl.value
-  const wrap = wrapEl.value
-  if (!stage || !wrap || !rect.width || !rect.height) return null
+  if (!rect.width || !rect.height) return ''
   const wr = wrap.getBoundingClientRect()
   const sx = rect.width / g.width
   const sy = rect.height / g.height
-  const left = rect.left - wr.left + (g.originX + box.x0 * g.cell) * sx
-  const top = rect.top - wr.top + (g.originY + box.y0 * g.cell) * sy
-  const width = (box.x1 - box.x0 + 1) * g.cell * sx
-  const height = (box.y1 - box.y0 + 1) * g.cell * sy
-  return {
-    left: `${left}px`,
-    top: `${top}px`,
-    width: `${width}px`,
-    height: `${height}px`
+  return sel.outline.map(([cx, cy]) => {
+    const x = rect.left - wr.left + (g.originX + cx * g.cell) * sx
+    const y = rect.top - wr.top + (g.originY + cy * g.cell) * sy
+    return `${x.toFixed(1)},${y.toFixed(1)}`
+  }).join(' ')
+}
+
+/** 正在画的轨迹：屏幕坐标换成舞台坐标，不收口。 */
+function tracePoints(points) {
+  const wrap = wrapEl.value
+  if (!wrap || !points || points.length < 2) return ''
+  const wr = wrap.getBoundingClientRect()
+  return points.map(([x, y]) => `${(x - wr.left).toFixed(1)},${(y - wr.top).toFixed(1)}`).join(' ')
+}
+
+const lassoScroll = ref(0)
+function bumpLassoScroll() {
+  if (lasso.value || lassoTrace.value) lassoScroll.value++
+  if (heldCanvas.value) syncHeldOverlay()
+}
+
+/* 拖出画布的豆子：叠在图纸外面，不写进图纸位图，格子坐标保持原样。 */
+const heldCanvas = ref(null)
+const heldStyle = ref(null)
+function syncHeldOverlay() {
+  const p = pattern.value
+  const el = cv.value
+  const wrap = wrapEl.value
+  const stage = stageEl.value
+  const held = p && p.offscreen
+  if (!el || !wrap || !stage || !p || !held || !held.length || currentView.value !== 'pattern') {
+    heldCanvas.value = null
+    heldStyle.value = null
+    return
+  }
+  const g = chartGeometry(p, hitOpts.value)
+  const rect = el.getBoundingClientRect()
+  if (!rect.width || !rect.height || !g.cell) return
+  const wr = wrap.getBoundingClientRect()
+  const sr = stage.getBoundingClientRect()
+  const sx = rect.width / g.width
+  const sy = rect.height / g.height
+  const cell = g.cell
+  /* 只画视口盖住的那一圈（含画布外）。图纸滚到哪儿，这一圈跟着重算。 */
+  const gridLeft = rect.left + g.originX * sx
+  const gridTop = rect.top + g.originY * sy
+  const view = {
+    x0: Math.floor((sr.left - gridLeft) / (cell * sx)) - 1,
+    y0: Math.floor((sr.top - gridTop) / (cell * sy)) - 1,
+    x1: Math.ceil((sr.right - gridLeft) / (cell * sx)) + 1,
+    y1: Math.ceil((sr.bottom - gridTop) / (cell * sy)) + 1
+  }
+  const drawn = renderOffscreen(p.palette, held, cell, view)
+  if (!drawn) {
+    heldCanvas.value = null
+    heldStyle.value = null
+    return
+  }
+  heldCanvas.value = drawn.canvas
+  heldStyle.value = {
+    left: `${gridLeft - wr.left + drawn.x0 * cell * sx}px`,
+    top: `${gridTop - wr.top + drawn.y0 * cell * sy}px`,
+    width: `${drawn.canvas.width * sx}px`,
+    height: `${drawn.canvas.height * sy}px`
   }
 }
-const lassoScroll = ref(0)
-function bumpLassoScroll() { if (lasso.value || lassoRubber.value) lassoScroll.value++ }
-const lassoBoxStyle = computed(() => {
+const lassoShape = computed(() => {
   void lassoScroll.value
-  return lassoStyle(lasso.value)
+  return lassoOutline(lasso.value)
 })
-const lassoRubberStyle = computed(() => {
+const lassoTraceShape = computed(() => {
   void lassoScroll.value
-  return lassoStyle(lassoRubber.value)
+  return tracePoints(lassoTrace.value)
 })
 
 function clearLasso() {
   lasso.value = null
   lassoDrag.value = false
-  lassoRubber.value = null
+  lassoTrace.value = null
   lassoAnchor = null
   lassoShifts.length = 0
   lassoShiftAt = 0
 }
 
-/** 套索按下：点在已有选区里准备拖动；否则从这一格开始拉新框。 */
+/** 套索按下：点在豆子上就准备拖整张（或已选中的那一块）；从空格开始则画轨迹。 */
 function startLasso(e, stage) {
   const p = pattern.value
   if (!p || !p.cells) return
-  if (!patternBounds(p)) {
+  if (!patternHasBeads(p)) {
     toastWarn('画布上还没有图案')
     return
   }
   const hit = lassoHit(e, p)
   if (!hit) return
-  /* 只有按在选区里的豆子上才是拖动。空格上拉过去是在画新框，
-     否则全选之后就没法再框一块局部。 */
-  const hasBead = p.cells[hit.y * p.width + hit.x] >= 0
-  const inside = hasBead && lasso.value && cellInBox(hit.x, hit.y, lasso.value)
-  if (inside) {
+  const hasBead = p.cells[hit.y * p.width + hit.x] >= 0 || offscreenBeadAt(p, hit.x, hit.y)
+  /* 点在已有局部选区里的豆子上：拖这一块。
+     点在其它豆子上：选中整张，按住直接拖。
+     点在空格上：从这里画一圈手绘轨迹。 */
+  const inPart = hasBead && lasso.value && lasso.value.kind === 'part' && cellSelected(hit.x, hit.y, lasso.value, p)
+  if (hasBead) {
+    if (!inPart) lasso.value = { kind: 'all' }
     lassoDrag.value = true
-    lassoAnchor = { cellX: hit.x, cellY: hit.y, mode: 'move', moved: false }
+    lassoTrace.value = null
+    lassoAnchor = { cellX: hit.x, cellY: hit.y, mode: 'move', sx: e.clientX, sy: e.clientY }
     /* 一整次拖动共用一份「按下前」的快照，松手才入历史 */
     beginEdit({ progress: true })
   } else {
     lasso.value = null
-    lassoRubber.value = { x0: hit.x, y0: hit.y, x1: hit.x, y1: hit.y }
-    lassoAnchor = { cellX: hit.x, cellY: hit.y, mode: 'box' }
+    lassoTrace.value = [[e.clientX, e.clientY]]
+    lassoAnchor = { cellX: hit.x, cellY: hit.y, mode: 'draw', sx: e.clientX, sy: e.clientY }
   }
   capturePointer(stage, e.pointerId)
 }
 
-/** 拖动中：拉选框，或按格子把选中的豆子平移。没跨过一格就不动。 */
+/** 拖动中：轨迹跟着指针长出来，或者按格子把选中的豆子平移。 */
 function moveLasso(e) {
   const a = lassoAnchor
   const p = pattern.value
   if (!a || !p) return
-  const hit = lassoHit(e, p)
-  if (!hit) return
-  if (a.mode === 'box') {
-    lassoRubber.value = { x0: a.cellX, y0: a.cellY, x1: hit.x, y1: hit.y }
+  if (a.mode === 'draw') {
+    const pts = lassoTrace.value || []
+    const last = pts[pts.length - 1]
+    if (!last || Math.hypot(e.clientX - last[0], e.clientY - last[1]) >= 2) {
+      lassoTrace.value = pts.concat([[e.clientX, e.clientY]])
+    }
     return
   }
+  const hit = lassoHit(e, p, { clamp: false })
+  if (!hit) return
   const dx = hit.x - a.cellX
   const dy = hit.y - a.cellY
-  /* 从选区里的豆子拉到选区外面：这是在画一块新的局部，不是把整张图拖走。
-     按下时开的那笔还没改格子，退掉后再拉框。 */
-  if (lasso.value && !cellInBox(hit.x, hit.y, lasso.value)) {
-    if (lassoDrag.value) revertEdit()
-    lassoDrag.value = false
-    lasso.value = null
-    a.mode = 'box'
-    lassoRubber.value = { x0: a.cellX, y0: a.cellY, x1: hit.x, y1: hit.y }
-    return
-  }
+  /* 按下时已经定了是拖整张还是拖这一块。指针跟着豆子离开原来的轮廓
+     仍是同一次拖动，不要中途改成重新画线。 */
   if (!dx && !dy) return
-  const region = lasso.value && lasso.value.partial ? lasso.value : null
+  const region = lasso.value && lasso.value.kind === 'part' ? lasso.value : null
   if (!shiftPattern(dx, dy, region)) return
   a.cellX += dx
   a.cellY += dy
-  a.moved = true
-  /* 同一次拖动里连续跨格，合成一步平移，撤销时一次退回 */
+  noteLassoShift(dx, dy)
+  const cur = pattern.value
+  if (!cur) return
+  if (!region) {
+    lasso.value = patternHasBeads(cur) ? { kind: 'all' } : null
+    if (!lasso.value) clearLasso()
+    return
+  }
+  const shifted = shiftSelection(region, dx, dy, cur.width, cur.height)
+  lasso.value = shifted || (patternHasBeads(cur) ? { kind: 'all' } : null)
+  if (!lasso.value) clearLasso()
+}
+
+/** 把画布外的位图贴到覆盖层上。覆盖层每次都是新 canvas，要在挂上之后再画一次。 */
+function paintHeldCanvas(el) {
+  const src = heldCanvas.value
+  if (!el || !src) return
+  const ctx = el.getContext('2d')
+  if (!ctx) return
+  ctx.clearRect(0, 0, el.width, el.height)
+  ctx.drawImage(src, 0, 0)
+}
+
+/** 画布外暂存里，这一格上有没有正在拖的豆子。 */
+function offscreenBeadAt(p, x, y) {
+  const held = p && p.offscreen
+  if (!held) return false
+  for (let i = 0; i < held.length; i++) {
+    if (held[i].x === x && held[i].y === y) return true
+  }
+  return false
+}
+
+/** 同一次拖动里连续跨格，合成一步平移，撤销时一次退回。 */
+function noteLassoShift(dx, dy) {
   const last = lassoShifts[lassoShiftAt - 1]
   if (last && last.open) {
     last.dx += dx
     last.dy += dy
-  } else {
-    lassoShifts.length = lassoShiftAt
-    lassoShifts.push({ dx, dy, open: true })
-    lassoShiftAt = lassoShifts.length
-  }
-  const cur = pattern.value
-  if (!cur) return
-  if (!region) {
-    const box = patternBounds(cur, false)
-    if (box) lasso.value = box
-    else clearLasso()
     return
   }
-  const shifted = shiftBox(region, dx, dy, cur.width, cur.height)
-  if (shifted) lasso.value = shifted
-  else clearLasso()
+  lassoShifts.length = lassoShiftAt
+  lassoShifts.push({ dx, dy, open: true })
+  lassoShiftAt = lassoShifts.length
 }
 
-/** 局部选区跟着这一步平移，并裁到画布内。整块挪出画布就没有选区了。 */
-function shiftBox(box, dx, dy, w, h) {
-  let x0 = Math.min(box.x0, box.x1) + dx
-  let y0 = Math.min(box.y0, box.y1) + dy
-  let x1 = Math.max(box.x0, box.x1) + dx
-  let y1 = Math.max(box.y0, box.y1) + dy
-  if (x1 < 0 || y1 < 0 || x0 >= w || y0 >= h) return null
-  x0 = Math.max(0, x0)
-  y0 = Math.max(0, y0)
-  x1 = Math.min(w - 1, x1)
-  y1 = Math.min(h - 1, y1)
-  return { x0, y0, x1, y1, partial: !!box.partial }
+/** 局部选区的掩码和轮廓跟着这一步平移。
+    伸出画布的格子记在 outside 里，整块都在画布外时掩码可以是空的，选区还在。 */
+function shiftSelection(sel, dx, dy, w, h) {
+  if (!sel || sel.kind !== 'part' || !sel.mask) return null
+  const next = new Uint8Array(w * h)
+  const outside = []
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (!sel.mask[y * w + x]) continue
+      const nx = x + dx
+      const ny = y + dy
+      if (nx < 0 || ny < 0 || nx >= w || ny >= h) outside.push({ x: nx, y: ny })
+      else next[ny * w + nx] = 1
+    }
+  }
+  const prev = sel.outside || []
+  for (let i = 0; i < prev.length; i++) {
+    outside.push({ x: prev[i].x + dx, y: prev[i].y + dy })
+  }
+  const outline = (sel.outline || []).map(([x, y]) => [x + dx, y + dy])
+  let onCanvas = 0
+  for (let i = 0; i < next.length; i++) if (next[i]) onCanvas++
+  if (!onCanvas && !outside.length && !outline.length) return null
+  return { kind: 'part', mask: next, outline, outside }
 }
 
-/** 松手：点一下（没拉出框）改成全选；拉出的框里有豆子才留下局部选区。 */
-function finishLassoBox() {
-  const rubber = lassoRubber.value
-  lassoRubber.value = null
+/** 松手：手绘轨迹收口，围住的豆子成为局部选区。 */
+function finishLassoTrace() {
+  const trace = lassoTrace.value
+  lassoTrace.value = null
   lassoAnchor = null
-  if (!rubber) return
+  if (!trace) return
   const p = pattern.value
   if (!p) { lasso.value = null; return }
-  const x0 = Math.min(rubber.x0, rubber.x1)
-  const x1 = Math.max(rubber.x0, rubber.x1)
-  const y0 = Math.min(rubber.y0, rubber.y1)
-  const y1 = Math.max(rubber.y0, rubber.y1)
-  /* 按下和松开在同一格：这是单击，选中整张图案 */
-  if (x0 === x1 && y0 === y1) {
-    const all = patternBounds(p, false)
-    lasso.value = all
-    if (!all) toastWarn('画布上还没有图案')
-    return
-  }
-  const box = { x0, y0, x1, y1, partial: true }
-  if (!boxHasBeads(p, box)) {
+  const sel = selectionFromTrace(trace, p)
+  if (!sel) {
     lasso.value = null
-    toastWarn('这个框里没有豆子')
+    toastWarn('这一圈里没有豆子')
     return
   }
-  lasso.value = tightenBox(p, box) || box
+  lasso.value = sel
 }
 
 function capturePointer(el, id) {
@@ -1220,7 +1346,7 @@ function onPointerMove(e) {
     applyPaint(e)
     return
   }
-  if (lassoDrag.value || (lassoAnchor && lassoAnchor.mode === 'box')) {
+  if (lassoDrag.value || (lassoAnchor && lassoAnchor.mode === 'draw')) {
     moveLasso(e)
     return
   }
@@ -1250,7 +1376,7 @@ function onPointerUp(e) {
         lassoShiftAt = lassoShifts.length
       }
     }
-  } else if (lassoAnchor && lassoAnchor.mode === 'box') finishLassoBox()
+  } else if (lassoAnchor && lassoAnchor.mode === 'draw') finishLassoTrace()
   lassoDrag.value = false
   lassoAnchor = null
   dragging.value = false
@@ -1296,10 +1422,10 @@ function onPointerCancel(e) {
   if (painting) cancelEdit()
   painting = false
   /* 指针被抢走时保留已经挪过的格子（和画笔同一口径），只是不再继续拖。
-     选框还没松手就丢掉，不当成一次选区。 */
+     轨迹还没松手就丢掉，不当成一次选区。 */
   if (lassoDrag.value) endEdit()
   lassoDrag.value = false
-  lassoRubber.value = null
+  lassoTrace.value = null
   lassoAnchor = null
   dragging.value = false
   midPan.value = false
@@ -1662,7 +1788,7 @@ function onStageTouchMove(e) {
 /** Esc 取消套索选区，方便接着框另一块。别的浮层仍由工作台自己的 Esc 收。 */
 function onLassoKey(e) {
   if (e.key !== 'Escape' || tool.value !== 'lasso') return
-  if (!lasso.value && !lassoRubber.value && !lassoDrag.value) return
+  if (!lasso.value && !lassoTrace.value && !lassoDrag.value) return
   if (lassoDrag.value) {
     revertEdit()
     lassoDrag.value = false
@@ -1725,7 +1851,7 @@ onBeforeUnmount(() => {
   painting = false
   if (lassoDrag.value) endEdit()
   lassoDrag.value = false
-  lassoRubber.value = null
+  lassoTrace.value = null
   lassoAnchor = null
   dragging.value = false
 })
@@ -1878,16 +2004,17 @@ defineExpose({
         <button type="button" class="actualBadge__link" data-actual-calib @click="calibOpen = true">校准屏幕</button>
       </div>
 
-      <!-- 套索：实线框是已选中的格子，虚线框是正在拉的选区。
-           挂在舞台外面，图纸滚动时留在视口里，坐标按舞台可视区域重算。 -->
-      <div
-        v-if="lasso && lassoBoxStyle" class="lassoBox" :class="{ 'is-drag': lassoDrag, 'is-partial': lasso.partial }"
-        :style="lassoBoxStyle" aria-hidden="true"
-      ></div>
-      <div
-        v-if="lassoRubber && lassoRubberStyle" class="lassoBox lassoBox--rubber"
-        :style="lassoRubberStyle" aria-hidden="true"
-      ></div>
+      <!-- 套索：局部选区是手绘轨迹收口后的形状，正在画的那一笔不收口。
+           挂在舞台外面，图纸滚动时留在视口里。全选不画轮廓。 -->
+      <svg v-if="lassoShape || lassoTraceShape" class="lassoSvg" aria-hidden="true">
+        <polygon v-if="lassoShape" class="lassoShape" :class="{ 'is-drag': lassoDrag }" :points="lassoShape" />
+        <polyline v-if="lassoTraceShape" class="lassoTrace" :points="lassoTraceShape" />
+      </svg>
+
+      <canvas
+        v-if="heldCanvas && heldStyle" class="heldBeads" :width="heldCanvas.width" :height="heldCanvas.height"
+        :style="heldStyle" aria-hidden="true" :ref="paintHeldCanvas"
+      ></canvas>
 
       <div
         ref="stageEl" class="stage"
@@ -2077,7 +2204,7 @@ defineExpose({
       <div v-if="!showEmpty && currentView === 'pattern'" class="chartNote">
         <span class="hintWheel">滚轮缩放 · 按住鼠标中键拖动平移</span>
         <span class="hintTouch">双指同时点一下撤回 · 单指编辑 · 长按一格吸色</span>
-        <span v-if="tool !== 'pan'" class="only-lg">· {{ tool === 'lasso' ? '点一下全选，拖出框选局部，再拖选区移动，Esc 取消选区（当前工具：套索）' : '直接点格子改色（当前工具：' + (tool === 'paint' ? '画笔' : tool === 'erase' ? '橡皮' : tool === 'pick' ? '吸色' : '填充') + '）' }}</span>
+        <span v-if="tool !== 'pan'" class="only-lg">· {{ tool === 'lasso' ? '点住豆子拖动整张图案，从空格画出一圈只选圈里的豆子，Esc 取消选区（当前工具：套索）' : '直接点格子改色（当前工具：' + (tool === 'paint' ? '画笔' : tool === 'erase' ? '橡皮' : tool === 'pick' ? '吸色' : '填充') + '）' }}</span>
       </div>
 
       <!-- 画布太大就不逐格印色号了（见 CODES_CELL_LIMIT）。必须说清楚去哪儿看：
