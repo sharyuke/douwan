@@ -1005,6 +1005,7 @@ input[type=checkbox]:focus-visible,input[type=radio]:focus-visible{outline:2.5px
    三栏布局下高度由卡片决定（flex:1），剩下的窗口高度都归它；
    窄屏没有一屏布局，用 min-height 兜住一个像样的可视面积 */
 .stage{
+  position:relative;
   flex:1 1 auto;overflow:auto;padding:20px;border-radius:12px;
   background:radial-gradient(circle at 50% 12%,#fff 0,#fdfcf9 46%,#f7f4ee);
   display:grid;place-items:center;
@@ -1093,6 +1094,16 @@ input[type=checkbox]:focus-visible,input[type=radio]:focus-visible{outline:2.5px
 .stage.panning{cursor:grabbing}
 /* 中键拖动平移：画布自己是 crosshair，会盖住舞台的 grab 光标，这里补一条 */
 .stage.mid-pan,.stage.mid-pan .board.editing canvas{cursor:grabbing}
+/* 套索：光标改成抓手，选中框盖在全部有豆的格子上 */
+.stage.stage--lasso,.stage.stage--lasso .board.editing canvas{cursor:grab}
+.stage.stage--lasso.panning,.stage.stage--lasso.panning .board.editing canvas{cursor:grabbing}
+.lassoBox{
+  position:absolute;z-index:4;pointer-events:none;box-sizing:border-box;
+  border:1.5px dashed #1A2D22;border-radius:2px;
+  background:rgba(200,230,60,.16);
+  box-shadow:0 0 0 1px rgba(255,255,255,.7) inset;
+}
+.lassoBox.is-drag{background:rgba(200,230,60,.28)}
 .board{
   background:#fff;border:1px solid var(--line-strong);border-radius:var(--r-xs);
   padding:10px;box-shadow:0 20px 55px rgba(24,24,28,.13);line-height:0;

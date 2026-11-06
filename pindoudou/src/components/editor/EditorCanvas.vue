@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   pattern, hasPattern, width, height, zoom, setZoom, tool, brushColorId,
   BRUSH_MAX, toolSizeOf, setToolSize, beadKey,
-  options, currentView, canvasEl, paintAt, fillAt, pickAt, undo, redo,
+  options, currentView, canvasEl, paintAt, fillAt, pickAt, shiftPattern, undo, redo,
   canUndo, canRedo, undoDepth, redoDepth, beginEdit, endEdit, cancelEdit, revertEdit,
   mirrorPattern, replaceColorEverywhere,
   stats, sourceUrl, sourceImg, sourceCssFilter, generating, genMs,
@@ -478,6 +478,8 @@ function redrawAll() {
 
 /* 只有豆子变了：走脏矩形，别把整张图纸再画一遍 */
 watch(pattern, () => nextTick(redrawCells))
+/* 换图 / 重新生成后，旧的选中框不再对应当前图案 */
+watch(pattern, () => { if (!lassoDrag.value) clearLasso() })
 /* 缩放只换格子尺寸：图案层还能用，重铺一遍装饰层即可。
    cellPx 是四舍五入过的，这里盯的是真正参与绘制的 hitCell ——
    顺手作废脏矩形的基准几何，免得落笔时拿旧尺寸的换算去刷新的画布 */
@@ -610,7 +612,7 @@ function armFingerPick(e) {
   clearFingerPick()
   if (e.pointerType !== 'touch' || e.button !== 0) return
   if (currentView.value !== 'pattern' || showEmpty.value) return
-  if (tool.value === 'pan') return
+  if (tool.value === 'pan' || tool.value === 'lasso') return
   fingerPickPointer = e.pointerId
   fingerPickDownX = e.clientX
   fingerPickDownY = e.clientY
@@ -678,6 +680,10 @@ function twoFingerUndoNow() {
      先退回这一笔，再撤上一步已提交的编辑，才是用户要的「撤回」。 */
   if (painting) revertEdit()
   painting = false
+  /* 套索拖到一半来了第二根手指：这一下是撤回，半次平移退回按下前 */
+  if (lassoDrag.value) revertEdit()
+  lassoDrag.value = false
+  lassoAnchor = null
   dragging.value = false
   moved = true
   fingerPicked = true
@@ -693,6 +699,9 @@ function startTwoFingerGesture(stage) {
   clearFingerPick()
   if (painting) revertEdit()
   painting = false
+  if (lassoDrag.value) revertEdit()
+  lassoDrag.value = false
+  lassoAnchor = null
   dragging.value = false
   midPan.value = false
   moved = true
@@ -799,6 +808,114 @@ function moveTwoFingerGesture(stage) {
    NotFoundError（笔/触控抬起、系统抢走指针，或脚本合成的 PointerEvent）。
    以前这里裸调用，一抛就中断整个 pointerdown —— 落笔那一格没画上，
    而且后面每个 pointermove 都各自变成一步历史，撤销要按很多次才退回原位。 */
+/* ---------------------------------------------------------------- 套索
+   选中的是整张图案（所有有豆的格子），不是一块局部选区。
+   按下就亮出包围盒；拖过半格才真正挪，松手时按格子四舍五入，一次拖动是一步撤销。 */
+const lasso = ref(null) // { x0, y0, x1, y1, beads } | null
+const lassoDrag = ref(false)
+let lassoAnchor = null // { x, y, cellX, cellY }
+
+function patternBounds(p) {
+  if (!p || !p.cells) return null
+  const w = p.width
+  const h = p.height
+  let x0 = w
+  let y0 = h
+  let x1 = -1
+  let y1 = -1
+  let beads = 0
+  for (let y = 0; y < h; y++) {
+    const row = y * w
+    for (let x = 0; x < w; x++) {
+      if (p.cells[row + x] < 0) continue
+      beads++
+      if (x < x0) x0 = x
+      if (y < y0) y0 = y
+      if (x > x1) x1 = x
+      if (y > y1) y1 = y
+    }
+  }
+  if (!beads) return null
+  return { x0, y0, x1, y1, beads }
+}
+
+/** 画布格子坐标 → 舞台里的像素（套索框跟着图纸缩放） */
+function lassoStyle(box) {
+  const el = cv.value
+  const p = pattern.value
+  if (!el || !p || !box) return null
+  const g = chartGeometry(p, hitOpts.value)
+  const rect = el.getBoundingClientRect()
+  const stage = stageEl.value
+  const wrap = wrapEl.value
+  if (!stage || !wrap || !rect.width || !rect.height) return null
+  const wr = wrap.getBoundingClientRect()
+  const sx = rect.width / g.width
+  const sy = rect.height / g.height
+  const left = rect.left - wr.left + (g.originX + box.x0 * g.cell) * sx
+  const top = rect.top - wr.top + (g.originY + box.y0 * g.cell) * sy
+  const width = (box.x1 - box.x0 + 1) * g.cell * sx
+  const height = (box.y1 - box.y0 + 1) * g.cell * sy
+  return {
+    left: `${left}px`,
+    top: `${top}px`,
+    width: `${width}px`,
+    height: `${height}px`
+  }
+}
+const lassoScroll = ref(0)
+function bumpLassoScroll() { if (lasso.value) lassoScroll.value++ }
+const lassoBoxStyle = computed(() => {
+  void lassoScroll.value
+  return lassoStyle(lasso.value)
+})
+
+function clearLasso() {
+  lasso.value = null
+  lassoDrag.value = false
+  lassoAnchor = null
+}
+
+/** 套索按下：选中全部有豆的格子，记下这一下点中的格子当拖动原点 */
+function startLasso(e, stage) {
+  const p = pattern.value
+  const box = patternBounds(p)
+  if (!box) {
+    toastWarn('画布上还没有图案')
+    return
+  }
+  const hit = cv.value ? hitTest(cv.value, p, e, hitOpts.value) : null
+  lasso.value = box
+  lassoDrag.value = true
+  lassoAnchor = {
+    x: e.clientX,
+    y: e.clientY,
+    cellX: hit ? hit.x : box.x0,
+    cellY: hit ? hit.y : box.y0
+  }
+  /* 一整次拖动共用一份「按下前」的快照，松手才入历史 */
+  beginEdit({ progress: true })
+  capturePointer(stage, e.pointerId)
+}
+
+/** 拖动中：按当前格子和落点的差，把整张图案平移过去。没跨过半格就不动。 */
+function moveLasso(e) {
+  const a = lassoAnchor
+  const p = pattern.value
+  if (!a || !p || !cv.value) return
+  const hit = hitTest(cv.value, p, e, hitOpts.value)
+  if (!hit) return
+  const dx = hit.x - a.cellX
+  const dy = hit.y - a.cellY
+  if (!dx && !dy) return
+  if (!shiftPattern(dx, dy)) return
+  a.cellX += dx
+  a.cellY += dy
+  const box = patternBounds(pattern.value)
+  if (box) lasso.value = box
+  else clearLasso()
+}
+
 function capturePointer(el, id) {
   try { el.setPointerCapture?.(id) } catch { /* 指针已失效：这一笔照样画，只是不捕获 */ }
 }
@@ -827,6 +944,13 @@ function onPointerDown(e) {
 
   armFingerPick(e)
 
+  /* 套索：按下就选中整张图案，拖动时按格子整体平移。触屏单指也走这里，
+     不落到下面「非画笔工具 = 拖视野」那条路上。 */
+  if (currentView.value === 'pattern' && e.button === 0 && tool.value === 'lasso') {
+    startLasso(e, stage)
+    return
+  }
+
   // 编辑工具下，直接点格子改色（PRD §12 画布）
   if (currentView.value === 'pattern' && e.button === 0 && (tool.value === 'paint' || tool.value === 'erase')) {
     painting = true
@@ -852,9 +976,11 @@ function onPointerDown(e) {
   /* 触屏单指只编辑：填充 / 吸色 / 移动都不能在第一根手指按下时就把画布拖走。
      第二根手指可能紧跟着落下，那一下是撤回；先拖再撤，画面会先跳一下。 */
   if (e.pointerType === 'touch') return
-  /* 笔只在「移动」工具下拖画布：选了画笔 / 填充 / 吸色时，笔落下就是编辑，
+  /* 笔只在「移动」工具下拖画布：选了画笔 / 填充 / 吸色 / 套索时，笔落下就是编辑，
      不能顺手把视野拖走（之前笔走的是鼠标那条路，非画笔工具一拖就平移）。 */
   if (e.pointerType === 'pen' && tool.value !== 'pan') return
+  /* 套索已经在上面接住了。这里再挡一次，免得触屏以外的指针漏下去把视野拖走。 */
+  if (tool.value === 'lasso') return
   if (props.locked) return
   startPanDrag(e, stage)
 }
@@ -909,6 +1035,10 @@ function onPointerMove(e) {
     applyPaint(e)
     return
   }
+  if (lassoDrag.value) {
+    moveLasso(e)
+    return
+  }
   if (!dragging.value || !stage) return
   const dx = e.clientX - startX
   const dy = e.clientY - startY
@@ -923,6 +1053,10 @@ function onPointerUp(e) {
   // 松手才提交这一笔：中途每一格共用同一个「操作前快照」
   if (painting) endEdit()
   painting = false
+  /* 套索没拖动时 endEdit 发现格子没变，不会入历史 */
+  if (lassoDrag.value) endEdit()
+  lassoDrag.value = false
+  lassoAnchor = null
   dragging.value = false
   midPan.value = false
   const stage = stageEl.value
@@ -965,6 +1099,10 @@ function onPointerCancel(e) {
   }
   if (painting) cancelEdit()
   painting = false
+  /* 指针被抢走时保留已经挪过的格子（和画笔同一口径），只是不再继续拖 */
+  if (lassoDrag.value) endEdit()
+  lassoDrag.value = false
+  lassoAnchor = null
   dragging.value = false
   midPan.value = false
   /* 系统抢走指针时手势不结算，也不撤回 */
@@ -1354,6 +1492,7 @@ onMounted(() => {
   }
   /* 贴边标尺：滚动（图纸在视口里挪）与视口尺寸变化都要重算读数 */
   if (stageEl.value) stageEl.value.addEventListener('scroll', scheduleRuler, { passive: true })
+  if (stageEl.value) stageEl.value.addEventListener('scroll', bumpLassoScroll, { passive: true })
   if (typeof ResizeObserver !== 'undefined' && wrapEl.value) {
     rulerRo = new ResizeObserver(scheduleRuler)
     rulerRo.observe(wrapEl.value)
@@ -1369,9 +1508,13 @@ onBeforeUnmount(() => {
   if (rulerRo) { rulerRo.disconnect(); rulerRo = null }
   if (rulerRaf) { cancelAnimationFrame(rulerRaf); rulerRaf = 0 }
   if (stageEl.value) stageEl.value.removeEventListener('scroll', scheduleRuler)
+  if (stageEl.value) stageEl.value.removeEventListener('scroll', bumpLassoScroll)
   if (stageEl.value) stageEl.value.removeEventListener('touchmove', onStageTouchMove)
   if (painting) cancelEdit()
   painting = false
+  if (lassoDrag.value) endEdit()
+  lassoDrag.value = false
+  lassoAnchor = null
   dragging.value = false
 })
 
@@ -1523,9 +1666,16 @@ defineExpose({
         <button type="button" class="actualBadge__link" data-actual-calib @click="calibOpen = true">校准屏幕</button>
       </div>
 
+      <!-- 套索选中框：盖住全部有豆的格子。挂在舞台外面，
+           图纸滚动时它留在视口里，坐标按舞台可视区域重算。 -->
+      <div
+        v-if="lasso && lassoBoxStyle" class="lassoBox" :class="{ 'is-drag': lassoDrag }"
+        :style="lassoBoxStyle" aria-hidden="true"
+      ></div>
+
       <div
         ref="stageEl" class="stage"
-        :class="{ 'stage--edit': currentView === 'pattern' && !showEmpty, pannable: currentView === 'pattern' && !showEmpty && (dragging || tool === 'pan'), panning: dragging, 'mid-pan': midPan, 'stage--empty': showEmpty, 'stage--locked': locked }"
+        :class="{ 'stage--edit': currentView === 'pattern' && !showEmpty, pannable: currentView === 'pattern' && !showEmpty && (dragging || tool === 'pan'), panning: dragging, 'mid-pan': midPan, 'stage--lasso': tool === 'lasso', 'stage--empty': showEmpty, 'stage--locked': locked }"
         @pointerdown="onPointerDown"
         @pointermove="onPointerMove"
         @pointerup="onPointerUp"
@@ -1711,8 +1861,7 @@ defineExpose({
       <div v-if="!showEmpty && currentView === 'pattern'" class="chartNote">
         <span class="hintWheel">滚轮缩放 · 按住鼠标中键拖动平移</span>
         <span class="hintTouch">双指同时点一下撤回 · 单指编辑 · 长按一格吸色</span>
-        <span v-if="tool !== 'pan'" class="only-lg">· 直接点格子改色（当前工具：
-          {{ tool === 'paint' ? '画笔' : tool === 'erase' ? '橡皮' : tool === 'pick' ? '吸色' : '填充' }}）</span>
+        <span v-if="tool !== 'pan'" class="only-lg">· {{ tool === 'lasso' ? '拖动整张图案移动（当前工具：套索）' : '直接点格子改色（当前工具：' + (tool === 'paint' ? '画笔' : tool === 'erase' ? '橡皮' : tool === 'pick' ? '吸色' : '填充') + '）' }}</span>
       </div>
 
       <!-- 画布太大就不逐格印色号了（见 CODES_CELL_LIMIT）。必须说清楚去哪儿看：
