@@ -587,17 +587,21 @@ function applySizeNow(w, h, token = ++sizeToken) {
   }
   clearSizeNote()
   sizePending.value = true
-  void runWithBusy(() => {
+  void runWithBusy(async () => {
     /* 等那一帧的工夫里用户可能又拖了滑杆 */
     if (token !== sizeToken) return
-    const r = setCanvasSize(w, h, { silent: true, announce: false })
+    const r = await setCanvasSize(w, h, { silent: true, announce: false })
+    /* 等源图解码的工夫里用户可能又拖了滑杆：这一次的结果作废，别写回旧尺寸 */
+    if (token !== sizeToken) return
     sizePending.value = false
     if (r && r.resampled) {
       /* 原图部分按原图重新取样；改过的部分按修改时的尺寸落回。
-         restored = 换回之前到过的尺寸，细节与颜色数量逐格还原。 */
+         restored = 换回之前到过的尺寸，细节与颜色数量逐格还原。
+         raisedColors = 放大超过见过的尺寸，颜色数已抬到这一档。 */
+      const raised = r.raisedColors ? `，颜色数提到 ${options.targetColors}` : ''
       flashSizeNote(r.restored
         ? `画面已还原到 ${w} × ${h} 格${r.keptEdits ? '（手工修改按原尺寸保留）' : ''}`
-        : `画面已按原图缩放到 ${w} × ${h} 格${r.keptEdits ? '（手工修改按原尺寸保留）' : ''}`)
+        : `画面已按原图缩放到 ${w} × ${h} 格${raised}${r.keptEdits ? '（手工修改按原尺寸保留）' : ''}`)
     } else if (r && r.scaled) {
       /* 没有源图的兜底：按当前图纸块缩放（放大从底稿还原细节、缩小按块合并） */
       flashSizeNote(r.grew
@@ -1079,7 +1083,7 @@ const colorHint = computed(() => {
  */
 async function runWithBusy(fn) {
   await yieldForBusyPaint()
-  fn()
+  return await fn()
 }
 
 

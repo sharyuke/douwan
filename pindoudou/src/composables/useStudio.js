@@ -947,6 +947,52 @@ function attachSizeCachesAfterResize(oldCaches, key) {
   })
 }
 
+/**
+ * 这个尺寸是不是比现在见过的每一份都大。
+ *
+ * 放大到没生成过的尺寸时不能还原缓存、也不能把旧格子按块铺开：那只是把原图直接拉大，
+ * 细节和颜色数量都不会增加。只要有一边比缓存 / 底稿里最大的那一份还长，就算放大。
+ */
+function growingPastKnown(cw, ch) {
+  let maxW = 0
+  let maxH = 0
+  for (const v of variants.value) {
+    const t = v.active || v
+    const art = artBoxOf(t)
+    maxW = Math.max(maxW, art.w)
+    maxH = Math.max(maxH, art.h)
+    const cache = v.sizeCache
+    if (cache && cache.sizes) {
+      for (const item of Object.values(cache.sizes)) {
+        const e = item && item.base
+        if (!e) continue
+        maxW = Math.max(maxW, e.artW)
+        maxH = Math.max(maxH, e.artH)
+      }
+    }
+    if (v.master) {
+      maxW = Math.max(maxW, v.master.artW)
+      maxH = Math.max(maxH, v.master.artH)
+    }
+  }
+  return cw > maxW || ch > maxH
+}
+
+/**
+ * 放大到更大尺寸时，把目标色数抬到这一档该有的数量。
+ *
+ * 只往上抬、不往下压：用户自己调低过的色数在缩小 / 换回旧尺寸时保持原样。
+ * 色板放不下就停在色板上限。返回抬之前的色数（没抬返回 0），给提示用。
+ */
+function raiseColorsForGrowth(cw, ch) {
+  const floor = Math.min(colorFloorForCells(cw * ch), availableColors.value.length || 0)
+  if (!floor || options.targetColors >= floor) return 0
+  const before = options.targetColors
+  options.targetColors = floor
+  if (options.brandId) brandTargetColors[options.brandId] = floor
+  return before
+}
+
 /** 从存档打开后：把存档里的图纸与底稿都塞进缓存，换回这些尺寸时逐格还原 */
 function seedSizeCaches() {
   const sig = sizeCacheSig()
@@ -2670,7 +2716,9 @@ export async function yieldForBusyPaint() {
  * 其它调用（换图 / 改参数 / 恢复方案）都让旧尺寸的结果作废，只记当前尺寸。
  */
 export function regenerate({ silent = false, keys, keepSizeCache = false } = {}) {
-  const img = sourceImage()
+  const gw0 = Math.min(options.canvasW, maxCells.value, canvasCapW.value)
+  const gh0 = Math.min(options.canvasH, maxCells.value, canvasCapH.value)
+  const img = sourceImageForGenerate(gw0, gh0)
   if (!img) {
     if (!silent) toastWarn('请先上传图片，或从素材中心挑一个图案')
     return false
@@ -2805,7 +2853,9 @@ export function regenerate({ silent = false, keys, keepSizeCache = false } = {})
 
 /** 只重算当前方案（编辑参数时用，保留其它方案不动） */
 export function regenerateActive() {
-  const img = sourceImage()
+  const gw0 = Math.min(options.canvasW, maxCells.value, canvasCapW.value)
+  const gh0 = Math.min(options.canvasH, maxCells.value, canvasCapH.value)
+  const img = sourceImageForGenerate(gw0, gh0)
   if (!img) return false
   const key = activeKey.value
   const gw = Math.min(options.canvasW, maxCells.value, canvasCapW.value)
@@ -2924,6 +2974,7 @@ export function loadImageSource(img, url, name = '', kind = 'raster') {
   /* 这是真原图（不是图纸重建出来的）：存档要带一份，重新打开后放大才有细节 */
   sourceFromPattern.value = false
   rebuildSourceGrid = null
+  rawSnapshotImg = null
   sourceSnapshot = makeSourceSnapshot(img)
   /* 宽高比默认就是图片本身的；源图自带透明背景时会被 autoFitForSource 换成
      「主体包围盒」的比例（贴纸的花边留白不该占格子，见那里的说明）。 */
@@ -2985,6 +3036,7 @@ export async function cropSource(rect) {
   sourceAspect.value = w / h
   sourceFromPattern.value = false
   rebuildSourceGrid = null
+  rawSnapshotImg = null
   sourceSnapshot = makeSourceSnapshot(next)
   cartoonPreviewUrl.value = ''
   regenerate()
@@ -3855,11 +3907,17 @@ export function openProject(id) {
         if (!m) continue
         snapColors.push([parseInt(m[1].slice(0, 2), 16), parseInt(m[1].slice(2, 4), 16), parseInt(m[1].slice(4, 6), 16)])
       }
+      rawSnapshotImg = null
+      const raw = new Image()
+      raw.onload = () => { rawSnapshotImg = raw }
+      raw.src = snap.url
       const im = new Image()
       im.onload = () => {
         /* 快照只有 512 px：成品网格放大超过 512 格之后，采样会退化成最近邻（一块一块）。
            内存里平滑插值到 REBUILD_SOURCE_SIDE、落色到图纸色号，再当源图；
-           存档里那份 512 快照原样保留（sourceSnapshot 不动，localStorage 的体积不涨）。 */
+           存档里那份 512 快照原样保留（sourceSnapshot 不动，localStorage 的体积不涨）。
+           放大超过保存时的网格时不用这份落色图，改用上面的 rawSnapshotImg：
+           落色图只有旧色号，新格子补不出新颜色。 */
         const m = Math.max(im.naturalWidth || im.width, im.naturalHeight || im.height)
         const up = m < REBUILD_SOURCE_SIDE ? smoothUpscaledUrl(im, REBUILD_SOURCE_SIDE, snapColors.length ? snapColors : null) : null
         if (!up) { sourceImg.value = im; return }
@@ -3886,19 +3944,72 @@ export function openProject(id) {
  *  （见 smoothUpscaledUrl 的 snap 参数）输出脆边。 */
 const REBUILD_SOURCE_SIDE = 1024
 
+/** 存档快照的原图（没落色）。放大超过保存时的网格时用它重新取样。 */
+let rawSnapshotImg = null
+
 /** 落色源图对应的**成品网格**（rebuildThumbSource / openProject 的快照落色写入，
  *  换真原图时清掉）。
  *  生成时用它判断这次是放大还是缩小：放大走最近邻采样（颜色一格不错，不许混出
  *  中间色 —— 面积平均混中间色就是「放大发虚」的根源），缩小才用面积平均做块合并。 */
 let rebuildSourceGrid = null
 
+/**
+ * 放大前等源图像素解码完。
+ *
+ * 打开存档后源图是异步解码的：这时 sourceUrl 已有、sourceImg 还是空。
+ * 不等的话 setCanvasSize 会以为「没有源图」，退回去把旧格子按块铺开 ——
+ * 正是「原图直接放大」。超时仍返回 false，调用方按没有源图处理。
+ */
+/** 打开存档后，落色图或没落色的快照还在解码。同一会话里刚生成的图两边都已就绪，这里是 false。 */
+function sourceDecodePending() {
+  if (!sourceUrl.value || sourceFromPattern.value) return false
+  if (!sourceImg.value) return true
+  return !!(sourceSnapshot && !rawSnapshotImg)
+}
+
+function waitForSourceImage(ms = 2500) {
+  if (!sourceDecodePending()) return Promise.resolve(!!sourceImg.value)
+  return new Promise(resolve => {
+    const start = Date.now()
+    const tick = () => {
+      if (!sourceDecodePending()) { resolve(!!sourceImg.value); return }
+      if (Date.now() - start >= ms) { resolve(!!sourceImg.value); return }
+      setTimeout(tick, 50)
+    }
+    tick()
+  })
+}
+
 /** 这次生成要不要走「图纸源图最近邻采样」：
  *  源图被落过色（rebuildSourceGrid 非空 = 老存档重建的、或快照插值落色的），
- *  且这次成品网格**没有比落色基准网格小**（放大或原尺寸）。
- *  原尺寸重算也走这条路 —— 最近邻 + 落色能一格不错地还原现在的图纸，
- *  「恢复方案」因此不会悄悄改颜色。缩小传 false：块合并要靠面积平均。 */
+ *  且这次成品网格**没有比落色基准网格大**（原尺寸或缩小后再回到原尺寸）。
+ *  原尺寸重算走这条路 —— 最近邻 + 落色能一格不错地还原现在的图纸，
+ *  「恢复方案」因此不会悄悄改颜色。
+ *  比基准网格更大时不走：落色后再最近邻只是把旧格子拉大，新格子补不出新颜色。
+ *  缩小也不走：块合并要靠面积平均。 */
 function sourceNearestOpt(gw, gh) {
-  return !!(rebuildSourceGrid && gw >= rebuildSourceGrid.w && gh >= rebuildSourceGrid.h)
+  if (!rebuildSourceGrid) return false
+  if (gw > rebuildSourceGrid.w || gh > rebuildSourceGrid.h) return false
+  return gw >= rebuildSourceGrid.w && gh >= rebuildSourceGrid.h
+}
+
+/**
+ * 放大超过落色基准时，改用存档里那张没落色的快照当源图。
+ *
+ * 打开作品后内存里的源图是「插值到 1024 再收回旧色号」的结果。拿它去放大，
+ * 采样只能在旧色号里投票，颜色数量不会增加。快照是保存时的原图像素（最长边 512），
+ * 面积取样能在新网格上分出旧色号之间的过渡，再由抬高后的目标色数收成新色号。
+ * 只在这一次生成里替换，生成完换回落色图，避免「恢复方案」也跟着改颜色。
+ */
+function sourceImageForGenerate(gw, gh) {
+  const img = sourceImage()
+  if (!img) return img
+  if (!sourceNearestOpt(gw, gh) && rebuildSourceGrid &&
+      (gw > rebuildSourceGrid.w || gh > rebuildSourceGrid.h) &&
+      rawSnapshotImg) {
+    return rawSnapshotImg
+  }
+  return img
 }
 
 /**
@@ -4043,6 +4154,7 @@ function rebuildThumbSource() {
        放大走最近邻采样（颜色一格不错，见 sourceNearestOpt），缩小才用面积平均做块合并。 */
     sourceFromPattern.value = true
     rebuildSourceGrid = { w: p.artW, h: p.artH }
+    rawSnapshotImg = null
     sourceSnapshot = null
   }
   im.src = url
@@ -4588,9 +4700,25 @@ export function zoomBy(d) {
  * 所以这个尺寸之前生成过就直接用缓存还原，不再重新取样 —— 存档里的 512 px 源图
  * 重新取样回不到保存前的细节（实测 104 格差 5709 格、少 2 色）。
  *
- * @returns {{ restored?: boolean, resampled?: boolean, keptEdits: number }|{ scaled: boolean, croppedBeads: number, moved: boolean, boardChanged: boolean }|null}
+ * 2026-11-06：放大到**比见过的每一份都大**的尺寸时，不能走缓存、也不能把旧格子按块铺开。
+ * 那是把原图直接放大。有真原图就按新网格重新取样，并把颜色数抬到这一档该有的数量，
+ * 多出来的色号用来补新格子上的细节。缩小、以及回到用过的尺寸，仍逐格还原。
+ *
+ * @returns {{ restored?: boolean, resampled?: boolean, keptEdits: number, raisedColors?: number }|{ scaled: boolean, croppedBeads: number, moved: boolean, boardChanged: boolean }|null}
  */
 export function setCanvasSize(w, h, { silent = false, announce = true } = {}) {
+  /* 打开存档后源图还在解码：先等。不等的话要么按块铺开，要么拿落色图去放大，
+     都是把原图直接拉大。同一会话里刚生成的图不进这里。超时后有落色图就用落色图。 */
+  if (sourceDecodePending()) {
+    return waitForSourceImage().then(ready => {
+      if (!ready) return null
+      return applyCanvasSize(w, h, { silent, announce })
+    })
+  }
+  return applyCanvasSize(w, h, { silent, announce })
+}
+
+function applyCanvasSize(w, h, { silent = false, announce = true } = {}) {
   const max = maxCells.value
   /* 画布规格（容量）是这次的上限：成品尺寸只能在容量里缩，不能缩到比容量还大。
      容量由 ②「画布规格」写入（见 setCanvasCapacity），老存档容量 = 画布本身。 */
@@ -4609,10 +4737,14 @@ export function setCanvasSize(w, h, { silent = false, announce = true } = {}) {
   options.canvasW = cw
   options.canvasH = ch
   const key = `${cw}x${ch}`
+  /* 放大超过见过的最大尺寸：不要还原缓存，也不要把旧格子按块铺开。
+     下面有真原图就重新取样并抬颜色数；没有真原图才退回按块缩放。 */
+  const growing = growingPastKnown(cw, ch)
 
-  /* ① 这个尺寸之前生成过：直接还原那一份。
-     大 → 小 → 大要逐格回到原样（细节、颜色数量都不许少），这是硬性要求。 */
-  if (variants.value.length && variants.value.every(v => cachedSizeEntry(v, key))) {
+  /* ① 这个尺寸之前生成过，且这次不是在往更大的尺寸长细节：直接还原那一份。
+     大 → 小 → 大要逐格回到原样（细节、颜色数量都不许少），这是硬性要求。
+     往更大长时缓存里那一份是按当时的色数生成的，还原它等于原图直接放大。 */
+  if (!growing && variants.value.length && variants.value.every(v => cachedSizeEntry(v, key))) {
     const layers = collectEditLayers()
     restoreSizeFromCache(key)
     clearHistory()
@@ -4620,6 +4752,8 @@ export function setCanvasSize(w, h, { silent = false, announce = true } = {}) {
     const kept = applyEditLayers(layers)
     if (kept) manualEdited.value = true
     saveStatus.value = '未保存'
+    /* 这条路不跑 regenerate，生成中的标记得自己关掉（滑杆每次落地都先把它打开） */
+    generating.value = false
     if (announce) {
       toastOk(`已还原到 ${cw} × ${ch} 格（细节与颜色数量保持原样${kept ? '，手工修改按原尺寸保留' : ''}）`)
     }
@@ -4628,11 +4762,17 @@ export function setCanvasSize(w, h, { silent = false, announce = true } = {}) {
 
   /* 有真原图：按新尺寸重新取样整张图，再把修改层按它自己的分辨率落回去。
      原图部分因此永远跟着原图走，修改部分保留「改那一刻」的精度。
+     往更大长时先把颜色数抬到这一档：多出来的色号用来补新格子上的细节，
+     而不是用原来那一套色把原图直接拉大。
      老存档的源图是按图纸重建的（sourceFromPattern）—— 那不是原图，放大也只能铺块，
      走下面的按块缩放更忠实（颜色一颗不变），不去假装重新取样。 */
   if (sourceUrl.value && !sourceFromPattern.value && variants.value.length) {
     const oldCaches = collectSizeCaches()
     const layers = collectEditLayers()
+    const raisedColors = growing ? raiseColorsForGrowth(cw, ch) : 0
+    /* 色数变了，旧尺寸缓存的签名对不上：丢掉，避免缩回去时还原成加色之前的那一版，
+       再放大又变不回来。下面 regenerate 会按新色数重记当前尺寸。 */
+    const caches = raisedColors ? new Map() : oldCaches
     /* 只重生成这件作品现有的方案：打开的作品可能只有一个方案（免费版 / 存档裁剪过），
        换尺寸时凭空多出另外两个方案，它们的尺寸缓存永远对不上，换回来就还原不了。 */
     const keys = variants.value.map(v => v.key)
@@ -4641,19 +4781,24 @@ export function setCanvasSize(w, h, { silent = false, announce = true } = {}) {
     if (!ok) {
       options.canvasW = prevW
       options.canvasH = prevH
+      if (raisedColors) {
+        options.targetColors = raisedColors
+        if (options.brandId) brandTargetColors[options.brandId] = raisedColors
+      }
       return null
     }
     /* 先记缓存、再叠手改：缓存存的是「这个尺寸的生成结果」，手改由修改层投影回来 */
-    attachSizeCaches(oldCaches, key)
+    attachSizeCaches(caches, key)
     const kept = applyEditLayers(layers)
     if (kept) {
       manualEdited.value = true
       saveStatus.value = '未保存'
     }
     if (announce) {
-      toastOk(`已按原图重新缩放到 ${cw} × ${ch} 格${kept ? '，手工修改按原尺寸保留' : ''}`)
+      const colorNote = raisedColors ? `，颜色数 ${raisedColors} → ${options.targetColors}` : ''
+      toastOk(`已按原图重新缩放到 ${cw} × ${ch} 格${colorNote}${kept ? '，手工修改按原尺寸保留' : ''}`)
     }
-    return { resampled: true, keptEdits: kept }
+    return { resampled: true, keptEdits: kept, raisedColors }
   }
 
   /* 没有源图（老存档且没带快照）：只能按当前图纸块缩放，手改跟着格子走 */

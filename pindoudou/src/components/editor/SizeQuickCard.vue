@@ -134,11 +134,15 @@ function applyNow(w, h) {
   void (async () => {
     await yieldForBusyPaint()
     if (my !== token) return
-    const r = setCanvasSize(w, h, { silent: true, announce: false })
+    const r = await setCanvasSize(w, h, { silent: true, announce: false })
+    /* 等源图解码的工夫里又拖了滑杆：这一次作废 */
+    if (my !== token) return
     pending.value = false
     /* 提示就一行、固定宽度（176），文案要短：细节口径在左栏那张完整卡里 */
     if (r && r.resampled) {
-      flash(r.keptEdits ? '已按原图重算 · 手改按原尺寸保留' : `已按原图重算到 ${cmOf(w, h)}`)
+      flash(r.raisedColors
+        ? `已重算 · 颜色提到 ${options.targetColors}`
+        : (r.keptEdits ? '已按原图重算 · 手改按原尺寸保留' : `已按原图重算到 ${cmOf(w, h)}`))
     } else if (r && r.scaled) {
       flash(r.grew ? '已放大 · 细节从留底还原' : '已缩小 · 细节按块合并')
     } else if (!r) {
