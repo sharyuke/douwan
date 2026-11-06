@@ -47,6 +47,8 @@ const finishing = ref(false)
 const gate = computed(() => check('build.mode'))
 /** 已经是完成状态时，逐颗进度就没有意义了（进度本来就是满的） */
 const progressLocked = computed(() => !gate.value.ok || isFinished.value)
+/** 「重置全部进度」完成后也要点得动：它会撤掉完成记录并把进度清零 */
+const resetLocked = computed(() => !gate.value.ok)
 /** 完成弹窗在「已完成后补照片」时的形态：只换照片，不再重复结算库存 */
 const photoOnly = computed(() => isFinished.value)
 
@@ -494,8 +496,13 @@ function onExportPNG() {
 
 function resetProgress() {
   if (needBuildPro()) return
-  clearBuild()
-  persistBuildProgress()
+  // 完成会把进度补满并锁住逐颗标记。只清格子的话，打开存档时
+  // 「已完成但进度为空」会被补回 100%，等于没重置。
+  if (isFinished.value) unfinishProject(currentProjectId.value, { progress: [], silent: true })
+  else {
+    clearBuild()
+    persistBuildProgress()
+  }
   syncProgress(true)
   toastOk('进度已重置')
 }
@@ -736,11 +743,11 @@ onBeforeUnmount(() => {
               <button v-if="!isFinished" class="btn primary block" @click="openFinish"><Icon name="check" :size="16" /> 完成作品</button>
               <button class="btn btn-secondary block" :class="{ primary: isFinished }" @click="shareOpen = true">生成分享卡</button>
               <button class="btn btn-secondary block" @click="saveProject()">保存作品与进度</button>
-              <button class="btn soft block" :disabled="progressLocked" @click="resetProgress">重置全部进度</button>
+              <button class="btn soft block" :disabled="resetLocked" @click="resetProgress">重置全部进度</button>
               <p class="hint">
                 进度会自动跟着作品一起保存在本机浏览器，下次打开接着拼。
                 <template v-if="isFinished">
-                  这件作品已完成，可以在上方撤销完成或更新成品照片。
+                  重置会清掉全部拼制进度，并撤销完成、把扣掉的库存加回去。
                 </template>
               </p>
             </div>
