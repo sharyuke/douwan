@@ -148,9 +148,7 @@
       const iap = document.querySelector('.iap')
       const sec = document.querySelector('[data-adjust-board-brand]')
       const kids = iap ? [...iap.children] : []
-      const customBtn = sec && [...sec.querySelectorAll('.iap__board')].find(b => /自定义/.test(txt(b)))
-      if (customBtn) customBtn.click()
-      const customHint = txt(document.querySelector('[data-adjust-custom-hint]'))
+      const customHint = txt(sec && sec.querySelector('[data-adjust-custom-hint]'))
       out.adjustSheet = {
         open: !!document.querySelector('.msSheet'),
         title: txt(document.querySelector('.msSheet__head b')),
@@ -172,7 +170,7 @@
         out.adjustSheet.brandOptions > 1 && out.adjustSheet.matte &&
         out.adjustSheet.order.join(',') === 'board,size,matte' &&
         /成品尺寸在下面调/.test(out.adjustSheet.hint) &&
-        /倍数/.test(out.adjustSheet.customHint) && /钉板/.test(out.adjustSheet.customHint) &&
+        /自定义尺寸/.test(out.adjustSheet.customHint) && /倍数/.test(out.adjustSheet.customHint) && /钉板/.test(out.adjustSheet.customHint) &&
         out.adjustSheet.closed
     }
 
