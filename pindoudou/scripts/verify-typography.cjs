@@ -269,12 +269,9 @@ async function main() {
 
     /* 角色断言（选中态的页签按规范用 700 强调，所以断言未选中的那个） */
     await assertRole(send, '工作台 · 作品名（14px 内容小标题 700/22）', '.csProject__name', { size: 14, weight: 700, lh: 22, ls: 0 })
-    await assertRole(send, '工作台 · 模式切换按钮（导航·标签 13/500/20）', '.csModeSeg button:not(.on)', SPEC.label)
-    await assertRole(send, '工作台 · 模式切换选中态（导航·标签强调 700/20）', '.csModeSeg button.on', { size: 13, weight: 700, lh: 20, ls: 0 })
     await assertRole(send, '工作台 · 导出主按钮（卡片标题·主按钮 15/700/24）', '.csAction--dark', SPEC.card)
     await assertRole(send, '工作台 · 次按钮（导航·标签·次按钮 13/500/20）', '.csAction--plain', SPEC.label)
     await assertRole(send, '工作台 · 命令行按钮（导航·标签 13/500/20）', '.csCmd__btn:not(.on)', SPEC.label)
-    await assertRole(send, '工作台 · 视图页签（导航·标签 13/500/20）', '.csViews button:not(.on)', SPEC.label)
     await assertRole(send, '工作台 · 右侧入口（导航·标签 13/500/20）', '.csSide__row', SPEC.label)
     await assertRole(send, '工作台 · 状态栏（紧凑元信息 11/400/18）', '.csStatus', { size: 11, weight: 400, lh: 18, ls: 0 })
     await sweep(send, '工作台 1600', '.studio--console')
@@ -316,12 +313,6 @@ async function main() {
     await assertRole(send, '手机工作台 · 工具轨（紧凑标签 12/500/18）', '.msTool:not(.on)', { size: 12, weight: 500, lh: 18, ls: 0 })
     await sweep(send, '手机工作台 390', '.studio--mobile')
     await shot(send, 'console-mobile')
-
-    /* 切到「图纸转换」模式（那一档才有视图页签），再扫一次 */
-    await evalJs(send, `(() => { const b = [...document.querySelectorAll('.msCmd button')].find(x => x.textContent.includes('图纸转换')); b && b.click(); return 1 })()`)
-    await sleep(700)
-    await assertRole(send, '手机工作台 · 视图页签（导航·标签 13/500/20）', '.msViews button:not(.on)', SPEC.label)
-    await sweep(send, '手机工作台 390（图纸转换）', '.studio--mobile')
 
     /* 打开底部抽屉（颜色）再扫一次 */
     await evalJs(send, `(() => { const b = [...document.querySelectorAll('.msTool')].find(x => x.textContent.includes('颜色')); b && b.click(); return 1 })()`)

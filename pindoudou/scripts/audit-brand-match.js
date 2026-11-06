@@ -213,7 +213,7 @@
 
   /* ---------- 3) 存档往返：重新打开后仍是新品牌的色号 ---------- */
   const pid = S.currentProjectId.value
-  const savedId = S.saveProject('审计用示例作品', { createMode: 'free' })
+  const savedId = S.saveProject('审计用示例作品', { createMode: 'edit' })
   const reopened = savedId ? S.openProject(savedId) : false
   await tick()
   const reloadBrands = S.variants.value.map(v => [...new Set(((v.active || v).palette || []).map(c => c.brandId))])

@@ -147,7 +147,7 @@ async function main() {
     return {
       vw: innerWidth, vh: innerHeight,
       top: r('.csTop'), cmd: r('.csCmd'), doc: r('.csDoc'), status: r('.csStatus'),
-      modeSeg: r('.csModeSeg'), views: r('.csViews'),
+      modeSeg: r('.csModeSeg'), modeGone: !q('.csModeSeg'), views: r('.csViews'),
       canvas: r('.studio__canvas'), card: r('.canvasCard'), stage: r('.stage'),
       rail: r('.csRail'), palette: r('.csPalette'), side: r('.csSide'),
       /* 工具栏：默认展开（用户 2026-11-03 定）；收起后画布左上角是一颗青柠按钮 */
@@ -205,15 +205,11 @@ async function main() {
   console.log('layout:', JSON.stringify(layout, null, 1))
   fs.writeFileSync(path.join(OUT, 'layout.json'), JSON.stringify(layout, null, 1))
   check('页面无横向溢出', layout.scrollW <= layout.vw, { scrollW: layout.scrollW, vw: layout.vw })
-  /* 自由画布是从零手绘的空白网格，没有原图与对照：默认只留图纸 / 分板 / 材料 */
-  check('自由画布的视图页签只有图纸 / 分板 / 材料',
-    layout.tabs.length === 3 && layout.tabs.join('/') === '拼豆图纸/分板/材料', layout.tabs)
-  /* 模式切换与视图页签都落在页面中线上（左栏作品信息 / 右侧操作组 / 网格开关不参与居中） */
-  const centerOf = b => b ? b.x + b.w / 2 : NaN
-  check('模式切换在页面中线上',
-    Math.abs(centerOf(layout.modeSeg) - layout.vw / 2) <= 1.5, { mode: layout.modeSeg, vw: layout.vw })
-  check('视图页签在页面中线上（自由画布 3 个）',
-    Math.abs(centerOf(layout.views) - layout.vw / 2) <= 1.5, { views: layout.views, vw: layout.vw })
+  /* 自由画布和顶栏模式开关已取消：打开作品就是图纸转换，页签不再出现在顶栏 */
+  check('顶栏没有自由画布 / 图纸转换切换',
+    layout.modeGone && !(layout.topButtons || []).some(t => /自由画布|图纸转换/.test(String(t))),
+    { modeSeg: layout.modeSeg, top: layout.topButtons })
+  check('视图页签已从顶栏拿掉', layout.tabs.length === 0, layout.tabs)
   check('右侧色板文案不重复', (layout.brandBtn || []).some(t => t === 'MARD 291 色'), layout.brandBtn)
   /* 用户 2026-11-03：左侧绘图工具栏默认展开，进工作台就能直接选工具 */
   check('工具栏默认展开（10 颗工具 + 当前颜色 + 收起箭头）',
@@ -223,7 +219,7 @@ async function main() {
   /* 设计稿 1:2445：底部横向色板条撤掉了；色板入口从右栏搬到左侧工具轨的当前颜色色块 */
   check('底部横向色板条已撤掉', !layout.palette, layout.palette)
   check('右栏不再有色板卡（入口搬到工具轨的当前颜色色块）',
-    !layout.paletteCardInSide && layout.sideOrder.join(',') === '成品尺寸,作品分析,我的库存,颜色用量',
+    !layout.paletteCardInSide && layout.sideOrder.join(',') === '作品分析,我的库存,颜色用量,分板',
     { order: layout.sideOrder, inSide: layout.paletteCardInSide })
   check('右侧入口贴设计位（右距 28，宽 212）', Math.round(1600 - layout.side.x - layout.side.w) === 28 && layout.side.w === 212, layout.side)
 
@@ -300,24 +296,8 @@ async function main() {
   await shotEl(send, '.csSide', 'side')
   await shotEl(send, '.csStatus', 'status')
 
-  // 交互：切换视图页签 —— 图纸转换才有原图 / 对照
-  await evalJs(send, `(() => { const b = [...document.querySelectorAll('.csModeSeg button')].find(x => x.textContent.includes('图纸转换')); b && b.click(); return !!b })()`)
-  await sleep(600)
-  const editTabs = await evalJs(send, `[...document.querySelectorAll('.csViews button')].map(b => b.textContent.trim())`)
-  check('图纸转换的视图页签有原图 / 对照',
-    editTabs.length === 5 && editTabs.includes('原图') && editTabs.includes('对照'), editTabs)
-  const editCenters = await evalJs(send, `(() => {
-    const c = s => { const b = document.querySelector(s).getBoundingClientRect(); return b.x + b.width / 2 }
-    return { vw: innerWidth, mode: c('.csModeSeg'), views: c('.csViews') }
-  })()`)
-  check('图纸转换：模式切换与 5 个页签仍在页面中线上',
-    Math.abs(editCenters.mode - editCenters.vw / 2) <= 1 && Math.abs(editCenters.views - editCenters.vw / 2) <= 1, editCenters)
-
-  await evalJs(send, `[...document.querySelectorAll('.csViews button')].find(b => b.textContent.includes('原图')).click(); 1`)
-  await sleep(400)
-  const viewNow = await evalJs(send, `(document.querySelector('.csViews button.on') || {}).textContent`)
-  check('点「原图」页签切换', /原图/.test(viewNow || ''), viewNow)
-  await shotEl(send, '.studio__canvas', 'view-original')
+  check('打开存档后顶栏仍没有模式切换',
+    await evalJs(send, `!document.querySelector('.csModeSeg')`), true)
 
   /* 2026-11-06：图纸调整从右侧入口挪到命令栏钉板旁边，点击是下拉；
      面板仍是成品尺寸 + 智能抠图（桌面命令行已有钉板 / 色板，所以没有图纸设置）。 */
@@ -416,21 +396,6 @@ async function main() {
     const closed = await evalJs(send, `!document.querySelector('.csAdjustPop')`)
     check('再点图纸调整收起下拉', closed === true, { closed })
   }
-
-  /* 停在「对照」上切回自由画布：两个页签收起来，视图必须回到拼豆图纸 */
-  await evalJs(send, `[...document.querySelectorAll('.csViews button')].find(b => b.textContent.includes('对照')).click(); 1`)
-  await sleep(400)
-  await evalJs(send, `(() => { const b = [...document.querySelectorAll('.csModeSeg button')].find(x => x.textContent.includes('自由画布')); b && b.click(); return !!b })()`)
-  await sleep(700)
-  const backFree = await evalJs(send, `(() => ({
-    tabs: [...document.querySelectorAll('.csViews button')].map(b => b.textContent.trim()),
-    view: (document.querySelector('.csViews button.on') || {}).textContent
-  }))()`)
-  check('切回自由画布：原图 / 对照页签收起、视图回到拼豆图纸',
-    backFree.tabs.length === 3 && !backFree.tabs.includes('原图') && !backFree.tabs.includes('对照') &&
-    /拼豆图纸/.test(backFree.view || ''), backFree)
-  await evalJs(send, `[...document.querySelectorAll('.csViews button')].find(b => b.textContent.includes('拼豆图纸')).click(); 1`)
-  await sleep(400)
 
   // 交互：网格开关
   const gridBefore = await evalJs(send, `document.querySelector('.csToggle').getAttribute('aria-pressed')`)
@@ -768,24 +733,15 @@ async function main() {
     })()`)
     check('点「适应」后图纸回到标尺内侧正中央', Math.abs(fitCenter.dx) <= 3 && Math.abs(fitCenter.dy) <= 3, fitCenter)
 
-    /* 视图：只有「拼豆图纸」有标尺。
-       自由画布与图纸转换现在是两套独立文档：切到图纸转换是空的上传卡，
-       原图页签照样没有标尺；切回自由画布才有图纸与标尺。 */
-    await evalJs(send, `(() => { const b = [...document.querySelectorAll('.csModeSeg button')].find(x => x.textContent.includes('图纸转换')); b && b.click(); return !!b })()`)
-    await sleep(600)
-    await evalJs(send, `[...document.querySelectorAll('.csViews button')].find(b => b.textContent.trim() === '原图').click(); 1`)
-    await sleep(600)
-    const offRuler = await evalJs(send, `!!document.querySelector('[data-canvas-ruler]')`)
-    await evalJs(send, `(() => { const b = [...document.querySelectorAll('.csModeSeg button')].find(x => x.textContent.includes('自由画布')); b && b.click(); return !!b })()`)
-    await sleep(800)
+    /* 视图页签已去掉，画布固定停在拼豆图纸，标尺一直在 */
     const onRuler = await evalJs(send, `!!document.querySelector('[data-canvas-ruler]')`)
-    check('标尺只在「拼豆图纸」视图出现', offRuler === false && onRuler === true, { offRuler, onRuler })
+    check('拼豆图纸上有标尺', onRuler === true, { onRuler })
     const backCenter = await evalJs(send, `(() => {
       const box = s => { const el = document.querySelector(s); const b = el.getBoundingClientRect(); return { x: b.x, y: b.y, w: b.width, h: b.height } }
       const b = box('.board'); const w = box('.stageWrap')
       return { dx: Math.round((b.x + b.w / 2) - (w.x + 32 + (w.w - 32) / 2)), dy: Math.round((b.y + b.h / 2) - (w.y + 28 + (w.h - 28) / 2)) }
     })()`)
-    check('切回自由画布后图纸仍在正中央', Math.abs(backCenter.dx) <= 4 && Math.abs(backCenter.dy) <= 4, backCenter)
+    check('适应后图纸仍在正中央', Math.abs(backCenter.dx) <= 4 && Math.abs(backCenter.dy) <= 4, backCenter)
   }
   for (const label of ['作品分析', '我的库存']) {
     await evalJs(send, `(() => { const b = [...document.querySelectorAll('.csSide button')].find(x => x.textContent.includes(${JSON.stringify(label)})); b && b.click(); return !!b })()`)
@@ -812,17 +768,12 @@ async function main() {
      不再经过「上传图片 → 选择图片 → 导入图片」两步确认，所以点完不应出现 .cmdDlg。
      用 CDP 拦住系统文件选择框，避免无头浏览器挂住。 */
   {
-    await evalJs(send, `(() => { const b = [...document.querySelectorAll('.csModeSeg button')].find(x => x.textContent.includes('图纸转换')); b && b.click(); return !!b })()`)
-    await sleep(500)
     await send('Page.setInterceptFileChooserDialog', { enabled: true })
     const clicked = await evalJs(send, `(() => { const b = document.querySelector('[data-console="upload"]'); if (!b) return false; b.click(); return true })()`)
     await sleep(400)
     const dlgOpened = await evalJs(send, `!!document.querySelector('.cmdDlg')`)
     check('「更换图片」直接打开文件选择（不再弹导入确认）', clicked && !dlgOpened, { clicked, dlgOpened })
     await send('Page.setInterceptFileChooserDialog', { enabled: false })
-    /* 回到自由画布：后面的保存 / 重命名 / 导出断言沿用原来的起点 */
-    await evalJs(send, `(() => { const b = [...document.querySelectorAll('.csModeSeg button')].find(x => x.textContent.includes('自由画布')); b && b.click(); return !!b })()`)
-    await sleep(600)
   }
 
   // 交互：反馈按钮
@@ -911,10 +862,8 @@ async function main() {
     !!narrow.top && narrow.top.w === 1280 && narrow.status.w === 1280, { top: narrow.top, status: narrow.status })
   check('1280 宽：右侧入口贴右 28px',
     !!narrow.side && 1280 - narrow.side.x - narrow.side.w === 28, narrow.side)
-  check('1280 宽：模式切换与视图页签都在页面中线上',
-    Math.abs(narrow.modeSeg.x + narrow.modeSeg.w / 2 - 640) <= 1.5 &&
-    Math.abs(narrow.views.x + narrow.views.w / 2 - 640) <= 1.5,
-    { mode: narrow.modeSeg, views: narrow.views })
+  check('1280 宽：顶栏没有模式切换和视图页签',
+    !narrow.modeSeg && !narrow.views, { mode: narrow.modeSeg, views: narrow.views })
   check('1280 宽：工具栏默认展开，贴左侧 48、宽 84',
     !!narrow.rail && narrow.rail.x === 48 && narrow.rail.w === 84 && !narrow.railToggle, { rail: narrow.rail, toggle: narrow.railToggle })
   check('1280 宽：右栏没有色板卡，底部色板条不存在',
@@ -946,13 +895,13 @@ async function main() {
   {
     const initial = await evalJs(send, `(() => {
       const q = s => document.querySelector(s)
-      const seg = [...document.querySelectorAll('.csModeSeg button')].find(b => b.classList.contains('on'))
+      const modeText = (q('.csTop') ? q('.csTop').textContent : '') + (q('.csCmd') ? q('.csCmd').textContent : '')
       return {
         hint: (q('[data-empty-free]') || {}).textContent || '',
         uploadCard: !!q('[data-empty-upload]'),
         canvas: !!q('.board canvas'),
         railOpen: !!q('.csRail.is-open') && !q('[data-rail-toggle]'),
-        mode: seg ? seg.textContent.trim() : '',
+        modeGone: !q('.csModeSeg') && !/自由画布/.test(modeText),
         tabs: [...document.querySelectorAll('.csViews button')].map(b => b.textContent.trim())
       }
     })()`)
@@ -968,11 +917,10 @@ async function main() {
       }
     })()`)
     console.log('initialEmpty:', JSON.stringify({ ...initial, ...initialTools }))
-    /* 用户 2026-11-03：打开工作台默认进图纸转换（上传图片出图纸） */
-    check('打开工作台默认是图纸转换（画布中央是上传卡）',
-      initial.mode === '图纸转换' && initial.uploadCard && !initial.hint, initial)
-    check('图纸转换默认有五个视图页签（含原图 / 对照）',
-      initial.tabs.length === 5 && initial.tabs.includes('原图') && initial.tabs.includes('对照'), initial.tabs)
+    /* 打开工作台就是图纸转换：没有模式开关，画布中央是上传卡 */
+    check('打开工作台默认是图纸转换（画布中央是上传卡，没有模式开关）',
+      initial.modeGone && initial.uploadCard && !initial.hint, initial)
+    check('打开工作台没有视图页签', initial.tabs.length === 0, initial.tabs)
     check('空白工作台的工具栏也是展开态', initial.railOpen === true, initial)
     check('图纸转换左侧编辑工具默认可用', initialTools.drawingEnabled === true && initialTools.tools.length >= 8, initialTools.tools)
     /* 空白工作台也能从当前颜色色块打开选色面板（还没画任何东西时色板照常可选） */
@@ -991,35 +939,6 @@ async function main() {
     await sleep(300)
     await shotEl(send, '.canvasCard', 'edit-empty-upload')
 
-    /* 切到自由画布：画布中央换成可画的空白网格 */
-    await evalJs(send, `(() => { const b = [...document.querySelectorAll('.csModeSeg button')].find(x => x.textContent.includes('自由画布')); b && b.click(); return !!b })()`)
-    await sleep(700)
-    const free = await evalJs(send, `(() => {
-      const q = s => document.querySelector(s)
-      const tools = [...document.querySelectorAll('.csTools .csTool')].map(b => ({
-        label: (b.textContent || '').trim(),
-        disabled: !!b.disabled
-      }))
-      return {
-        hint: (q('[data-empty-free]') || {}).textContent || '',
-        uploadCard: !!q('[data-empty-upload]'),
-        canvas: !!q('.board canvas'),
-        tabs: [...document.querySelectorAll('.csViews button')].map(b => b.textContent.trim()),
-        tools,
-        drawingEnabled: tools.filter(t => t.label !== '撤销' && t.label !== '重做').every(t => !t.disabled)
-      }
-    })()`)
-    console.log('freeEmpty:', JSON.stringify(free))
-    check('切到自由画布是可画的空白网格（没有上传卡）',
-      free.canvas && !free.uploadCard && !free.hint, free)
-    check('自由画布的视图页签只有图纸 / 分板 / 材料',
-      free.tabs.length === 3 && !free.tabs.includes('原图') && !free.tabs.includes('对照'), free.tabs)
-    check('自由画布左侧编辑工具默认可用', free.drawingEnabled === true && free.tools.length >= 8, free.tools)
-    await shotEl(send, '.canvasCard', 'free-empty')
-
-    /* 切回图纸转换：画布中央换回上传卡 */
-    await evalJs(send, `(() => { const b = [...document.querySelectorAll('.csModeSeg button')].find(x => x.textContent.includes('图纸转换')); b && b.click(); return !!b })()`)
-    await sleep(700)
     const edit = await evalJs(send, `(() => {
       const q = s => document.querySelector(s)
       const card = q('[data-empty-upload]')
@@ -1043,8 +962,7 @@ async function main() {
     check('图纸转换空状态：画布中央是上传卡（本地图片 + 拖拽上传）',
       edit.uploadCard && !edit.hint && edit.hasPick && edit.dropHint, edit)
     check('图纸转换的命令行有「素材库」入口', edit.hasMaterials === true, edit)
-    check('图纸转换的视图页签是五个（含原图 / 对照）',
-      edit.tabs.length === 5 && edit.tabs.includes('原图') && edit.tabs.includes('对照'), edit.tabs)
+    check('图纸转换没有视图页签', edit.tabs.length === 0, edit.tabs)
     check('图纸转换不禁用左侧编辑工具', edit.drawingEnabled === true && edit.tools.length >= 8, edit.tools)
     await shotEl(send, '.canvasCard', 'edit-empty-upload')
 

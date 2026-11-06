@@ -270,16 +270,9 @@ const sortedWorks = computed(() =>
 const visibleWorks = computed(() => {
   const q = workQuery.value.trim()
   let list = sortedWorks.value
-  if (workFilter.value === 'free') list = list.filter(p => p.createMode === 'free')
-  else if (workFilter.value === 'edit') list = list.filter(p => p.createMode !== 'free')
   if (q) list = list.filter(p => String(p.name || '').includes(q))
   return list.slice(0, 3)
 })
-
-/** 作品卡片上的类型标签（设计稿：自由画布 / 图纸转换；老存档没有 createMode，按图纸转换算） */
-function workModeLabel(p) {
-  return p.createMode === 'free' ? '自由画布' : '图纸转换'
-}
 
 function workStats(p) {
   const v = (p.variants || [])[0]
@@ -424,15 +417,11 @@ const inventoryUpdatedLabel = computed(() => {
             <div class="acWorks__bar">
               <div class="acPills" role="tablist" aria-label="作品筛选">
                 <button
-                  v-for="f in [
-                    { key: 'recent', label: '最近编辑' },
-                    { key: 'free', label: '自由画布' },
-                    { key: 'edit', label: '图纸转换' }
-                  ]" :key="f.key" type="button" role="tab"
-                  :aria-selected="workFilter === f.key"
-                  class="acPill" :class="{ 'is-on': workFilter === f.key }"
-                  @click="workFilter = f.key"
-                >{{ f.label }}</button>
+                  type="button" role="tab"
+                  :aria-selected="workFilter === 'recent'"
+                  class="acPill" :class="{ 'is-on': workFilter === 'recent' }"
+                  @click="workFilter = 'recent'"
+                >最近编辑</button>
               </div>
               <label class="acSearch">
                 <Icon name="search" :size="16" />
@@ -445,7 +434,7 @@ const inventoryUpdatedLabel = computed(() => {
                 <div class="acWork__art">
                   <img v-if="p.thumbnail" :src="p.thumbnail" :alt="p.name">
                   <div v-else class="acWork__art--empty"><Icon name="image" :size="20" /></div>
-                  <span class="acWork__tag ty-caption is-strong">{{ workModeLabel(p) }}</span>
+                  <span class="acWork__tag ty-caption is-strong">图纸转换</span>
                   <RouterLink class="acWork__more" :to="'/editor/' + p.id" :aria-label="`${p.name} 的更多操作`">
                     <Icon name="ellipsis" :size="16" />
                   </RouterLink>
@@ -934,6 +923,8 @@ const inventoryUpdatedLabel = computed(() => {
   .acStats{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
 @media(max-width:780px){
+  /* 这一页不挂底部标签栏，底部只留安全区，别再空出标签栏那一截 */
+  .ac{padding-bottom:calc(16px + env(safe-area-inset-bottom))}
   .acInner{padding-left:16px;padding-right:16px}
   .acHero{flex-direction:column;align-items:flex-start;gap:14px}
   .acStats{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}

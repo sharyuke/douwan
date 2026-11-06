@@ -6,12 +6,10 @@ import EditorCanvas from '../components/editor/EditorCanvas.vue'
 import EditorInsights from '../components/editor/EditorInsights.vue'
 import DeliveryPanel from '../components/editor/DeliveryPanel.vue'
 import MaterialsDialog from '../components/editor/MaterialsDialog.vue'
-import AiDialog from '../components/editor/AiDialog.vue'
 import ExportDialog from '../components/editor/ExportDialog.vue'
 import AnalysisDialog from '../components/editor/AnalysisDialog.vue'
 import StockDialog from '../components/editor/StockDialog.vue'
 import ImageAdjustPanel from '../components/editor/ImageAdjustPanel.vue'
-import SizeQuickCard from '../components/editor/SizeQuickCard.vue'
 import PaletteCard from '../components/editor/PaletteCard.vue'
 import ColorReplaceDialog from '../components/editor/ColorReplaceDialog.vue'
 import ShortcutTip from '../components/editor/ShortcutTip.vue'
@@ -19,7 +17,6 @@ import BaseDialog from '../components/ui/BaseDialog.vue'
 import LoginDialog from '../components/ui/LoginDialog.vue'
 import Icon from '../components/ui/Icon.vue'
 import { PALETTE_BRANDS, getColorById } from '../lib/palettes.js'
-import { AI_GENERATION_READY, AI_PENDING_TEXT } from '../lib/aiPending.js'
 import {
   hasPattern, projectName, stats, pattern, saveStatus,
   currentProjectId, ensureProjectLoaded, saveProject, generating,
@@ -27,10 +24,10 @@ import {
   tool, brushSize, eraserSize, BRUSH_MAX, toolSizeOf, setToolSize, brushColorId,
   mirrorPattern, removeSpecks, options, currentView,
   zoom, setZoom, layout, availableColors, maxCells, brand,
+  canvasCapW, canvasCapH,
   setCanvasCapacity, setBrand,
   undo, redo, canUndo, canRedo,
-  openColorReplace, ensureBlankCanvas,
-  createMode, workspaceMode, switchCreateMode, activateCreateMode, stashCurrentWorkspace,
+  openColorReplace, activateCreateMode,
   sourceRecommend, newCanvasAt
 } from '../composables/useStudio.js'
 import { EDIT_TOOLS } from '../data/icons.js'
@@ -72,39 +69,8 @@ function needPro(reason) {
    所以这里按视口切两套外壳，共用同一份工作台状态与同一个 EditorCanvas。 */
 const logoUrl = new URL('../assets/logo-douwan.webp', import.meta.url).href
 
-/* 创作模式：自由创作（在空白网格上画）/ 图片编辑（先调原图再生成图纸）。
-   设计稿把这两个模式做成命令栏右侧的分段开关，切换时命令栏、工具轨、右侧入口、
-   状态栏文案都跟着换。
-   两种模式各自有一份独立文档（见 useStudio 的 switchCreateMode）：
-   切到自由画布永远不会带出图纸转换导入的图片或生成好的图纸。 */
-/* 自由画布：进来就是一张空白网格，左侧编辑工具默认就能画。
-   全屏 / 手机工作台铺这张空白图；平板旧版面没有模式开关，保持原来的上传引导。 */
-function blankableFree() {
-  return consoleMode.value || mobileConsole.value
-}
-function syncFreeCanvas() {
-  if (createMode.value !== 'free') return
-  normalizeFreeView()
-  if (blankableFree()) ensureBlankCanvas()
-}
-/* 自由画布没有原图与对照可看：停在「原图 / 对照」时回到拼豆图纸，
-   否则页签被收起后会停在一个没有出口的视图上。平板旧版面没有模式开关，不受影响。 */
-function normalizeFreeView() {
-  if (createMode.value !== 'free') return
-  if (!consoleMode.value && !mobileConsole.value) return
-  if (currentView.value === 'original' || currentView.value === 'compare') currentView.value = 'pattern'
-}
-function setCreateMode(mode) {
-  if (mode === createMode.value) return
-  if (!switchCreateMode(mode, { blankFree: blankableFree() })) return
-  closeCmdPops()
-  if (mode === 'edit') {
-    /* 图纸转换没有文档时回到上传卡；有自己的图纸就停在它离开时的那一页 */
-    if (!hasPattern.value) currentView.value = 'original'
-  } else {
-    normalizeFreeView()
-  }
-}
+/* 工作台只有图纸转换：打开页面就是上传图片出图纸。
+   自由画布和顶栏的模式开关已取消；旧存档里标成自由画布的作品也按图纸转换打开。 */
 
 /* 品牌色板下拉：命令栏里直接换色板（左栏 ④ 里那份是同一套数据） */
 const brandOpen = ref(false)
@@ -131,19 +97,11 @@ const editViewLabel = computed(() => {
   return '拼豆图纸'
 })
 
-/* 状态栏一行：设计稿左边是「空白图纸 · 底板 14 × 14 cm · 0 色 · 0 颗 · 自由创作」 */
+/* 状态栏一行：图纸转换的视图、目标格子和用色上限 */
 const statusLine = computed(() => {
-  if (createMode.value === 'edit') {
-    const w = options.canvasW
-    const h = options.canvasH
-    return `${editViewLabel.value} · 目标图纸 ${w} × ${h} 格 · 用色上限 ${options.targetColors} 色 · ${hasPattern.value ? '已生成图纸' : '待生成图纸'}`
-  }
-  if (!hasPattern.value) {
-    const cm = (boardSpec.value * 0.27).toFixed(1)
-    return `空白图纸 · 底板 ${cm} × ${cm} cm · 0 色 · 0 颗 · 自由画布`
-  }
-  const s = stats.value
-  return `${s.artW} × ${s.artH} 格 · 底板 ${s.boardCm} · ${s.colors} 色 · ${s.total.toLocaleString()} 颗 · 自由画布`
+  const w = options.canvasW
+  const h = options.canvasH
+  return `${editViewLabel.value} · 目标图纸 ${w} × ${h} 格 · 用色上限 ${options.targetColors} 色 · ${hasPattern.value ? '已生成图纸' : '待生成图纸'}`
 })
 
 /* 手机端图片编辑：状态行（设计稿「待生成 · 52 × 52 格 · MARD · 最多 24 色」） */
@@ -160,7 +118,6 @@ function onWideChange() {
      状态留着，回来还是开着的那一块） */
   if (consoleMode.value && paletteOpen.value) placePaletteFly()
   if (!consoleMode.value) closeCmdPops()
-  syncFreeCanvas()
 }
 
 /* 手机工作台（≤780px）：设计稿 124:887。顶部作品栏 + 模式栏，
@@ -217,16 +174,12 @@ const DRAWER_TITLES = {
   adjust: '图纸调整'
 }
 const drawerKey = ref('')
-/* 右侧「成品尺寸」卡默认收起（设计稿 1:1193 / 1:2445 都是收起态：
-   只留一行标题 + 箭头，滑杆、比例说明与当前尺寸都藏起来），点卡头就地展开。 */
-const sizeOpen = ref(false)
 const drawerTitle = computed(() => DRAWER_TITLES[drawerKey.value] || '')
 const drawerIsSidebar = computed(() => ['create', 'size', 'scheme', 'palette'].includes(drawerKey.value))
 function openDrawer(key) {
   drawerKey.value = drawerKey.value === key ? '' : key
   boardOpen.value = false
   brandOpen.value = false
-  aiOpen.value = false
   adjustOpen.value = false
 }
 function closeDrawer() { drawerKey.value = '' }
@@ -239,10 +192,9 @@ function showSplit() {
   insightsRef.value?.revealSplit()
 }
 
-/* 命令栏的三个小浮层：钉板 / 图纸调整 / AI 未接入说明 */
+/* 命令栏的两个小浮层：钉板 / 图纸调整 */
 const boardOpen = ref(false)
 const adjustOpen = ref(false)
-const aiOpen = ref(false)
 const boardSpec = computed(() => boardSpecFor(options.canvasW, options.canvasH))
 const boardOptions = computed(() => BOARD_SPECS.map(s => ({
   spec: s,
@@ -256,6 +208,7 @@ const boardOptions = computed(() => BOARD_SPECS.map(s => ({
 
 function pickBoard(o) {
   boardOpen.value = false
+  boardCustomOpen.value = false
   if (o.locked) {
     needPro(`这块底板（${o.w} × ${o.h} 格）是 Pro 功能：免费版单边上限 ${maxCells.value} 格。`)
     return
@@ -264,16 +217,43 @@ function pickBoard(o) {
   setCanvasCapacity(o.w, o.h)
 }
 
+/* 命令栏钉板下拉的「自定义尺寸」：宽 × 高，选中即落到画布上限 */
+const boardCustomOpen = ref(false)
+const boardCustomW = ref(52)
+const boardCustomH = ref(52)
+const boardCustom = computed(() => {
+  const w = canvasCapW.value
+  const h = canvasCapH.value
+  return !(w === h && BOARD_SPECS.includes(w))
+})
+function openBoardCustom() {
+  boardCustomOpen.value = true
+  boardCustomW.value = canvasCapW.value
+  boardCustomH.value = canvasCapH.value
+}
+function applyBoardCustom() {
+  const w = Math.round(Number(boardCustomW.value) || 0)
+  const h = Math.round(Number(boardCustomH.value) || 0)
+  if (!w || !h) return
+  if (w > maxCells.value || h > maxCells.value) {
+    needPro(`自定义尺寸单边最多 ${maxCells.value} 格：升级 Pro 可到更大。`)
+    return
+  }
+  boardCustomOpen.value = false
+  boardOpen.value = false
+  setCanvasCapacity(w, h)
+}
+
 function closeCmdPops() {
   boardOpen.value = false
   brandOpen.value = false
   adjustOpen.value = false
-  aiOpen.value = false
 }
 function toggleBoard() {
   const next = !boardOpen.value
   closeCmdPops()
   boardOpen.value = next
+  if (!next) boardCustomOpen.value = false
 }
 function toggleBrand() {
   const next = !brandOpen.value
@@ -718,7 +698,6 @@ function onKeydown(e) {
     if (boardOpen.value) { boardOpen.value = false; return }
     if (brandOpen.value) { brandOpen.value = false; return }
     if (adjustOpen.value) { adjustOpen.value = false; return }
-    if (aiOpen.value) { aiOpen.value = false; return }
     if (drawerKey.value) { closeDrawer(); return }
     return
   }
@@ -817,22 +796,16 @@ onMounted(() => {
   /* 左栏「素材库」和空画布引导的配图都取素材库（后台已发布素材），
      进工作台就拉一次；失败时两处都会退回内置素材 */
   loadRemoteAssets()
-  // 带 projectId 进来时先打开存档（/editor/:projectId），并切到它所属的创作模式
+  // 带 projectId 进来时先打开存档（/editor/:projectId）
   const id = route.params.projectId
   if (id) {
     if (!openWorkspaceProject(id)) toastErr('该作品打不开，可能已被删除')
-  } else if (hasPattern.value && !mobileConsole.value) {
-    /* 已经有文档：素材页 / 工具页点「用这个素材生成图纸」会先把图导进来再跳过来，
-       这份文档属于哪个模式就停在哪个模式，别用默认的自由画布把它顶掉。
-       手机端没有自由画布入口，一律按图纸转换打开。 */
-    createMode.value = workspaceMode.value
-  } else {
-    /* 用户 2026-11-03：打开工作台默认进「图纸转换」（上传图片出图纸），
-       自由画布改成手动切换；两种模式各留一份文档，切过去不会互相覆盖。
-       进页面时顺手清掉上次的作品关联 —— 否则接着点「保存」会把那件没装载的作品覆盖掉。 */
-    activateCreateMode('edit', { blankFree: blankableFree() })
+  } else if (!hasPattern.value || mobileConsole.value) {
+    /* 打开工作台就是图纸转换（上传图片出图纸）。
+       已经有文档时留着：素材页 / 工具页点「用这个素材生成图纸」会先把图导进来再跳过来。
+       进空白页时顺手清掉上次的作品关联 —— 否则接着点「保存」会把那件没装载的作品覆盖掉。 */
+    activateCreateMode('edit')
   }
-  normalizeFreeView()
   /* 首页 / 素材库顶栏拖图进来：控制台与手机工作台没有左栏，待处理的图要在这里接住
      （useImageFile 会把它写进图纸转换那份文档）。平板三栏由左栏自己取，别重复消费。 */
   if (consoleMode.value || mobileConsole.value) consumePendingUpload()
@@ -888,7 +861,7 @@ function onSave() {
 }
 
 function doSave() {
-  const id = saveProject(undefined, { createMode: createMode.value })
+  const id = saveProject(undefined, { createMode: 'edit' })
   if (id && route.params.projectId !== id) {
     router.replace(`/editor/${id}`)
   }
@@ -945,7 +918,7 @@ function confirmSave() {
     toastWarn('给作品起个名字再保存')
     return
   }
-  const id = saveProject(name, { createMode: createMode.value })
+  const id = saveProject(name, { createMode: 'edit' })
   if (!id) return
   saveOpen.value = false
   if (route.params.projectId !== id) router.replace(`/editor/${id}`)
@@ -956,21 +929,10 @@ function confirmSave() {
 const switchOpen = ref(false)
 const switchList = computed(() => projects.value)
 
-/* 作品属于哪种模式：老存档没有 createMode（自由画布是后加的功能），按图纸转换算 */
-function projectModeOf(proj) {
-  return proj && proj.createMode === 'free' ? 'free' : 'edit'
-}
-
-/**
- * 打开一件存档，并把工作台切到它所属的模式。
- * 切换前先把当前模式那份文档收好 —— 打开图纸转换的作品不能把自由画布的画覆盖掉。
- */
+/** 打开一件存档。工作台只有图纸转换，标成自由画布的旧存档也按图纸转换打开。 */
 function openWorkspaceProject(id) {
-  const proj = projects.value.find(p => p.id === id)
-  const target = projectModeOf(proj)
-  if (target !== workspaceMode.value) stashCurrentWorkspace()
   const ok = ensureProjectLoaded(id)
-  activateCreateMode(target, { blankFree: blankableFree(), loaded: ok })
+  activateCreateMode('edit', { loaded: ok })
   return ok
 }
 
@@ -995,7 +957,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
 <template>
   <div class="studio studio--console" :class="{ 'studio--mobile': mobileConsole, 'studio--tablet-fixed': tabletMode }">
     <!-- ============================ 全局命令栏（全屏工作台） ============================
-         第一行：品牌 · 作品名（可改名）· 保存状态 ‖ 居中：模式切换 ‖ 保存 / 导出 / 反馈 / 个人中心
+         第一行：品牌 · 作品名（可改名）· 保存状态 ‖ 保存 / 导出 / 反馈 / 个人中心
          第二行：功能组（更换图片 / 素材库 | 卡通 · 钉板 · 图纸调整 · 色板）整体居中，
                 网格开关贴右缘；图纸调整点开是下拉，面板样式与原先一致。
          版面与文字层级按 Figma「豆玩操作台优化」1:593；字号字重按 1:2「豆玩 · 文字与字体规范」。
@@ -1024,15 +986,6 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
         </div>
       </div>
 
-      <div class="csModeSeg" role="group" aria-label="创作模式">
-        <button type="button" :class="{ on: createMode === 'free' }" @click="setCreateMode('free')">
-          <Icon name="pencil" :size="16" />自由画布
-        </button>
-        <button type="button" :class="{ on: createMode === 'edit' }" @click="setCreateMode('edit')">
-          <Icon name="image" :size="16" />图纸转换
-        </button>
-      </div>
-
       <div class="topbar__actions csActions">
         <button class="csAction csAction--plain" :disabled="!hasPattern" @click="onSave">
           <Icon name="save" :size="16" />保存
@@ -1059,35 +1012,17 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
 
     <div v-if="consoleMode" class="csCmd">
       <div class="csCmd__main">
-        <template v-if="createMode === 'free'">
-          <!-- 自由画布：从零开始手绘，不提供上传入口（设计稿 1:2445 第二行只有这两颗）。
-               AI 生图还没接（lib/aiPending.js 的 AI_GENERATION_READY），入口先保留位置、禁用。 -->
-          <button
-            class="csCmd__btn hit36h" :class="{ 'is-soon': !AI_GENERATION_READY }"
-            type="button" :disabled="!AI_GENERATION_READY"
-            :title="AI_GENERATION_READY ? 'AI 生成素材' : `AI 生成：${AI_PENDING_TEXT}`"
-            @click="aiOpen = true"
-          >
-            <Icon name="sparkles" :size="20" /><span>AI 生成</span>
-            <em v-if="!AI_GENERATION_READY">对接中</em>
-          </button>
-          <button class="csCmd__btn hit36h" data-console="materials" @click="materialsOpen = true">
-            <Icon name="images" :size="20" /><span>素材库</span>
-          </button>
-        </template>
-        <template v-else>
-          <!-- 换图就是新建一张画布：直接打开文件选择，不再经过「导入图片」确认弹窗 -->
-          <button class="csCmd__btn hit36h" data-console="upload" :disabled="mobileBusy" @click="pickImage">
-            <Icon name="image-up" :size="20" /><span>更换图片</span>
-          </button>
-          <button class="csCmd__btn hit36h" data-console="materials" @click="materialsOpen = true">
-            <Icon name="images" :size="20" /><span>素材库</span>
-          </button>
-          <span class="csDiv csDiv--v"></span>
-          <button class="csCmd__btn is-soon hit36h" type="button" disabled title="卡通风格：对接中，敬请期待">
-            <Icon name="wand-sparkles" :size="24" /><span>卡通</span><em>对接中</em>
-          </button>
-        </template>
+        <!-- 换图就是新建一张画布：直接打开文件选择，不再经过「导入图片」确认弹窗 -->
+        <button class="csCmd__btn hit36h" data-console="upload" :disabled="mobileBusy" @click="pickImage">
+          <Icon name="image-up" :size="20" /><span>更换图片</span>
+        </button>
+        <button class="csCmd__btn hit36h" data-console="materials" @click="materialsOpen = true">
+          <Icon name="images" :size="20" /><span>素材库</span>
+        </button>
+        <span class="csDiv csDiv--v"></span>
+        <button class="csCmd__btn is-soon hit36h" type="button" disabled title="卡通风格：对接中，敬请期待">
+          <Icon name="wand-sparkles" :size="24" /><span>卡通</span><em>对接中</em>
+        </button>
 
         <div class="csBoard" data-cmd-board>
           <button class="csBoard__btn" type="button" :aria-expanded="boardOpen" @click="toggleBoard">
@@ -1108,10 +1043,24 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
               <em v-else-if="o.rec" class="csBoard__rec">推荐</em>
               <Icon v-else-if="o.current" name="check" :size="16" />
             </button>
+            <button
+              type="button" class="csBoard__item" :class="{ on: boardCustom }"
+              data-board-custom @click="openBoardCustom"
+            >
+              <b>自定义尺寸</b>
+              <span>宽 × 高</span>
+              <Icon v-if="boardCustom" name="check" :size="16" />
+            </button>
+            <div v-if="boardCustomOpen" class="csBoard__custom" data-board-custom-box>
+              <input v-model="boardCustomW" type="number" min="8" :max="maxCells" aria-label="钉板宽（格）">
+              <span>×</span>
+              <input v-model="boardCustomH" type="number" min="8" :max="maxCells" aria-label="钉板高（格）">
+              <button type="button" class="csBoard__customOk" @click="applyBoardCustom">确定</button>
+            </div>
           </div>
         </div>
 
-        <div v-if="createMode === 'edit'" class="csBoard" data-cmd-adjust>
+        <div class="csBoard" data-cmd-adjust>
           <button
             class="csBoard__btn" type="button" data-side-adjust
             :aria-expanded="adjustOpen" :disabled="!sourceUrl"
@@ -1207,7 +1156,6 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
       <EditorCanvas
         ref="canvasRef"
         :chrome="consoleMode || mobileConsole ? 'console' : 'default'"
-        :mode="createMode"
         :locked="lockCanvas"
         @upload="pickMobileImage" @browse="router.push('/materials/')"
         @delivery="openDelivery('export')"
@@ -1248,7 +1196,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
       </EditorCanvas>
 
       <!-- 手机端图片编辑：只剩一行状态（处理入口都收进上方的命令栏） -->
-      <div v-if="mobileConsole && createMode === 'edit'" class="msEditBar no-print">
+      <div v-if="mobileConsole" class="msEditBar no-print">
         <p class="msEditBar__status">{{ msEditStatus }}</p>
       </div>
 
@@ -1489,11 +1437,9 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
       <!-- 底部横向色板条撤掉了：主选色方式改成右栏的「色板」卡
            （系列 → 色系 → 搜索 → 多行网格），画布底部留给图纸。 -->
 
-      <!-- 右侧入口：图纸转换的「图纸调整」在命令栏钉板旁边点开；
-           自由画布没有图片可调，仍保留可就地展开的成品尺寸卡。 -->
+      <!-- 右侧入口：图纸调整在命令栏钉板旁边点开。 -->
       <aside v-if="consoleMode && !drawerKey" class="csSide no-print">
-        <SizeQuickCard v-if="createMode === 'free'" :open="sizeOpen" @update:open="sizeOpen = $event" />
-        <button type="button" class="csSide__row" :class="{ 'is-off': createMode === 'edit' && !hasPattern }" @click="analysisOpen = true">
+        <button type="button" class="csSide__row" :class="{ 'is-off': !hasPattern }" @click="analysisOpen = true">
           <span class="csSide__ico csSide__ico--pink"><Icon name="chart-no-axes-combined" :size="16" /></span>
           <span>作品分析</span>
           <span class="csRot csSide__chev"><Icon name="chevron-down" :size="16" /></span>
@@ -1648,8 +1594,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
       </template>
     </BaseDialog>
 
-    <!-- 五个命令弹窗（设计稿 124:2316 / 2139 / 1545 / 1628 / 1365 / 1169） -->
-    <AiDialog v-model="aiOpen" />
+    <!-- 命令弹窗（设计稿 124:2316 / 2139 / 1545 / 1628 / 1365 / 1169） -->
     <MaterialsDialog v-model="materialsOpen" />
     <ExportDialog v-model="exportOpen" />
     <AnalysisDialog v-model="analysisOpen" />
@@ -2004,10 +1949,9 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
   .studio--console .csRot--left{transform:rotate(90deg)}
 
   /* ---------------- 第一行：作品栏 ---------------- */
-  /* 三列等宽：左右两组各占 1fr，模式切换固定在页面中线上（设计稿 1:593） */
+  /* 左右两组：作品信息在左，保存 / 导出 / 账户在右。模式开关已取消。 */
   .csTop{
-    display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);
-    align-items:center;gap:16px;flex:0 0 auto;
+    display:flex;align-items:center;justify-content:space-between;gap:16px;flex:0 0 auto;
     height:66px;padding:0 22px;background:var(--cs-surface);border-bottom:1px solid var(--cs-line);
   }
   .csTop__side{display:flex;align-items:center;gap:16px;min-width:0}
@@ -2054,8 +1998,6 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
     font-family:var(--font-sans);font-size:13px;font-weight:500;line-height:var(--ty-label-lh);letter-spacing:0;
     color:var(--cs-ink-2);white-space:nowrap;transition:var(--t);
   }
-  /* 1100~1160：右侧操作组按原内边距放不进 1fr 列，收紧按钮间距，
-     否则会向左顶到中间的模式切换上（导出按钮的 padding 在后面单独定义，不受影响） */
   @media (max-width:1160px){
     .csActions{gap:2px}
     .csAction{padding:0 10px}
@@ -2118,20 +2060,6 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
     right:0;top:calc(100% + 6px);z-index:45;width:380px;padding:12px;
     max-height:min(520px,calc(100dvh - 180px));overflow-y:auto;overscroll-behavior:contain;
   }
-  /* 模式切换：容器 #F0F5EC，选中项实心青柠（设计稿 1:593 顶栏正中） */
-  .csModeSeg{
-    flex:0 0 auto;display:flex;gap:2px;margin:0 8px;padding:4px;
-    background:var(--cs-fill);border-radius:24px;
-  }
-  .csModeSeg button{
-    display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 14px;
-    border:0;border-radius:20px;background:transparent;
-    font-family:var(--font-sans);font-size:13px;font-weight:500;line-height:var(--ty-label-lh);letter-spacing:0;
-    color:var(--cs-ink-2);white-space:nowrap;transition:var(--t);
-  }
-  .csModeSeg button:hover{background:rgba(255,255,255,.72)}
-  .csModeSeg button.on{background:var(--cs-accent);color:var(--cs-ink);font-weight:700}
-
   /* ---------------- 网格开关（命令栏右缘） ---------------- */
   .csToggle{
     display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 2px;
@@ -2405,6 +2333,18 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
   .csBoard__item:hover{background:var(--cs-fill)}
   .csBoard__item.on{background:rgba(200,230,60,.22)}
   .csBoard__item.locked{color:var(--cs-disabled)}
+  .csBoard__custom{
+    display:flex;align-items:center;gap:6px;margin:4px 6px 2px;
+  }
+  .csBoard__custom input{
+    width:64px;min-height:32px;padding:4px 6px;border:1px solid var(--cs-line);border-radius:8px;
+    font-size:13px;line-height:var(--ty-label-lh);text-align:center;
+  }
+  .csBoard__custom span{color:var(--cs-muted)}
+  .csBoard__customOk{
+    height:32px;padding:0 10px;border-radius:8px;background:var(--cs-accent);color:var(--cs-ink);
+    font-size:12px;font-weight:700;line-height:var(--ty-caption-lh);
+  }
   /* 画笔 / 橡皮尺寸卡（设计稿 124:133 / 124:51）：156×81、圆角 16、描边 #DDE5D8、
      阴影 0 3px 16 rgba(26,45,34,.08)。fixed 才能相对视口定位，不被工具轨裁掉。 */
   .csSizeCard{

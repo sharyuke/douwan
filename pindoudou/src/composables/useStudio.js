@@ -208,11 +208,8 @@ export const saveStatus = ref('未保存')
 export const newCanvasAt = ref(0)
 export const currentView = ref('pattern')
 /**
- * 创作模式：free = 自由画布（从零手绘）/ edit = 图纸转换（上传图片转图纸）。
- *
- * 这是两件互不相干的事：各自有一份图纸、源图、画布尺寸、作品名与保存关联。
- * 切换模式只换文档，绝不把图纸转换导入的图片 / 生成出来的图纸带进自由画布
- * （见下面的 switchCreateMode / activateCreateMode）。界面上的分段开关读这个 ref。
+ * 工作台固定为图纸转换（上传图片出图纸）。自由画布和模式开关已取消，
+ * 这个值不再切到 free；旧存档里的 createMode 打开时也按图纸转换处理。
  */
 export const createMode = ref('edit')
 /** 当前内存里这份文档属于哪种模式（切换时靠它决定把文档收进哪个槽位） */
@@ -2284,35 +2281,14 @@ function enterConversionWorkspace() {
 }
 
 /**
- * 切换创作模式：收好当前文档，放回目标模式的文档。
- * @param {'free'|'edit'} mode
- * @param {{blankFree?: boolean}} opts blankFree = 自由画布没有文档时铺不铺空白网格
- *        （全屏 / 手机工作台铺；平板旧版面没有模式开关，保持原来的上传引导）
- * @returns {boolean} 是否真的换了模式
- */
-export function switchCreateMode(mode, { blankFree = true } = {}) {
-  const target = mode === 'edit' ? 'edit' : 'free'
-  if (workspaceMode.value === target) {
-    createMode.value = target
-    return false
-  }
-  modeWorkspaces[workspaceMode.value] = captureWorkspace()
-  workspaceMode.value = target
-  createMode.value = target
-  const snap = modeWorkspaces[target]
-  if (snap) applyWorkspace(snap)
-  else resetWorkspace({ blank: target === 'free' && blankFree })
-  return true
-}
-
-/**
- * 进入工作台 / 打开某件存档时把「当前文档」对齐到指定模式。
- * @param {'free'|'edit'} mode
+ * 进入工作台 / 打开某件存档时把当前文档对齐到图纸转换。
+ * 自由画布已取消：传入 free 也按 edit 处理，不会再铺空白手绘网格。
+ * @param {'free'|'edit'} [_mode]
  * @param {{blankFree?: boolean, loaded?: boolean}} opts
  *        loaded = true 表示当前内存里的文档就是刚打开的那件存档（不要再用槽位覆盖它）
  */
-export function activateCreateMode(mode, { blankFree = true, loaded = false } = {}) {
-  const target = mode === 'edit' ? 'edit' : 'free'
+export function activateCreateMode(_mode, { loaded = false } = {}) {
+  const target = 'edit'
   const prev = workspaceMode.value
   if (prev !== target) {
     /* 当前这份属于另一种模式：先收好，否则会被目标模式的文档盖掉 */
@@ -2325,7 +2301,7 @@ export function activateCreateMode(mode, { blankFree = true, loaded = false } = 
     }
     const snap = modeWorkspaces[target]
     if (snap) applyWorkspace(snap)
-    else resetWorkspace({ blank: target === 'free' && blankFree })
+    else resetWorkspace({ blank: false })
     return true
   }
   createMode.value = target
@@ -2335,14 +2311,13 @@ export function activateCreateMode(mode, { blankFree = true, loaded = false } = 
     return false
   }
   /* 当前没有文档（刚进页面 / 上次留下的只有一份失效的作品关联）：
-     有槽位就放回来，没有就按目标模式新建，顺手把 currentProjectId 清干净 */
+     有槽位就放回来，没有就留上传卡，顺手把 currentProjectId 清干净 */
   if (!hasPattern.value) {
     const snap = modeWorkspaces[target]
     if (snap) applyWorkspace(snap)
-    else resetWorkspace({ blank: target === 'free' && blankFree })
+    else resetWorkspace({ blank: false })
     return true
   }
-  if (target === 'free' && blankFree) ensureBlankCanvas()
   return false
 }
 
@@ -4480,8 +4455,13 @@ export function finishProject({ photo = '', note = '', deduct = true } = {}) {
  * 取消完成（误点可撤销）。
  * 三件事一起回退：库存加回去、完成痕迹清掉、拼制进度回到完成前的样子。
  * 可以传 id —— 作品列表 / 详情页要能撤销**任意一件**作品的完成状态。
+ *
+ * @param {string} [id]
+ * @param {{ progress?: number[]|null, silent?: boolean }} [opts]
+ *   progress：覆盖「完成前进度」。传 `[]` 表示清空（拼图页「重置全部进度」）；
+ *   不传则回到完成前记下的快照。
  */
-export function unfinishProject(id = currentProjectId.value) {
+export function unfinishProject(id = currentProjectId.value, opts = {}) {
   const idx = projects.value.findIndex(x => x.id === id)
   if (idx < 0) {
     toastWarn('这件作品不在这台设备上')
@@ -4490,7 +4470,9 @@ export function unfinishProject(id = currentProjectId.value) {
   const proj = projects.value[idx]
   if (!proj.finishedAt) return false
   const restored = restoreMaterials(proj.finishDeduct)
-  const prev = Array.isArray(proj.progressBeforeFinish) ? proj.progressBeforeFinish : []
+  const prev = opts.progress !== undefined
+    ? (Array.isArray(opts.progress) ? opts.progress : [])
+    : (Array.isArray(proj.progressBeforeFinish) ? proj.progressBeforeFinish : [])
   const list = projects.value.slice()
   list[idx] = {
     ...proj,
@@ -4507,9 +4489,11 @@ export function unfinishProject(id = currentProjectId.value) {
   projects.value = list
   persist()
   if (id === currentProjectId.value) buildProgress.value = new Set(prev)
-  toastOk(restored
-    ? `已取消完成：拼制进度回到完成前，${restored.toLocaleString()} 颗豆已退回库存`
-    : '已取消完成：拼制进度回到完成前')
+  if (!opts.silent) {
+    toastOk(restored
+      ? `已取消完成：拼制进度回到完成前，${restored.toLocaleString()} 颗豆已退回库存`
+      : '已取消完成：拼制进度回到完成前')
+  }
   return true
 }
 

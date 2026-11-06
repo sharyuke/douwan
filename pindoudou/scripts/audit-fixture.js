@@ -54,10 +54,8 @@
     return { ok: false, err: '生成失败' }
   }
 
-  /* 存档带上创作模式：自检大多按「自由画布」的版面验收（默认入口 2026-11-03 起是图纸转换，
-     但探针要验工具轨 / 空白网格，所以显式存成自由画布），
-     没有这个字段的老存档会按图纸转换打开（见 EditorView 的 projectModeOf） */
-  const pid = S.saveProject('审计用示例作品', { createMode: 'free' })
+  /* 存档按图纸转换打开。自由画布已取消，旧的 createMode: 'free' 也会走图纸转换。 */
+  const pid = S.saveProject('审计用示例作品', { createMode: 'edit' })
   if (!pid) return { ok: false, err: '存档失败' }
 
   // 造一点拼制进度，验证建造模式 / 进度条 / 剩余颜色（空格不用拼，跳过）

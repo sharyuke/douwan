@@ -30,9 +30,6 @@ const emit = defineEmits(['upload', 'browse', 'delivery', 'split'])
                 卡片本身只剩画布，四周描边与底色也交给外层（见 .canvasCard--console） */
 const props = defineProps({
   chrome: { type: String, default: 'default' },
-  /* 全屏工作台的两种模式：free = 自由画布（从零手绘）/ edit = 图纸转换（上传图片转图纸）。
-     两种模式的空状态不一样，设计稿 1:2445 与 1:593 各画了一种。 */
-  mode: { type: String, default: 'free' },
   /* 平板档锁画布：整张图纸固定在「适应窗口」，不提供缩放与平移入口。
      画笔 / 橡皮 / 填充 / 吸色 / 撤回这些编辑能力不受影响。 */
   locked: { type: Boolean, default: false }
@@ -1539,14 +1536,12 @@ defineExpose({
         @wheel="onWheel"
       >
         <!-- 空状态：
-             · 全屏工作台（console）：按设计稿分两种模式 ——
-               自由画布只有一句「从零开始，手动绘制拼豆图纸。」；
-               图纸转换是画布中央一张上传卡（拖拽区 + 选择本地图片）。
+             · 全屏工作台（console）：画布中央一张上传卡（拖拽区 + 选择本地图片）。
              · 手机 / 平板：沿用原来的紧凑提示与三步引导。 -->
         <div v-if="showEmpty" class="empty empty--guide">
           <template v-if="consoleChrome">
             <!-- 图纸转换：画布中央的上传卡（设计稿 1:593） -->
-            <div v-if="mode === 'edit' && !uploadDismissed && !sourceUrl" class="upCard" data-empty-upload>
+            <div v-if="!uploadDismissed && !sourceUrl" class="upCard" data-empty-upload>
               <header class="upCard__head">
                 <b>上传图片</b>
                 <button
@@ -1563,14 +1558,10 @@ defineExpose({
                 选择本地图片
               </button>
             </div>
-            <div v-else-if="mode === 'edit'" class="upCard upCard--min" data-empty-upload-min>
+            <div v-else class="upCard upCard--min" data-empty-upload-min>
               <button type="button" class="upCard__btn" @click="uploadDismissed = false">
                 <Icon name="image-up" :size="16" />上传图片
               </button>
-            </div>            <!-- 自由画布：从零开始手绘 -->
-            <div v-else class="freeEmpty" data-empty-free>
-              <span class="freeEmpty__ico"><Icon name="pencil" :size="20" /></span>
-              <p class="freeEmpty__text">从零开始，手动绘制拼豆图纸。</p>
             </div>
           </template>
           <EditorEmptyGuide v-else-if="wide" />
@@ -2252,23 +2243,10 @@ canvas{display:block}
    画布中间只留图纸本身 */
 .canvasCard--console .chartNote{display:none}
 
-/* ---------------- 全屏工作台的两种空状态（设计稿 1:593 / 1:2445） ----------------
-   自由画布：画布中央一句「从零开始，手动绘制拼豆图纸。」；
-   图纸转换：画布中央一张上传卡（拖拽区 + 选择本地图片）。
+/* ---------------- 全屏工作台的空状态（设计稿 1:593） ----------------
+   画布中央一张上传卡（拖拽区 + 选择本地图片）。
    字号字重按 Figma「豆玩 · 文字与字体规范」1:2：
    卡片标题 15/700/24 · 正文 14/400/22 · 辅助 12/400/18。 */
-.freeEmpty{
-  display:flex;flex-direction:column;align-items:center;gap:10px;
-  color:#2A3C30;
-}
-.freeEmpty__ico{
-  width:40px;height:40px;border-radius:50%;display:grid;place-items:center;
-  background:#F0F5EC;color:#52685A;
-}
-.freeEmpty__text{
-  margin:0;font-family:var(--font-sans);font-size:14px;font-weight:400;
-  line-height:var(--ty-body-lh);letter-spacing:0;color:#52685A;
-}
 .upCard{
   width:min(340px,86%);padding:16px;border-radius:16px;background:#fff;
   border:1px solid #DDE5D8;box-shadow:0 6px 20px rgba(26,45,34,.08);
