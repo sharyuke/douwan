@@ -1,7 +1,7 @@
 <script setup>
 /* 图纸调整（设计稿「豆玩 · 图纸调整展开」）
-   桌面面板只有「成品尺寸 → 智能抠图」两块；手机端在这两块之间补上钉板与品牌色系
-   （桌面命令行已有这两项，所以只在 mobile 时渲染）。
+   桌面面板只有「成品尺寸 → 智能抠图」两块；手机端顺序是
+   「图纸设置（钉板 / 品牌色系）→ 成品尺寸 → 智能抠图」。
    图纸尺寸、品牌色板、用色上限按 2026-11-05 的要求先后去掉（命令行有钉板 / 色号下拉，
    用色上限在左栏「色板选择」里）；「应用 / 取消」按钮同日去掉，设置选中即落到画布。
    左栏卡片版面与这里共用同一份 options，在哪儿改都一样。
@@ -93,10 +93,7 @@ function pickBrand(e) {
 
 <template>
   <div class="iap">
-    <!-- 成品尺寸沿用右侧那张滑杆卡的内容 -->
-    <SizeQuickCard embedded />
-
-    <!-- 手机端补上命令行里的两项：钉板（画布上限）与品牌色系 -->
+    <!-- 手机端补上命令行里的两项：钉板（画布上限）与品牌色系，放在成品尺寸上面 -->
     <section v-if="mobile" class="iap__sec" data-adjust-board-brand>
       <header class="iap__secHead">
         <b>图纸设置</b>
@@ -133,7 +130,7 @@ function pickBrand(e) {
           <input v-model="customH" type="number" min="8" :max="maxCells" aria-label="钉板高（格）">
           <button type="button" class="btn sm" @click="applyCustom">确定</button>
         </div>
-        <p class="iap__hint">钉板是画布上限，成品尺寸在上面调。</p>
+        <p class="iap__hint">钉板是画布上限，成品尺寸在下面调。</p>
       </div>
 
       <div class="iap__field">
@@ -151,6 +148,9 @@ function pickBrand(e) {
         </p>
       </div>
     </section>
+
+    <!-- 成品尺寸沿用右侧那张滑杆卡的内容 -->
+    <SizeQuickCard embedded />
 
     <!-- 智能抠图：原命令行那颗独立按钮并到这里，开关 + 三档力度 + 生效说明 -->
     <section class="iap__sec" data-adjust-matte>

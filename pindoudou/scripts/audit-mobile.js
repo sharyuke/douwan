@@ -141,24 +141,34 @@
     out.menuSheet.closed = !document.querySelector('.msSheet--menu')
     out.menuSheet.ok = out.menuSheet.open && out.menuSheet.title === '更多' && out.menuSheet.closed
 
-    /* 图纸调整抽屉：成品尺寸 + 手机端补上的钉板 / 品牌色系 + 智能抠图 */
+    /* 图纸调整抽屉：图纸设置（钉板 / 品牌色系）在成品尺寸上面，再是智能抠图 */
     const adjustBtn = cmdBtns.find(b => /图纸调整/.test(txt(b)))
     if (adjustBtn) {
       adjustBtn.click(); await sleep(450)
+      const iap = document.querySelector('.iap')
       const sec = document.querySelector('[data-adjust-board-brand]')
+      const kids = iap ? [...iap.children] : []
       out.adjustSheet = {
         open: !!document.querySelector('.msSheet'),
         title: txt(document.querySelector('.msSheet__head b')),
         boards: sec ? [...sec.querySelectorAll('.iap__board')].map(txt) : [],
         brandOptions: sec ? sec.querySelectorAll('select option').length : 0,
-        matte: !!document.querySelector('[data-adjust-matte]')
+        hint: txt(sec && sec.querySelector('.iap__hint')),
+        matte: !!document.querySelector('[data-adjust-matte]'),
+        order: kids.map(el => el.hasAttribute('data-adjust-board-brand') ? 'board'
+          : el.hasAttribute('data-size-card') ? 'size'
+          : el.hasAttribute('data-adjust-matte') ? 'matte'
+          : (el.className || '').toString())
       }
       document.querySelector('.msSheet__head button')?.click(); await sleep(300)
       out.adjustSheet.closed = !document.querySelector('.msSheet')
       out.adjustSheet.ok = out.adjustSheet.open && out.adjustSheet.title === '图纸调整' &&
         out.adjustSheet.boards.length === 5 &&
         out.adjustSheet.boards[0].startsWith('52') &&
-        out.adjustSheet.brandOptions > 1 && out.adjustSheet.matte && out.adjustSheet.closed
+        out.adjustSheet.brandOptions > 1 && out.adjustSheet.matte &&
+        out.adjustSheet.order.join(',') === 'board,size,matte' &&
+        /成品尺寸在下面调/.test(out.adjustSheet.hint) &&
+        out.adjustSheet.closed
     }
 
     /* 导出：有图纸时打开「导出」弹窗；空画布时按钮禁用 */
