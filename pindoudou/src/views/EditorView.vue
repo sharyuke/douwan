@@ -2319,7 +2319,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
     margin:2px 6px 6px;
     font-family:var(--font-sans);font-size:12px;font-weight:700;line-height:var(--ty-caption-lh);letter-spacing:0;color:var(--cs-muted);
   }
-  .csBoard__pop{right:0;top:calc(100% + 6px);width:224px}
+  .csBoard__pop{right:0;top:calc(100% + 6px);width:248px}
   .csBoard__item{
     display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:8px;
     width:100%;padding:7px 8px;border-radius:8px;text-align:left;
@@ -2346,8 +2346,8 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
   }
   .csBoard__custom span{color:var(--cs-muted)}
   .csBoard__customOk{
-    height:32px;padding:0 10px;border-radius:8px;background:var(--cs-accent);color:var(--cs-ink);
-    font-size:12px;font-weight:700;line-height:var(--ty-caption-lh);
+    flex:0 0 auto;height:32px;padding:0 12px;border-radius:8px;background:var(--cs-accent);color:var(--cs-ink);
+    font-size:13px;font-weight:700;line-height:32px;white-space:nowrap;
   }
   /* 画笔 / 橡皮尺寸卡（设计稿 124:133 / 124:51）：156×81、圆角 16、描边 #DDE5D8、
      阴影 0 3px 16 rgba(26,45,34,.08)。fixed 才能相对视口定位，不被工具轨裁掉。 */
