@@ -402,9 +402,32 @@ const boardSpecOptions = computed(() => {
   return list
 })
 
-/** 手机端换底板：只改画布规格，成品区域放不下才收敛（与宽屏下拉同一套 applyCapacity） */
+/** 平板底板下拉的「自定义尺寸」：宽 × 高，确定后落到画布上限 */
+const boardCustomOpen = ref(false)
+const boardCustomW = ref(52)
+const boardCustomH = ref(52)
+const boardSelectValue = computed(() => (boardCustomOpen.value ? 'custom' : specValue.value))
+function applyBoardCustom() {
+  const w = Math.round(Number(boardCustomW.value) || 0)
+  const h = Math.round(Number(boardCustomH.value) || 0)
+  if (!w || !h) return
+  if (w > maxCells.value || h > maxCells.value) {
+    emit('need-pro', `自定义尺寸单边最多 ${maxCells.value} 格：升级 Pro 可到更大。`)
+    return
+  }
+  boardCustomOpen.value = false
+  applyCapacity(w, h)
+}
+/** 平板换底板：只改画布规格，成品区域放不下才收敛（与宽屏下拉同一套 applyCapacity） */
 function onBoardPick(e) {
   const v = String(e.target.value || '')
+  if (v === 'custom') {
+    boardCustomOpen.value = true
+    boardCustomW.value = canvasCapW.value
+    boardCustomH.value = canvasCapH.value
+    return
+  }
+  boardCustomOpen.value = false
   if (!v || v.startsWith('c')) return
   const [w, h] = v.split('x').map(Number)
   if (!w || !h) return
@@ -1652,9 +1675,21 @@ function onSave() {
               </span>
             </span>
           </div>
-          <select class="sizeSpecSelect" data-size-board-spec :value="specValue" @change="onBoardPick">
+          <select class="sizeSpecSelect" data-size-board-spec :value="boardSelectValue" @change="onBoardPick">
             <option v-for="o in boardSpecOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
+            <option value="custom">自定义尺寸</option>
           </select>
+          <div v-if="boardCustomOpen" class="sizeCustom" data-board-custom>
+            <div class="sizeCustom__row sizeCustom__row--n">
+              <label for="boardCustomW">宽</label>
+              <input id="boardCustomW" v-model.number="boardCustomW" type="number" min="8" :max="maxCells" aria-label="钉板宽（格）">
+              <span>格</span>
+              <label for="boardCustomH">高</label>
+              <input id="boardCustomH" v-model.number="boardCustomH" type="number" min="8" :max="maxCells" aria-label="钉板高（格）">
+              <span>格</span>
+            </div>
+            <button class="btn primary sm block" type="button" @click="applyBoardCustom">确定</button>
+          </div>
         </div>
 
         <!-- ② 图案清晰度：读数就是豆子数量，与宽屏同一套滑杆 -->
