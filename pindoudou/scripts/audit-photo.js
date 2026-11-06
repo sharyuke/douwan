@@ -296,6 +296,7 @@
   out.colors.cartoonPinned = out.colors.cartoonSide === 768
   if (drawerOpened) {
     const closeDrawerBtn = document.querySelector('.csDrawer__head .csIconBtn')
+      || document.querySelector('[data-side-adjust]')
       || document.querySelector('.dialog__head .iconbtn')
     if (closeDrawerBtn) {
       closeDrawerBtn.click()

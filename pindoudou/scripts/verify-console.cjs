@@ -319,9 +319,8 @@ async function main() {
   check('点「原图」页签切换', /原图/.test(viewNow || ''), viewNow)
   await shotEl(send, '.studio__canvas', 'view-original')
 
-  /* 2026-11-05：图纸调整与成品尺寸合并成右侧一行「图纸调整」；
-     智能抠图也从命令行并进这块面板。命令行不再有图纸调整 / 智能抠图入口，
-     面板里同时有成品尺寸滑杆、智能抠图开关与图纸设置，原图调整已经去掉。 */
+  /* 2026-11-06：图纸调整从右侧入口挪到命令栏钉板旁边，点击是下拉；
+     面板仍是成品尺寸 + 智能抠图（桌面命令行已有钉板 / 色板，所以没有图纸设置）。 */
   {
     await evalJs(send, `(async () => {
       const d = window.__douzao
@@ -340,37 +339,42 @@ async function main() {
       const txt = el => (el ? el.textContent : '').replace(/\\s+/g, ' ').trim()
       const cmd = document.querySelector('.csCmd')
       const side = document.querySelector('.csSide')
-      const first = side ? side.firstElementChild : null
+      const board = cmd && cmd.querySelector('[data-cmd-board]')
+      const adjust = cmd && cmd.querySelector('[data-cmd-adjust]')
+      const brand = cmd && cmd.querySelector('[data-cmd-brand]')
+      const afterBoard = board && board.nextElementSibling
       return {
-        topAdjust: !!(cmd && [...cmd.querySelectorAll('button')].some(b => /图纸调整/.test(txt(b)))),
+        topAdjust: !!(adjust && /图纸调整/.test(txt(adjust))),
         topMatte: !!(cmd && [...cmd.querySelectorAll('button')].some(b => /智能抠图/.test(txt(b)))),
-        firstMerged: !!first && first.hasAttribute('data-side-adjust'),
-        firstText: txt(first)
+        afterBoard: afterBoard === adjust,
+        beforeBrand: !!(adjust && brand && adjust.nextElementSibling === brand),
+        sideAdjust: !!(side && [...side.querySelectorAll('button')].some(b => /图纸调整/.test(txt(b)))),
+        sideFirst: txt(side && side.firstElementChild)
       }
     })()`)
-    check('图纸转换：命令行没有图纸调整 / 智能抠图入口，右侧第一行是合并后的图纸调整',
-      !merged.topAdjust && !merged.topMatte && merged.firstMerged && /图纸调整/.test(merged.firstText), merged)
+    check('图纸转换：图纸调整在命令栏钉板旁边，右侧没有这行',
+      merged.topAdjust && !merged.topMatte && merged.afterBoard && merged.beforeBrand && !merged.sideAdjust,
+      merged)
 
     await evalJs(send, `document.querySelector('[data-side-adjust]').click(); 1`)
     await sleep(700)
     const mergedPanel = await evalJs(send, `(() => {
       const txt = el => (el ? el.textContent : '').replace(/\\s+/g, ' ').trim()
-      const d = document.querySelector('.csDrawer')
-      const body = d && d.querySelector('.csDrawer__body')
-      const matte = body && body.querySelector('[data-adjust-matte]')
+      const d = document.querySelector('.csAdjustPop')
+      const matte = d && d.querySelector('[data-adjust-matte]')
       return {
-        title: txt(d && d.querySelector('.csDrawer__head b')),
+        open: !!d,
         size: !!(d && d.querySelector('.szq__range')),
         matte: !!matte,
         matteSwitch: !!(matte && matte.querySelector('[role="switch"]')),
-        oldToggle: /保留透明区域/.test(txt(body)),
-        settings: /图纸设置/.test(txt(body)),
-        oldAdjust: /原图调整|亮度|对比度|饱和度/.test(txt(body))
+        oldToggle: /保留透明区域/.test(txt(d)),
+        settings: /图纸设置/.test(txt(d)),
+        oldAdjust: /原图调整|亮度|对比度|饱和度/.test(txt(d))
       }
     })()`)
-    check('合并面板：成品尺寸 + 智能抠图 + 图纸设置，且没有原图调整 / 保留透明区域',
-      mergedPanel.title === '图纸调整' && mergedPanel.size && mergedPanel.matte &&
-      mergedPanel.matteSwitch && mergedPanel.settings && !mergedPanel.oldToggle && !mergedPanel.oldAdjust,
+    check('图纸调整下拉：成品尺寸 + 智能抠图，没有图纸设置 / 原图调整 / 保留透明区域',
+      mergedPanel.open && mergedPanel.size && mergedPanel.matte &&
+      mergedPanel.matteSwitch && !mergedPanel.settings && !mergedPanel.oldToggle && !mergedPanel.oldAdjust,
       mergedPanel)
 
     /* 真点智能抠图开关：三档力度出现；选「保守」写回 options；再关掉。
@@ -407,8 +411,10 @@ async function main() {
     })()`)
     check('图纸调整：再点开关关掉智能抠图', matteOff.removeBg === false && matteOff.checked === 'false', matteOff)
 
-    await evalJs(send, `document.querySelector('.csDrawer__head .csIconBtn').click(); 1`)
+    await evalJs(send, `document.querySelector('[data-side-adjust]').click(); 1`)
     await sleep(400)
+    const closed = await evalJs(send, `!document.querySelector('.csAdjustPop')`)
+    check('再点图纸调整收起下拉', closed === true, { closed })
   }
 
   /* 停在「对照」上切回自由画布：两个页签收起来，视图必须回到拼豆图纸 */

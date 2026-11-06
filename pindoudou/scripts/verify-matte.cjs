@@ -158,7 +158,7 @@ const PICK_CUTOUT = `(async () => {
   }
   let ctl = findCtl()
   if (!ctl) {
-    const entry = [...document.querySelectorAll('[data-side-adjust], .msEditBar__pills button')]
+    const entry = [...document.querySelectorAll('[data-side-adjust], .msCmd button, .msEditBar__pills button')]
       .find(b => (b.hasAttribute('data-side-adjust') || txt(b).includes('图纸调整')) && visible(b))
     if (!entry) return { ok: false, err: '找不到「图纸调整」入口' }
     entry.click()

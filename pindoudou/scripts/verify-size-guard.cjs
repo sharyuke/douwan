@@ -405,7 +405,7 @@ async function main() {
       if (document.querySelector('[data-size-card-range]') || document.querySelector('[data-size-range]')) return 'already'
       /* 成品尺寸滑杆在「图纸调整」抽屉里（右栏那排入口已经改成 图纸调整 / 分析 / 库存 / 颜色 / 分板） */
       const b = document.querySelector('[data-side-adjust]')
-        || [...document.querySelectorAll('.csSide__row')].find(el => /成品尺寸|图纸调整/.test(el.textContent))
+        || [...document.querySelectorAll('.csBoard__btn, .csSide__row, .msCmd button')].find(el => /成品尺寸|图纸调整/.test(el.textContent))
       if (b) b.click()
       return !!b
     })()`)

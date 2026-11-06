@@ -97,6 +97,7 @@ function normalizeFreeView() {
 function setCreateMode(mode) {
   if (mode === createMode.value) return
   if (!switchCreateMode(mode, { blankFree: blankableFree() })) return
+  closeCmdPops()
   if (mode === 'edit') {
     /* 图纸转换没有文档时回到上传卡；有自己的图纸就停在它离开时的那一页 */
     if (!hasPattern.value) currentView.value = 'original'
@@ -158,6 +159,7 @@ function onWideChange() {
   /* 跨回 ≥1100 时工具轨重新出现，面板要重新贴一次位置（跨出去时它随工具轨一起隐藏，
      状态留着，回来还是开着的那一块） */
   if (consoleMode.value && paletteOpen.value) placePaletteFly()
+  if (!consoleMode.value) closeCmdPops()
   syncFreeCanvas()
 }
 
@@ -225,6 +227,7 @@ function openDrawer(key) {
   boardOpen.value = false
   brandOpen.value = false
   aiOpen.value = false
+  adjustOpen.value = false
 }
 function closeDrawer() { drawerKey.value = '' }
 
@@ -236,8 +239,9 @@ function showSplit() {
   insightsRef.value?.revealSplit()
 }
 
-/* 命令栏的两个小浮层：钉板下拉、AI 未接入说明 */
+/* 命令栏的三个小浮层：钉板 / 图纸调整 / AI 未接入说明 */
 const boardOpen = ref(false)
+const adjustOpen = ref(false)
 const aiOpen = ref(false)
 const boardSpec = computed(() => boardSpecFor(options.canvasW, options.canvasH))
 const boardOptions = computed(() => BOARD_SPECS.map(s => ({
@@ -258,6 +262,30 @@ function pickBoard(o) {
   }
   if (o.current) return
   setCanvasCapacity(o.w, o.h)
+}
+
+function closeCmdPops() {
+  boardOpen.value = false
+  brandOpen.value = false
+  adjustOpen.value = false
+  aiOpen.value = false
+}
+function toggleBoard() {
+  const next = !boardOpen.value
+  closeCmdPops()
+  boardOpen.value = next
+}
+function toggleBrand() {
+  const next = !brandOpen.value
+  closeCmdPops()
+  brandOpen.value = next
+}
+function toggleAdjust() {
+  if (!sourceUrl.value) return
+  const next = !adjustOpen.value
+  closeCmdPops()
+  adjustOpen.value = next
+  if (next) closeDrawer()
 }
 
 const canvasRef = ref(null)
@@ -409,6 +437,7 @@ function openPaletteCard() {
   paletteOpen.value = next
   if (next) {
     closeDrawer()
+    closeCmdPops()
     placePaletteFly()
     window.addEventListener('resize', placePaletteFly)
   } else {
@@ -422,14 +451,18 @@ function closePaletteFly() {
 
 /* 点面板外面就收起来（面板本身没有遮罩，键盘 Esc 也是出口） */
 function onDocPointerDown(e) {
-  if (sizePop.value) {
-    const t = e.target
-    if (!(t && t.closest && (t.closest('[data-brush-size]') || t.closest('[data-tool-size]')))) closeSizePop()
-  }
-  if (!paletteOpen.value) return
   const t = e.target
-  if (t && t.closest && (t.closest('[data-palette-flyout]') || t.closest('.csRail__swatch'))) return
-  closePaletteFly()
+  const inside = (sel) => !!(t && t.closest && t.closest(sel))
+  if (sizePop.value) {
+    if (!inside('[data-brush-size]') && !inside('[data-tool-size]')) closeSizePop()
+  }
+  if (boardOpen.value && !inside('[data-cmd-board]')) boardOpen.value = false
+  if (brandOpen.value && !inside('[data-cmd-brand]')) brandOpen.value = false
+  if (adjustOpen.value && !inside('[data-cmd-adjust]')) adjustOpen.value = false
+  if (paletteOpen.value) {
+    if (inside('[data-palette-flyout]') || inside('.csRail__swatch')) return
+    closePaletteFly()
+  }
 }
 
 /* 手机端色板抽屉：品牌色板 + 当前色 + 搜索 + 色块网格（设计稿 124:654）。
@@ -683,6 +716,8 @@ function onKeydown(e) {
     if (sizePop.value) { closeSizePop(); return }
     if (paletteOpen.value) { closePaletteFly(); return }
     if (boardOpen.value) { boardOpen.value = false; return }
+    if (brandOpen.value) { brandOpen.value = false; return }
+    if (adjustOpen.value) { adjustOpen.value = false; return }
     if (aiOpen.value) { aiOpen.value = false; return }
     if (drawerKey.value) { closeDrawer(); return }
     return
@@ -961,8 +996,8 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
   <div class="studio studio--console" :class="{ 'studio--mobile': mobileConsole, 'studio--tablet-fixed': tabletMode }">
     <!-- ============================ 全局命令栏（全屏工作台） ============================
          第一行：品牌 · 作品名（可改名）· 保存状态 ‖ 居中：模式切换 ‖ 保存 / 导出 / 反馈 / 个人中心
-         第二行：五个功能（上传图片 / AI 生成 / 素材库 | 卡通 · 钉板 · 色板）整体居中，
-                网格开关贴右缘；原来第三行的网格开关已并进这一行（2026-11-05）。
+         第二行：功能组（更换图片 / 素材库 | 卡通 · 钉板 · 图纸调整 · 色板）整体居中，
+                网格开关贴右缘；图纸调整点开是下拉，面板样式与原先一致。
          版面与文字层级按 Figma「豆玩操作台优化」1:593；字号字重按 1:2「豆玩 · 文字与字体规范」。
          手机 / 平板没有对应设计，这两行不渲染（见 consoleMode）。 -->
     <header v-if="consoleMode" class="csTop">
@@ -1054,8 +1089,8 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
           </button>
         </template>
 
-        <div class="csBoard">
-          <button class="csBoard__btn" type="button" :aria-expanded="boardOpen" @click="boardOpen = !boardOpen">
+        <div class="csBoard" data-cmd-board>
+          <button class="csBoard__btn" type="button" :aria-expanded="boardOpen" @click="toggleBoard">
             <Icon name="grid-3x3" :size="16" />
             <span>钉板 {{ boardSpec }} × {{ boardSpec }}</span>
             <Icon name="chevron-down" :size="16" />
@@ -1076,8 +1111,24 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
           </div>
         </div>
 
-        <div class="csBoard">
-          <button class="csBoard__btn" type="button" :aria-expanded="brandOpen" @click="brandOpen = !brandOpen">
+        <div v-if="createMode === 'edit'" class="csBoard" data-cmd-adjust>
+          <button
+            class="csBoard__btn" type="button" data-side-adjust
+            :aria-expanded="adjustOpen" :disabled="!sourceUrl"
+            :class="{ 'is-off': !sourceUrl }"
+            @click="toggleAdjust"
+          >
+            <Icon name="sliders-horizontal" :size="16" />
+            <span>图纸调整</span>
+            <Icon name="chevron-down" :size="16" />
+          </button>
+          <div v-if="adjustOpen" class="csPop csAdjustPop" role="dialog" aria-label="图纸调整">
+            <ImageAdjustPanel class="csAdjust" />
+          </div>
+        </div>
+
+        <div class="csBoard" data-cmd-brand>
+          <button class="csBoard__btn" type="button" :aria-expanded="brandOpen" @click="toggleBrand">
             <Icon name="palette" :size="16" />
             <span>{{ brandLabel }}</span>
             <Icon name="chevron-down" :size="16" />
@@ -1438,19 +1489,10 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
       <!-- 底部横向色板条撤掉了：主选色方式改成右栏的「色板」卡
            （系列 → 色系 → 搜索 → 多行网格），画布底部留给图纸。 -->
 
-      <!-- 右侧入口：图纸转换把「图纸调整 + 成品尺寸」合并成一行（点开是同一块面板）；
+      <!-- 右侧入口：图纸转换的「图纸调整」在命令栏钉板旁边点开；
            自由画布没有图片可调，仍保留可就地展开的成品尺寸卡。 -->
       <aside v-if="consoleMode && !drawerKey" class="csSide no-print">
         <SizeQuickCard v-if="createMode === 'free'" :open="sizeOpen" @update:open="sizeOpen = $event" />
-        <button
-          v-else type="button" class="csSide__row" data-side-adjust
-          :class="{ 'is-off': !sourceUrl }" :disabled="!sourceUrl"
-          @click="openDrawer('adjust')"
-        >
-          <span class="csSide__ico csSide__ico--lime"><Icon name="sliders-horizontal" :size="16" /></span>
-          <span>图纸调整</span>
-          <span class="csRot csSide__chev"><Icon name="chevron-down" :size="16" /></span>
-        </button>
         <button type="button" class="csSide__row" :class="{ 'is-off': createMode === 'edit' && !hasPattern }" @click="analysisOpen = true">
           <span class="csSide__ico csSide__ico--pink"><Icon name="chart-no-axes-combined" :size="16" /></span>
           <span>作品分析</span>
@@ -1475,7 +1517,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
       </aside>
 
       <!-- 右侧滑出面板：复用左栏 / 右栏那张卡本身（focus 模式只显示它） -->
-      <aside v-if="consoleMode && drawerKey" class="csDrawer no-print" :class="{ 'csDrawer--fit': drawerKey === 'adjust' }" aria-label="设置面板">
+      <aside v-if="consoleMode && drawerKey" class="csDrawer no-print" aria-label="设置面板">
         <header class="csDrawer__head">
           <b>{{ drawerTitle }}</b>
           <button type="button" class="csIconBtn" aria-label="关闭面板" @click="closeDrawer">
@@ -1483,21 +1525,18 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
           </button>
         </header>
         <div class="csDrawer__body">
-          <ImageAdjustPanel v-if="drawerKey === 'adjust'" class="csAdjust" />
-          <template v-else>
-            <EditorSidebar
-              v-if="drawerIsSidebar" :key="drawerKey"
-              :focus="drawerKey" narrow
-              @close-panel="closeDrawer"
-              @need-pro="needPro" @need-create="router.push('/materials/')" @open-delivery="openDelivery"
-            />
-            <EditorSidebar
-              v-if="drawerKey === 'size'" key="scheme-in-size" focus="scheme" narrow
-              @close-panel="closeDrawer"
-              @need-pro="needPro" @need-create="router.push('/materials/')" @open-delivery="openDelivery"
-            />
-            <EditorInsights v-if="!drawerIsSidebar" :key="drawerKey" :focus="drawerKey" @need-pro="needPro" @replace-color="onReplaceColor" />
-          </template>
+          <EditorSidebar
+            v-if="drawerIsSidebar" :key="drawerKey"
+            :focus="drawerKey" narrow
+            @close-panel="closeDrawer"
+            @need-pro="needPro" @need-create="router.push('/materials/')" @open-delivery="openDelivery"
+          />
+          <EditorSidebar
+            v-if="drawerKey === 'size'" key="scheme-in-size" focus="scheme" narrow
+            @close-panel="closeDrawer"
+            @need-pro="needPro" @need-create="router.push('/materials/')" @open-delivery="openDelivery"
+          />
+          <EditorInsights v-if="!drawerIsSidebar" :key="drawerKey" :focus="drawerKey" @need-pro="needPro" @replace-color="onReplaceColor" />
         </div>
       </aside>
     </div>
@@ -1997,14 +2036,16 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
     border:1px solid var(--cs-line-strong);border-radius:8px;background:var(--cs-surface);color:var(--cs-ink);
   }
   .csProject__input:focus{outline:0;border-color:var(--cs-ink);box-shadow:0 0 0 3px rgba(200,230,60,.32)}
-  /* 保存状态：紧凑元信息（规范允许的 11px 特例） */
+  /* 保存状态：紧凑元信息（规范允许的 11px 特例）
+     已保存：文字与圆点用成功绿，和 .btn.green 同一套令牌 */
   .csSaved{
     display:inline-flex;align-items:center;gap:5px;
     font-family:var(--font-sans);font-size:11px;font-weight:400;line-height:18px;letter-spacing:0;
     color:var(--cs-muted);white-space:nowrap;
   }
   .csSaved i{width:6px;height:6px;border-radius:50%;background:var(--cs-disabled)}
-  .csSaved.on i{background:#5FC97E}
+  .csSaved.on{color:var(--green-deep)}
+  .csSaved.on i{background:var(--green)}
   .csActions{gap:4px;justify-content:flex-end;margin-left:0}
   /* 次按钮：13 / 500 / 20；导出是主按钮：15 / 700 / 24 */
   .csAction{
@@ -2069,8 +2110,14 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
     font-family:var(--font-sans);font-size:13px;font-weight:500;line-height:var(--ty-label-lh);letter-spacing:0;
     color:var(--cs-ink-2);white-space:nowrap;
   }
-  .csBoard__btn:hover{background:var(--cs-fill)}
+  .csBoard__btn:hover:not(:disabled){background:var(--cs-fill)}
+  .csBoard__btn:disabled,.csBoard__btn.is-off{opacity:.42;cursor:not-allowed}
   .csBrand__pop{width:236px}
+  /* 图纸调整：钉板旁边同一套按钮，点开是成品尺寸 + 智能抠图（面板本身样式不动） */
+  .csAdjustPop{
+    right:0;top:calc(100% + 6px);z-index:45;width:380px;padding:12px;
+    max-height:min(520px,calc(100dvh - 180px));overflow-y:auto;overscroll-behavior:contain;
+  }
   /* 模式切换：容器 #F0F5EC，选中项实心青柠（设计稿 1:593 顶栏正中） */
   .csModeSeg{
     flex:0 0 auto;display:flex;gap:2px;margin:0 8px;padding:4px;
@@ -2299,8 +2346,6 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
     box-shadow:0 8px 32px rgba(26,45,34,.12);animation:csSlide .18s ease;
   }
   @keyframes csSlide{from{transform:translateX(18px);opacity:.5}to{transform:none;opacity:1}}
-  /* 图纸调整只剩成品尺寸与智能抠图：面板按内容高度收，不再撑满整列 */
-  .csDrawer--fit{top:48px;bottom:auto;max-height:calc(100% - 64px)}
   .csDrawer__head{
     display:flex;align-items:center;justify-content:space-between;gap:10px;
     padding:12px 12px 10px 16px;border-bottom:1px solid var(--cs-line);flex:0 0 auto;

@@ -172,7 +172,7 @@ const STATE = `(() => {
     }
     return x1 < 0 ? null : { x0: x0 - ox, y0: y0 - oy, x1: x1 - ox, y1: y1 - oy }
   }
-  const range = document.querySelector('[data-size-range]')
+  const range = document.querySelector('[data-size-card-range]') || document.querySelector('[data-size-range]')
   const head = document.querySelector('.canvasTitleBar')
   const artBox = p ? { x0: Math.floor((p.width - p.artW) / 2), y0: Math.floor((p.height - p.artH) / 2) } : { x0: 0, y0: 0 }
   return {
@@ -199,7 +199,7 @@ const STATE = `(() => {
 /** 真拖左栏的清晰度滑杆：设值 + input + change（走的是页面自己的处理链路） */
 const DRAG = `(async () => {
   const sleep = ms => new Promise(r => setTimeout(r, ms))
-  const range = document.querySelector('[data-size-range]')
+  const range = document.querySelector('[data-size-card-range]') || document.querySelector('[data-size-range]')
   if (!range) return { ok: false, err: '找不到清晰度滑杆' }
   range.value = '117'
   range.dispatchEvent(new Event('input', { bubbles: true }))
@@ -286,17 +286,18 @@ async function main() {
     return file
   }
 
-  /* 全屏创作工作台把「图案清晰度」收进了右侧抽屉：先把「成品尺寸」抽屉打开，
-     滑杆才在 DOM 里（手机 / 平板没有这套抽屉，已经可见时直接返回） */
+  /* 全屏创作工作台把成品尺寸收进命令栏「图纸调整」下拉；
+     滑杆才在 DOM 里（平板左栏 / 手机抽屉已经可见时直接返回） */
   const ensureSize = await evaluate(`(async () => {
     const sleep = ms => new Promise(r => setTimeout(r, ms))
-    if (document.querySelector('[data-size-range]')) return { ok: true, already: true }
-    const entry = [...document.querySelectorAll('.csSide__row')].find(b => /成品尺寸/.test(b.textContent))
-    if (!entry) return { ok: false, err: '没有「成品尺寸」入口' }
+    if (document.querySelector('[data-size-card-range]') || document.querySelector('[data-size-range]')) return { ok: true, already: true }
+    const entry = document.querySelector('[data-side-adjust]')
+      || [...document.querySelectorAll('.csSide__row, .msCmd button')].find(b => /成品尺寸|图纸调整/.test(b.textContent))
+    if (!entry) return { ok: false, err: '没有「图纸调整」入口' }
     entry.click()
     await sleep(700)
-    return { ok: !!document.querySelector('[data-size-range]') }
-  })()`)
+    return { ok: !!(document.querySelector('[data-size-card-range]') || document.querySelector('[data-size-range]')) }
+  })()`
 
   const setup = await evaluate(SETUP)
   const before = await evaluate(STATE)
