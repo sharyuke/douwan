@@ -2637,16 +2637,19 @@ export function mirrorPattern(axis = 'h') {
 }
 
 /**
- * 套索：把整张图上所有有豆的格子一起平移 (dx, dy) 格。
+ * 套索：把选中的豆子平移 (dx, dy) 格。
  *
- * 空格不搬。挪出画布的豆子丢掉，空出来的位置留空。
+ * region 缺省时搬整张图上所有有豆的格子。传入 {x0,y0,x1,y1} 时只搬这个矩形里的豆子，
+ * 矩形外的格子留在原地。空格不搬。挪出画布的豆子丢掉，空出来的位置留空。
+ * 选中的豆子落到还留在原地的豆子上时，选中的盖住原地的。
+ *
  * 一次拖动是一步可撤销的操作：调用方在按下时 beginEdit({ progress: true })、
  * 松手时 endEdit()，中途每次跨格都复用外层那份快照。
- * 手工修改记录跟着格子走（recordEdits）；拼制进度也跟着走，
+ * 手工修改记录跟着格子走（recordEdits）；拼制进度也跟着被搬走的格子走，
  * 撤销时由快照里的 progress 一起回到拖之前。
- * @returns {boolean} 是否真的挪动了（dx、dy 都是 0，或图纸上没有豆，返回 false）
+ * @returns {boolean} 是否真的挪动了（dx、dy 都是 0，或选区里没有豆，返回 false）
  */
-export function shiftPattern(dx, dy) {
+export function shiftPattern(dx, dy, region) {
   const p = pattern.value
   if (!p || !p.cells || !p.cells.length) return false
   const w = p.width
@@ -2656,40 +2659,54 @@ export function shiftPattern(dx, dy) {
   dy = Math.trunc(dy) || 0
   if (!dx && !dy) return false
 
+  const x0 = region ? Math.max(0, Math.min(region.x0, region.x1)) : 0
+  const y0 = region ? Math.max(0, Math.min(region.y0, region.y1)) : 0
+  const x1 = region ? Math.min(w - 1, Math.max(region.x0, region.x1)) : w - 1
+  const y1 = region ? Math.min(h - 1, Math.max(region.y0, region.y1)) : h - 1
+
   const own = editDepth === 0
   if (own) beginEdit({ progress: true })
   const cells = p.cells
-  const next = new Int32Array(cells.length).fill(EMPTY)
-  for (let y = 0; y < h; y++) {
-    const ny = y + dy
-    if (ny < 0 || ny >= h) continue
+  const next = Int32Array.from(cells)
+  const picked = []
+  for (let y = y0; y <= y1; y++) {
     const row = y * w
-    const dst = ny * w
-    for (let x = 0; x < w; x++) {
+    for (let x = x0; x <= x1; x++) {
       const k = cells[row + x]
       if (k < 0) continue
-      const nx = x + dx
-      if (nx < 0 || nx >= w) continue
-      next[dst + nx] = k
+      next[row + x] = EMPTY
+      picked.push({ x, y, k, i: row + x })
     }
+  }
+  if (!picked.length) {
+    if (own) cancelEdit()
+    return false
+  }
+  for (const bead of picked) {
+    const nx = bead.x + dx
+    const ny = bead.y + dy
+    if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue
+    next[ny * w + nx] = bead.k
   }
   replaceCells(activeKey.value, next, { deferStats: true })
 
-  /* 拼制进度按格子下标记。图案挪了，打勾的位置也要跟着走，
-     否则「已完成」会落在空格上。 */
+  /* 拼制进度按格子下标记。被搬走的那几颗，打勾跟着走；没选中的勾留在原地。 */
   const progress = buildProgress.value
   if (progress.size) {
-    const moved = new Set()
-    for (const i of progress) {
-      const x = i % w
-      const y = (i - x) / w
-      const nx = x + dx
-      const ny = y + dy
+    const lifted = new Map()
+    for (const bead of picked) {
+      if (!progress.has(bead.i)) continue
+      const nx = bead.x + dx
+      const ny = bead.y + dy
       if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue
       if (next[ny * w + nx] < 0) continue
-      moved.add(ny * w + nx)
+      lifted.set(bead.i, ny * w + nx)
     }
-    buildProgress.value = moved
+    if (lifted.size) {
+      const moved = new Set()
+      for (const i of progress) moved.add(lifted.has(i) ? lifted.get(i) : i)
+      buildProgress.value = moved
+    }
   }
   if (own) return endEdit()
   return true
