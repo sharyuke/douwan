@@ -21,13 +21,12 @@ export const EMPTY_FILL = '#EFF1F4'
 export const EMPTY_DOT = '#CBD0D8'
 
 /**
- * 画布格线默认色。浅灰，不把豆子颜色压暗，画面主体是图案。
- * 每 10 格的辅助线只比细格线深一档，仍然是浅灰实线。
- * 细格线在编辑器里是点状虚线（GRID_FINE_DASH）。
- * 导出标版走 opts.theme.grid / theme.bold，不读这里，细格线仍是实线。
+ * 画布格线默认色，回到改浅灰之前的深灰。
+ * 细格线在编辑器里是点状虚线（GRID_FINE_DASH），每 10 格是 1px 实线。
+ * 导出标版走 opts.theme.grid / theme.bold，不读这里。
  */
-const GRID_FINE = '#E0E1E6'
-const GRID_BOLD = '#CDCED3'
+const GRID_FINE = 'rgba(28,28,32,.14)'
+const GRID_BOLD = 'rgba(28,28,32,.44)'
 /** 圆点直径约 1.5px，点距 4px。lineCap 必须是 round，0 长度的 dash 才会画成圆点。 */
 const GRID_FINE_DASH = [0, 4]
 
@@ -708,10 +707,11 @@ function paintChartOverlay(ctx, g, pattern) {
     ctx.restore()
   }
 
-  // 每 10 格加粗
+  // 每 10 格实线。编辑器固定 1px，比原来的 cell/11 细；导出标版仍按格子放大。
   if (o.bold && cell >= 4) {
-    ctx.strokeStyle = (o.theme && o.theme.bold) || GRID_BOLD
-    ctx.lineWidth = Math.max(1, Math.round(cell / 11))
+    const themed = !!(o.theme && o.theme.bold)
+    ctx.strokeStyle = themed ? o.theme.bold : GRID_BOLD
+    ctx.lineWidth = themed ? Math.max(1, Math.round(cell / 11)) : 1
     ctx.beginPath()
     for (let i = 10; i < gw; i += 10) {
       const v = OX + i * cell + 0.5
