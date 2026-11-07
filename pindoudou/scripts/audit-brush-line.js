@@ -72,10 +72,47 @@
   if (mobile) {
     const labels = [...document.querySelectorAll('.msTools .msTool')].map(txt)
     if (labels.join(',') !== '画笔,橡皮,换色,颜色,更多工具') fail('labels', labels)
+    /* 真机是 pointerdown 再 click。只发 click 会漏掉「按下先收起、click 又打开」。 */
+    const tap = (el) => {
+      const r = el.getBoundingClientRect()
+      const base = {
+        bubbles: true, cancelable: true,
+        clientX: r.left + r.width / 2,
+        clientY: r.top + Math.min(r.height / 2, 28),
+        pointerId: 7, pointerType: 'touch', isPrimary: true
+      }
+      el.dispatchEvent(new PointerEvent('pointerdown', { ...base, button: 0, buttons: 1 }))
+      el.dispatchEvent(new PointerEvent('pointerup', { ...base, button: 0, buttons: 0 }))
+      el.dispatchEvent(new MouseEvent('click', { ...base, button: 0 }))
+    }
     const paintArrow = document.querySelector('[data-ms-tool-arrow="paint"]')
-    if (!paintArrow) fail('paintArrow', false)
-    else paintArrow.click()
+    const paintBox = paintArrow && paintArrow.getBoundingClientRect()
+    const paintMark = paintArrow && paintArrow.parentElement.querySelector('.msTool__arrow')
+    const markOk = (btn, box, mark) => {
+      if (!mark || mark.tagName === 'BUTTON' || !mark.querySelector('svg')) return 'missing'
+      const style = getComputedStyle(mark)
+      const mb = mark.getBoundingClientRect()
+      if (style.pointerEvents !== 'none') return 'hit:' + style.pointerEvents
+      if (mb.width < 10 || box.right - mb.right > 8 || mb.top - box.top > 12) return 'place'
+      if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return 'hidden'
+      return ''
+    }
+    if (!paintArrow || paintArrow.tagName !== 'BUTTON') fail('paintArrow', paintArrow && paintArrow.tagName)
+    else if (!paintBox || paintBox.width < 48 || paintBox.height < 40) fail('paintHit', paintBox && { w: paintBox.width, h: paintBox.height })
+    else {
+      const why = markOk(paintArrow, paintBox, paintMark)
+      if (why) fail('paintMark', why)
+      else tap(paintArrow)
+    }
     await sleep(80)
+    if (paintMark && !paintMark.classList.contains('is-open')) fail('paintMarkOpen', paintMark.className)
+    if (document.querySelector('[data-ms-tool-menu]')) {
+      tap(paintArrow)
+      await sleep(60)
+      if (document.querySelector('[data-ms-tool-menu]')) fail('paintRetap', true)
+      tap(paintArrow)
+      await sleep(60)
+    }
     const menuBox = document.querySelector('[data-ms-tool-menu]')?.getBoundingClientRect()
     if (!menuBox || menuBox.width < 40 || menuBox.top < 0 || menuBox.bottom > innerHeight + 1 || menuBox.left < -1 || menuBox.right > innerWidth + 1) {
       fail('menuBox', menuBox && { top: menuBox.top, left: menuBox.left, right: menuBox.right, bottom: menuBox.bottom, h: innerHeight, w: innerWidth })
@@ -88,7 +125,7 @@
     if (S.tool.value !== 'paint') fail('lineTool', S.tool.value)
     const range = document.querySelector('[data-ms-tool-menu] [data-brush-range]')
     if (range) fail('sizeStaysOpen', true)
-    paintArrow.click()
+    tap(paintArrow)
     await sleep(60)
     const range2 = document.querySelector('[data-ms-tool-menu] [data-brush-range]')
     if (!range2) fail('sizeRange', false)
@@ -105,16 +142,31 @@
     if (document.querySelector('[data-ms-tool-menu]')) fail('menuClosed', true)
 
     const swapArrow = document.querySelector('[data-ms-tool-arrow="swap"]')
-    if (!swapArrow) fail('swapArrow', false)
-    else swapArrow.click()
+    const swapMark = swapArrow && swapArrow.parentElement.querySelector('.msTool__arrow')
+    const swapBox = swapArrow && swapArrow.getBoundingClientRect()
+    if (!swapArrow || swapArrow.tagName !== 'BUTTON') fail('swapArrow', swapArrow && swapArrow.tagName)
+    else if (!swapBox || swapBox.width < 48 || swapBox.height < 40) fail('swapHit', swapBox && { w: swapBox.width, h: swapBox.height })
+    else {
+      const why = markOk(swapArrow, swapBox, swapMark)
+      if (why) fail('swapMark', why)
+      else tap(swapArrow)
+    }
     await sleep(80)
+    if (!document.querySelector('[data-ms-tool-menu]')) fail('swapOpen', false)
+    else {
+      tap(swapArrow)
+      await sleep(60)
+      if (document.querySelector('[data-ms-tool-menu]')) fail('swapRetap', true)
+      tap(swapArrow)
+      await sleep(60)
+    }
     const items = [...document.querySelectorAll('[data-ms-tool-menu] button')].map(txt)
     if (items.join(',') !== '自动替换相近色,替换为空豆,查看教程') fail('swapItems', items)
     const nearest = [...document.querySelectorAll('[data-ms-tool-menu] button')].find(b => txt(b) === '自动替换相近色')
     nearest?.click()
     await sleep(40)
     if (S.swapMode.value !== 'nearest') fail('nearest', S.swapMode.value)
-    swapArrow.click()
+    tap(swapArrow)
     await sleep(60)
     const tutorial = [...document.querySelectorAll('[data-ms-tool-menu] button')].find(b => txt(b) === '查看教程')
     tutorial?.click()

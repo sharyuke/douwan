@@ -689,8 +689,8 @@ function pickMoreFunction(f) {
 const showBrushParams = computed(() => hasPattern.value && brushParams.value &&
   (tool.value === 'paint' || tool.value === 'erase'))
 
-/* 手机底栏：画笔 / 换色右侧没有桌面那颗箭头，菜单从按钮右上角向上展开。
-   画笔菜单是直线和笔刷大小，换色菜单与桌面相同。点外面先收起，不把这一下画进图纸。 */
+/* 手机底栏：画笔 / 换色整颗按钮打开菜单，右上角箭头只是指示。
+   选一项就收起；没选再点同一颗也收起。点外面先收起，不把这一下画进图纸。 */
 const msToolMenu = ref('')
 const msToolMenuPos = ref({ left: 8, bottom: 80, width: 200 })
 const msToolMenuStyle = computed(() => ({
@@ -1467,21 +1467,19 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
             <button
               type="button" class="msTool" :class="{ on: tool === t.key }"
               :disabled="!hasPattern" :aria-pressed="tool === t.key"
-              @click="pickMobileTool(t.key)"
+              :data-ms-tool-arrow="t.key"
+              :aria-expanded="msToolMenu === t.key" aria-haspopup="menu"
+              :aria-label="t.key === 'paint' ? '画笔菜单：直线、画笔大小' : '换色菜单：自动替换相近色、替换为空豆、查看教程'"
+              @click="toggleMsToolMenu(t.key)"
             >
               <Icon :name="t.icon" :size="20" /><span>{{ t.label }}</span>
             </button>
-            <button
-              type="button" class="msTool__arrow"
+            <span
+              class="msTool__arrow" aria-hidden="true"
               :class="{ 'is-on': (t.key === 'paint' && brushStroke === 'line') || (t.key === 'swap' && swapMode !== 'brush'), 'is-open': msToolMenu === t.key }"
-              :data-ms-tool-arrow="t.key"
-              :disabled="!hasPattern"
-              :aria-expanded="msToolMenu === t.key" aria-haspopup="menu"
-              :aria-label="t.key === 'paint' ? '画笔菜单：直线、画笔大小' : '换色菜单：自动替换相近色、替换为空豆、查看教程'"
-              @click.stop="toggleMsToolMenu(t.key)"
             >
               <Icon name="chevron-up" :size="12" />
-            </button>
+            </span>
           </div>
           <button
             v-else type="button" class="msTool" :class="{ on: tool === t.key }"
@@ -1729,6 +1727,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
               type="range" min="1" :max="BRUSH_MAX" step="1"
               :value="brushSize" aria-label="画笔大小（颗）" data-brush-range
               @input="setToolSize($event.target.value, 'paint')"
+              @change="closeMsToolMenu"
             >
           </div>
         </template>
@@ -2958,12 +2957,11 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
   .msToolSlot{position:relative;min-width:0;display:flex}
   .msToolSlot > .msTool{flex:1 1 auto;width:100%;min-width:0}
   .msTool__arrow{
-    position:absolute;top:3px;right:2px;z-index:1;
+    position:absolute;top:3px;right:2px;z-index:1;pointer-events:none;
     width:16px;height:16px;display:grid;place-items:center;
     border-radius:5px;color:var(--ms-ink-2);background:transparent;
   }
   .msTool__arrow.is-on,.msTool__arrow.is-open{background:#C8E63C;color:var(--ms-ink)}
-  .msTool__arrow:disabled{opacity:.4}
   .msToolMenu{
     position:fixed;z-index:40;box-sizing:border-box;
     padding:6px;display:flex;flex-direction:column;gap:2px;
