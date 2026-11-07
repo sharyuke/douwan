@@ -5,7 +5,7 @@ import {
   BRUSH_MAX, toolSizeOf, setToolSize, beadKey,
   options, currentView, canvasEl, paintAt, paintLine, fillAt, pickAt, shiftPattern, restorePendingPattern, undo, redo,
   canUndo, canRedo, undoDepth, redoDepth, beginEdit, endEdit, cancelEdit, revertEdit,
-  mirrorPattern, replaceColorEverywhere,
+  mirrorPattern, replaceColorEverywhere, clearColorEverywhere, nearestSwapColor, swapMode,
   stats, sourceUrl, sourceImg, sourceCssFilter, generating, genMs,
   selectedBoard, layout, materials
 } from '../../composables/useStudio.js'
@@ -14,6 +14,7 @@ import { useShortcutTip } from '../../composables/useShortcutTip.js'
 import { drawChart, drawPixels, drawBoard, hitTest, chartGeometry, chartCellCap, updateChartLayer, markChartLayer, canvasDpr, renderOffscreen } from '../../lib/render.js'
 import { boardBeadCounts } from '../../lib/pattern.js'
 import { beadOf, boardOf, BOARD_SPEC_LIST_TEXT } from '../../lib/boardSpec.js'
+import { getColorById } from '../../lib/palettes.js'
 import { EDIT_TOOLS, EDIT_HISTORY, EDIT_ACTIONS } from '../../data/icons.js'
 import Icon from '../ui/Icon.vue'
 import BaseDialog from '../ui/BaseDialog.vue'
@@ -1522,7 +1523,8 @@ function onClick(e) {
     if (hit) fillAt(hit.x, hit.y)
     return
   }
-  /* 换色：点一格，把整张图里和它同色的豆全部换成当前画笔色。
+  /* 换色：点一格，把整张图里和它同色的豆全部换掉。
+     默认换成当前画笔色；箭头菜单可以改成「最接近的色号」或「空豆」。
      按色号 id 换（不是调色板下标）—— 换色过程中色板可能重排。 */
   if (tool.value === 'swap') {
     const hit = hitTest(cv.value, pattern.value, e, hitOpts.value)
@@ -1530,7 +1532,23 @@ function onClick(e) {
     const p = pattern.value
     const from = p.palette[p.cells[hit.y * p.width + hit.x]]
     if (!from) return
-    const to = brush.value
+    if (swapMode.value === 'empty') {
+      const n = clearColorEverywhere(from.id)
+      if (n) toastOk(`已把 ${from.code} 全部换成空豆，共 ${n} 颗`)
+      else toastWarn('没找到可以替换的豆')
+      return
+    }
+    if (swapMode.value === 'nearest') {
+      const to = nearestSwapColor(from)
+      if (!to) { toastWarn('这一色没有可替换的相近色'); return }
+      const n = replaceColorEverywhere(from.id, to)
+      if (n) toastOk(`已把 ${from.code} 全部换成相近色 ${to.code}，共 ${n} 颗`)
+      else toastWarn('没找到可以替换的豆')
+      return
+    }
+    /* 画笔色按 id 从品牌色板取。图纸色板里还没有这一色时，不能退回「最后一颗豆」，
+       否则点换色会换成画布上已有的颜色，和工具轨上的当前色对不上。 */
+    const to = (brushColorId.value && getColorById(brushColorId.value)) || brush.value
     if (!to) return
     if (to.id === from.id) { toastWarn('这一格已经是当前画笔色了'); return }
     const n = replaceColorEverywhere(from.id, to)

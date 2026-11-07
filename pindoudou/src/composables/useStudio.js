@@ -222,6 +222,8 @@ export const workspaceMode = ref('edit')
 const modeWorkspaces = { free: null, edit: null }
 export const zoom = ref(1)
 export const tool = ref('paint')
+/** 换色工具点一格时做什么。brush 换成当前画笔色，nearest 换成同系列最接近的色号，empty 换成空豆。 */
+export const swapMode = ref('brush')
 /** 画笔的笔刷边长（格）。1 = 单格编辑，2~5 用于大面积上色（设计稿 124:84） */
 export const brushSize = ref(1)
 /** 橡皮的笔刷边长（格）。与画笔分开存，切换工具不会把对方的尺寸带走 */
@@ -2121,6 +2123,12 @@ function recalcStats(p) {
         }
         p.offscreen = nextHeld.length ? nextHeld : null
       }
+    } else {
+      /* 这一色是画布上最后一种颜色（换成空豆 / 擦到一颗不剩）：色板清空，格子全部空。 */
+      p.cells = new Int32Array(p.cells.length).fill(EMPTY)
+      p.palette = []
+      p.colors = []
+      p.offscreen = null
     }
   }
   const beads = beadCountOf(p.cells) + (p.offscreen ? p.offscreen.length : 0)
@@ -2563,6 +2571,45 @@ export function replaceColorEverywhere(fromId, toColor) {
   let n = 0
   for (let i = 0; i < cells.length; i++) {
     if (cells[i] === fromIndex) { cells[i] = toIndex; n++ }
+  }
+  if (!n) { cancelEdit(); return 0 }
+  replaceCells(activeKey.value, cells)
+  endEdit()
+  return n
+}
+
+/**
+ * 同系列里与 fromColor 色差最小的色号（CIEDE2000，不含自己）。
+ * 和换色弹窗「自动选相近色」同一口径，这里直接返回那个色，调用方负责落笔。
+ */
+export function nearestSwapColor(fromColor) {
+  if (!fromColor) return null
+  const lab = fromColor.lab || (fromColor.hex ? hexToLab(fromColor.hex) : null)
+  if (!lab) return null
+  let best = null
+  let bestD = Infinity
+  for (const c of availableColors.value) {
+    if (!c || c.id === fromColor.id) continue
+    const cl = c.lab || (c.hex ? hexToLab(c.hex) : null)
+    if (!cl) continue
+    const d = deltaE2000(lab, cl)
+    if (d < bestD) { bestD = d; best = c }
+  }
+  return best
+}
+
+/** 把某种颜色的豆全部换成空豆（不放豆）。一步可撤销。@returns 清掉的颗数 */
+export function clearColorEverywhere(fromId) {
+  const p = pattern.value
+  if (!p) return 0
+  const fromIndex = p.palette.findIndex(c => c.id === fromId)
+  if (fromIndex < 0) return 0
+  beginEdit()
+  const cur = pattern.value
+  const cells = Int32Array.from(cur.cells)
+  let n = 0
+  for (let i = 0; i < cells.length; i++) {
+    if (cells[i] === fromIndex) { cells[i] = EMPTY; n++ }
   }
   if (!n) { cancelEdit(); return 0 }
   replaceCells(activeKey.value, cells)

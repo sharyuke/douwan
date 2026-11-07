@@ -22,7 +22,7 @@ import {
   currentProjectId, ensureProjectLoaded, saveProject, generating,
   restoreEditDraft, bareEditorDraftMatches,
   projectLimit, projects, useImageFile, sourceUrl,
-  tool, brushSize, eraserSize, BRUSH_MAX, toolSizeOf, setToolSize, brushColorId,
+  tool, swapMode, brushSize, eraserSize, BRUSH_MAX, toolSizeOf, setToolSize, brushColorId,
   mirrorPattern, removeSpecks, options, currentView,
   zoom, setZoom, layout, availableColors, maxCells, brand,
   canvasCapW, canvasCapH,
@@ -342,6 +342,7 @@ function toggleToolSize(key) {
   const next = sizePop.value === key ? null : key
   tool.value = key
   sizePop.value = next
+  if (next) closeSwapMenu()
   unbindSizePop()
   if (next) { placeSizePop(); bindSizePop() }
 }
@@ -349,12 +350,89 @@ function closeSizePop() {
   sizePop.value = null
   unbindSizePop()
 }
+
+/* 换色右侧的箭头：菜单里换动作（相近色 / 空豆），或打开视频教程。
+   和尺寸卡一样用 fixed，工具轨 overflow 会把绝对定位的菜单裁掉。 */
+const swapMenu = ref(false)
+const swapMenuPos = ref({ left: 0, top: 0 })
+const swapMenuEl = ref(null)
+const SWAP_MENU_W = 176
+const SWAP_MENU_H = 134
+const swapMenuStyle = computed(() => ({ left: `${swapMenuPos.value.left}px`, top: `${swapMenuPos.value.top}px` }))
+const swapTutorialOpen = ref(false)
+const swapTutorialSrc = `${import.meta.env.BASE_URL}tutorials/swap.mp4`
+const swapTutorialPoster = `${import.meta.env.BASE_URL}tutorials/swap-poster.png`
+const SWAP_MODE_COPY = {
+  nearest: {
+    title: '换色：点一格，整张图里同色的豆全部换成最接近的色号',
+    desc: '点一格，同色的豆换成色差最小的色号'
+  },
+  empty: {
+    title: '换色：点一格，整张图里同色的豆全部换成空豆',
+    desc: '点一格，同色的豆换成空豆'
+  }
+}
+function railToolMeta(t) {
+  if (t.key !== 'swap') return t
+  const copy = SWAP_MODE_COPY[swapMode.value]
+  return copy ? { ...t, ...copy } : t
+}
+function placeSwapMenu() {
+  const chev = document.querySelector('[data-swap-arrow]')
+  if (!chev) return
+  const toolBtn = chev.closest('.csToolWrap')?.querySelector('.csTool') || chev
+  const rail = chev.closest('.csRail')
+  const br = toolBtn.getBoundingClientRect()
+  const rr = (rail || toolBtn).getBoundingClientRect()
+  const cardH = swapMenuEl.value?.getBoundingClientRect().height || SWAP_MENU_H
+  let left = Math.round(rr.right + 8)
+  if (left + SWAP_MENU_W > window.innerWidth - 12) left = Math.round(rr.left - 8 - SWAP_MENU_W)
+  const top = Math.round(Math.min(Math.max(12, br.top + br.height / 2 - cardH / 2), window.innerHeight - cardH - 12))
+  swapMenuPos.value = { left, top }
+}
+function bindSwapMenu() {
+  window.addEventListener('resize', placeSwapMenu)
+  document.querySelector('.csRail')?.addEventListener('scroll', placeSwapMenu, { passive: true })
+}
+function unbindSwapMenu() {
+  window.removeEventListener('resize', placeSwapMenu)
+  document.querySelector('.csRail')?.removeEventListener('scroll', placeSwapMenu)
+}
+function closeSwapMenu() {
+  if (!swapMenu.value) return
+  swapMenu.value = false
+  unbindSwapMenu()
+}
+/** 点换色右侧的箭头：选中换色，并开关菜单。点工具本体不会打开它。 */
+function toggleSwapMenu() {
+  const next = !swapMenu.value
+  tool.value = 'swap'
+  if (next) closeSizePop()
+  swapMenu.value = next
+  unbindSwapMenu()
+  if (next) {
+    placeSwapMenu()
+    bindSwapMenu()
+    nextTick(placeSwapMenu)
+  }
+}
+/** 选一个换色动作。再点一次同一个动作，回到「换成当前画笔色」。 */
+function pickSwapMode(mode) {
+  swapMode.value = swapMode.value === mode ? 'brush' : mode
+  tool.value = 'swap'
+  closeSwapMenu()
+}
+function openSwapTutorial() {
+  closeSwapMenu()
+  swapTutorialOpen.value = true
+}
 function setSizePopValue(value) {
   setToolSize(value, sizePop.value === 'erase' ? 'erase' : 'paint')
 }
-/** 点工具本体：只切换工具，尺寸卡留给箭头按钮控制 */
+/** 点工具本体：只切换工具。换色回到「换成当前画笔色」，菜单留给箭头。 */
 function onRailTool(key) {
   tool.value = key
+  if (key === 'swap') swapMode.value = 'brush'
 }
 function setBrushSize(value) {
   setToolSize(value, tool.value)
@@ -436,6 +514,9 @@ function onDocPointerDown(e) {
   const inside = (sel) => !!(t && t.closest && t.closest(sel))
   if (sizePop.value) {
     if (!inside('[data-brush-size]') && !inside('[data-tool-size]')) closeSizePop()
+  }
+  if (swapMenu.value) {
+    if (!inside('[data-swap-menu]') && !inside('[data-swap-arrow]')) closeSwapMenu()
   }
   if (boardOpen.value && !inside('[data-cmd-board]')) boardOpen.value = false
   if (brandOpen.value && !inside('[data-cmd-brand]')) brandOpen.value = false
@@ -697,6 +778,7 @@ function openFeedback() {
    按层级从高到低收：选色面板盖在画布上、层级最高，先收它。 */
 function onKeydown(e) {
   if (e.key === 'Escape') {
+    if (swapMenu.value) { closeSwapMenu(); return }
     if (sizePop.value) { closeSizePop(); return }
     if (paletteOpen.value) { closePaletteFly(); return }
     if (boardOpen.value) { boardOpen.value = false; return }
@@ -1331,13 +1413,14 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
         <div class="toolgroup csTools" role="toolbar" aria-label="编辑工具">
           <div
             v-for="t in railTools" :key="t.key"
-            class="csToolWrap" :class="{ 'has-size': t.key === 'paint' || t.key === 'erase' }"
+            class="csToolWrap" :class="{ 'has-size': t.key === 'paint' || t.key === 'erase' || t.key === 'swap' }"
           >
             <button
               type="button" class="tool csTool" :class="{ on: tool === t.key }"
-              :aria-label="coarsePointer ? t.label : t.title" :aria-pressed="tool === t.key"
-              :data-tip="t.label" :data-tip-desc="t.desc" :data-tip-key="coarsePointer ? '' : (t.shortcut || '')"
+              :aria-label="coarsePointer ? t.label : railToolMeta(t).title" :aria-pressed="tool === t.key"
+              :data-tip="t.label" :data-tip-desc="railToolMeta(t).desc" :data-tip-key="coarsePointer ? '' : (t.shortcut || '')"
               :data-tool-key="t.key"
+              :data-swap-mode="t.key === 'swap' ? swapMode : undefined"
               @click="onRailTool(t.key)"
             >
               <Icon :name="t.icon" :size="24" /><span class="toolLabel">{{ t.label }}</span>
@@ -1352,6 +1435,18 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
               :aria-expanded="sizePop === t.key" aria-haspopup="dialog" aria-controls="cs-size-card"
               :aria-label="`${t.label}大小，点开调整（1–5 颗）`"
               @click.stop="toggleToolSize(t.key)"
+            >
+              <Icon name="chevron-right" :size="16" />
+            </button>
+            <!-- 换色右侧的箭头：相近色 / 空豆 / 教程。外观与尺寸箭头同一套。 -->
+            <button
+              v-else-if="t.key === 'swap'"
+              type="button" class="csTool__sizeBtn" :class="{ on: tool === t.key }"
+              data-swap-arrow
+              data-tip="换色菜单" data-tip-desc="自动替换相近色、替换为空豆，或查看教程"
+              :aria-expanded="swapMenu" aria-haspopup="menu" aria-controls="cs-swap-menu"
+              aria-label="换色菜单：自动替换相近色、替换为空豆、查看教程"
+              @click.stop="toggleSwapMenu"
             >
               <Icon name="chevron-right" :size="16" />
             </button>
@@ -1411,7 +1506,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
           <button
             type="button" class="csRail__collapse"
             aria-label="收起绘图工具栏" data-rail-collapse
-            @click="railOpen = false; closePaletteFly(); closeSizePop()"
+            @click="railOpen = false; closePaletteFly(); closeSizePop(); closeSwapMenu()"
           >
             <Icon name="chevron-up" :size="20" />
           </button>
@@ -1437,6 +1532,32 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
           @input="setSizePopValue($event.target.value)" @wheel="onRangeWheel"
         >
         <div class="csSizeCard__foot"><span>1–5 颗</span><span>格 / 颗</span></div>
+      </div>
+
+      <!-- 换色菜单：贴在换色按钮右侧。点一项就选中这个动作，再点格子才替换。 -->
+      <div
+        v-if="consoleMode && swapMenu" id="cs-swap-menu" ref="swapMenuEl"
+        class="csSwapMenu no-print" :style="swapMenuStyle" data-swap-menu
+        role="menu" aria-label="换色菜单"
+      >
+        <button
+          type="button" role="menuitemradio" :aria-checked="swapMode === 'nearest'"
+          @click="pickSwapMode('nearest')"
+        >
+          <span>自动替换相近色</span>
+          <Icon v-if="swapMode === 'nearest'" name="check" :size="14" />
+        </button>
+        <button
+          type="button" role="menuitemradio" :aria-checked="swapMode === 'empty'"
+          @click="pickSwapMode('empty')"
+        >
+          <span>替换为空豆</span>
+          <Icon v-if="swapMode === 'empty'" name="check" :size="14" />
+        </button>
+        <span class="csSwapMenu__sep" aria-hidden="true"></span>
+        <button type="button" role="menuitem" @click="openSwapTutorial">
+          <span>查看教程</span>
+        </button>
       </div>
 
       <!-- 选色面板：从工具轨底部那颗「当前颜色」色块向右滑出。
@@ -1624,6 +1745,22 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
     <!-- 换色：同系列色号矩阵 + 搜索 + 自动相近色 + 实时预览（全站只挂这一个实例，
          打开状态在 useStudio.colorReplace 里，桌面与手机入口共用） -->
     <ColorReplaceDialog />
+
+    <!-- 换色教程：小弹窗，只放这一支带字幕和背景音乐的短视频 -->
+    <BaseDialog v-model="swapTutorialOpen" title="换色教程" size="sm">
+      <div class="swapTutorial">
+        <video
+          :src="swapTutorialSrc"
+          :poster="swapTutorialPoster"
+          controls
+          playsinline
+          autoplay
+          preload="metadata"
+          aria-label="换色工具视频教程，带背景音乐和文字解说"
+        ></video>
+        <p class="swapTutorial__note">点一格，同色的豆一起换成当前颜色、相近色，或变成空豆。字幕和背景音乐都在视频里。</p>
+      </div>
+    </BaseDialog>
 
     <!-- 切换作品 -->
     <BaseDialog v-model="switchOpen" title="我的作品">
@@ -2183,6 +2320,31 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
   .csTool__sizeBtn:hover{background:rgba(26,45,34,.06)}
   .csTool__sizeBtn[aria-expanded="true"]{background:rgba(26,45,34,.10)}
   .csTool__sizeBtn:focus-visible{outline:2px solid var(--cs-ink);outline-offset:-2px}
+  /* 换色菜单：和尺寸卡同一套白卡片，贴在工具轨右缘外侧。 */
+  .csSwapMenu{
+    position:fixed;z-index:60;box-sizing:border-box;width:176px;
+    padding:6px;display:flex;flex-direction:column;gap:2px;
+    background:#fff;border:1px solid #DDE5D8;border-radius:16px;
+    box-shadow:0 3px 16px rgba(26,45,34,.08);
+  }
+  .csSwapMenu button{
+    display:flex;align-items:center;justify-content:space-between;gap:8px;
+    height:36px;padding:0 10px;border:0;border-radius:10px;
+    background:transparent;text-align:left;cursor:pointer;white-space:nowrap;
+    font-family:var(--font-sans);font-size:13px;font-weight:500;line-height:36px;
+    color:#1A2D22;
+  }
+  .csSwapMenu button:hover{background:rgba(26,45,34,.06)}
+  .csSwapMenu button[aria-checked="true"]{background:#C8E63C;font-weight:700}
+  .csSwapMenu button:focus-visible{outline:2px solid #1A2D22;outline-offset:-2px}
+  .csSwapMenu__sep{height:1px;margin:4px 6px;background:#DDE5D8}
+  .swapTutorial video{
+    display:block;width:100%;height:auto;border-radius:12px;background:#142018;
+  }
+  .swapTutorial__note{
+    margin:10px 2px 0;
+    font-family:var(--font-sans);font-size:13px;font-weight:400;line-height:1.5;color:#5C6B62;
+  }
   /* 短屏（900 / 800 高的笔记本）压缩工具轨：整条放得下，图标不被裁掉。
      1440×900 轨道可用 538、1280×800 可用 482，压缩后整条约 425 */
   @media (max-height:960px){
