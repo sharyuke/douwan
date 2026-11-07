@@ -552,6 +552,8 @@ const mobileTools = [
   { key: 'swap', label: '换色', icon: 'arrow-left-right' },
   { key: 'pick', label: '取色', icon: 'pipette' }
 ]
+/* 手机底部只露三颗：画笔 / 橡皮 / 换色。套索留在「更多工具」里，不重复占这一排。 */
+const mobileBarTools = ['paint', 'erase', 'swap'].map(key => mobileTools.find(t => t.key === key))
 
 function openQuick(key) {
   mobileMore.value = 'none'
@@ -1240,7 +1242,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
       <!-- 手机端工具轨：画笔 / 橡皮 / 换色 / 颜色 / 更多工具 -->
       <div v-if="mobileConsole" class="msTools no-print" role="toolbar" aria-label="编辑工具">
         <button
-          v-for="t in mobileTools.slice(0, 3)" :key="t.key" type="button"
+          v-for="t in mobileBarTools" :key="t.key" type="button"
           class="msTool" :class="{ on: tool === t.key }"
           :disabled="!hasPattern" :aria-pressed="tool === t.key"
           @click="pickMobileTool(t.key)"
