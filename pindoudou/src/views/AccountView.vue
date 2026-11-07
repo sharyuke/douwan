@@ -8,9 +8,10 @@
    .ty-body / .ty-label / .ty-caption / .ty-metric / .ty-num），
    页面里不再自己写字号字重 —— 规范见「豆玩 · 文字与字体规范」1:2。
    ========================================================================= */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import CardRedeemPanel from '../components/ui/CardRedeemPanel.vue'
+import BaseDialog from '../components/ui/BaseDialog.vue'
 import LoginDialog from '../components/ui/LoginDialog.vue'
 import Icon from '../components/ui/Icon.vue'
 import {
@@ -23,7 +24,7 @@ import { myOrders, loadMyOrders, ensureBackend, syncServerEntitlements } from '.
 import {
   ALL_FREE, isPro, planLabel, plan, creditsBalance, usage
 } from '../composables/useMembership.js'
-import { projects, projectLimit, options } from '../composables/useStudio.js'
+import { projects, projectLimit, options, deleteProject, duplicateProject } from '../composables/useStudio.js'
 import { favorites, favoriteAssets, ASSET_COUNT } from '../composables/useAssets.js'
 import { inventorySummary, inventoryColors, stockOf, inventoryUpdatedAt } from '../composables/useInventory.js'
 import { getBrand } from '../lib/palettes.js'
@@ -35,6 +36,9 @@ const router = useRouter()
 /* ------------------------------------------------------------------ 账号与订单
    服务端权益（卡密兑换 / 订单发卡）在这里落地：登录后能兑换卡密、看订单与已开通权益。 */
 onMounted(async () => {
+  document.addEventListener('pointerdown', onWorkMenuPointerDown)
+  document.addEventListener('click', onWorkMenuClickCapture, true)
+  document.addEventListener('keydown', onWorkMenuKey)
   await bootstrapDevice()
   await ensureBackend()
   if (isLoggedIn.value) await syncServerEntitlements()
@@ -284,10 +288,74 @@ function workStats(p) {
   }
 }
 
-function openWork(p) {
-  /* 装载交给工作台：它要先按作品的创作模式把当前那份文档收好，
-     直接在这里 openProject 会把另一种模式正在编辑的图纸覆盖掉 */
-  router.push(`/editor/${p.id}`)
+/* 右上角三点：同一时间只展开一张卡。点菜单以外的地方先收起，
+   这一下不要再落到整卡链接上，否则收菜单会顺便进工作台。 */
+const workMenuId = ref('')
+const confirmDeleteId = ref('')
+let suppressCardClick = false
+
+const pendingDelete = computed(() =>
+  projects.value.find(p => p.id === confirmDeleteId.value) || null
+)
+
+function toggleWorkMenu(id) {
+  workMenuId.value = workMenuId.value === id ? '' : id
+}
+
+function closeWorkMenu() {
+  workMenuId.value = ''
+}
+
+function onWorkMenuPointerDown(e) {
+  if (!workMenuId.value) {
+    suppressCardClick = false
+    return
+  }
+  const el = e.target
+  if (el && el.closest && el.closest('[data-work-menu]')) return
+  closeWorkMenu()
+  suppressCardClick = true
+}
+
+function onWorkMenuClickCapture(e) {
+  if (!suppressCardClick) return
+  suppressCardClick = false
+  const link = e.target && e.target.closest && e.target.closest('a.acWork__open')
+  if (!link) return
+  e.preventDefault()
+  e.stopPropagation()
+}
+
+function onWorkMenuKey(e) {
+  if (e.key === 'Escape') closeWorkMenu()
+}
+
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', onWorkMenuPointerDown)
+  document.removeEventListener('click', onWorkMenuClickCapture, true)
+  document.removeEventListener('keydown', onWorkMenuKey)
+})
+
+function startBuild(p) {
+  closeWorkMenu()
+  router.push(`/build/${p.id}`)
+}
+
+function copyWork(p) {
+  closeWorkMenu()
+  duplicateProject(p.id)
+}
+
+function askDeleteWork(p) {
+  closeWorkMenu()
+  confirmDeleteId.value = p.id
+}
+
+function onDeleteWork() {
+  const id = confirmDeleteId.value
+  if (!id) return
+  deleteProject(id)
+  confirmDeleteId.value = ''
 }
 
 /* ------------------------------------------------------------------ 素材收藏 */
@@ -430,25 +498,41 @@ const inventoryUpdatedLabel = computed(() => {
             </div>
 
             <div v-if="visibleWorks.length" class="acWorks">
-              <article v-for="p in visibleWorks" :key="p.id" class="acWork">
-                <div class="acWork__art">
-                  <img v-if="p.thumbnail" :src="p.thumbnail" :alt="p.name">
-                  <div v-else class="acWork__art--empty"><Icon name="image" :size="20" /></div>
-                  <span class="acWork__tag ty-caption is-strong">图纸转换</span>
-                  <RouterLink class="acWork__more" :to="'/editor/' + p.id" :aria-label="`${p.name} 的更多操作`">
+              <article v-for="p in visibleWorks" :key="p.id" class="acWork" :class="{ 'is-menu': workMenuId === p.id }">
+                <RouterLink class="acWork__open" :to="'/editor/' + p.id" :aria-label="`继续创作 ${p.name}`">
+                  <div class="acWork__art">
+                    <img v-if="p.thumbnail" :src="p.thumbnail" alt="">
+                    <div v-else class="acWork__art--empty"><Icon name="image" :size="20" /></div>
+                    <span class="acWork__tag ty-caption is-strong">图纸转换</span>
+                  </div>
+                  <div class="acWork__body">
+                    <h3 class="ty-card acWork__name">{{ p.name }}</h3>
+                    <p class="ty-caption acWork__meta">
+                      {{ workStats(p).size }} · {{ workStats(p).colors }} 色 · {{ num(workStats(p).beads) }} 颗
+                    </p>
+                    <div class="acWork__foot">
+                      <span class="ty-caption">{{ timeAgo(p.updatedAt) }}编辑</span>
+                      <span class="acLink acLink--strong">
+                        继续创作 <Icon name="arrow-right" :size="16" />
+                      </span>
+                    </div>
+                  </div>
+                </RouterLink>
+                <div class="acWork__menu" data-work-menu>
+                  <button
+                    type="button"
+                    class="acWork__more"
+                    :aria-expanded="workMenuId === p.id"
+                    aria-haspopup="menu"
+                    :aria-label="`${p.name} 的更多操作`"
+                    @click="toggleWorkMenu(p.id)"
+                  >
                     <Icon name="ellipsis" :size="16" />
-                  </RouterLink>
-                </div>
-                <div class="acWork__body">
-                  <h3 class="ty-card acWork__name">{{ p.name }}</h3>
-                  <p class="ty-caption acWork__meta">
-                    {{ workStats(p).size }} · {{ workStats(p).colors }} 色 · {{ num(workStats(p).beads) }} 颗
-                  </p>
-                  <div class="acWork__foot">
-                    <span class="ty-caption">{{ timeAgo(p.updatedAt) }}编辑</span>
-                    <button type="button" class="acLink acLink--strong" @click="openWork(p)">
-                      继续创作 <Icon name="arrow-right" :size="16" />
-                    </button>
+                  </button>
+                  <div v-if="workMenuId === p.id" class="acWork__drop" role="menu">
+                    <button type="button" role="menuitem" @click="startBuild(p)">开拼</button>
+                    <button type="button" role="menuitem" @click="copyWork(p)">复制</button>
+                    <button type="button" role="menuitem" class="is-danger" @click="askDeleteWork(p)">删除</button>
                   </div>
                 </div>
               </article>
@@ -694,6 +778,13 @@ const inventoryUpdatedLabel = computed(() => {
     </div>
 
     <LoginDialog v-model="loginOpen" @success="loadAccountData" />
+    <BaseDialog :model-value="!!confirmDeleteId" title="确认删除" size="sm" @update:model-value="confirmDeleteId = ''">
+      <p class="ty-body">删除「{{ pendingDelete ? pendingDelete.name : '这件作品' }}」后无法恢复，作品数据和拼制进度都会一起删掉。</p>
+      <template #footer="{ close }">
+        <button type="button" class="btn btn-secondary" @click="close">取消</button>
+        <button type="button" class="btn danger" @click="onDeleteWork">确认删除</button>
+      </template>
+    </BaseDialog>
   </div>
 </template>
 
@@ -801,10 +892,17 @@ const inventoryUpdatedLabel = computed(() => {
 .acSearch input::placeholder{color:var(--ty-muted)}
 .acWorks{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
 .acWork{
-  display:flex;flex-direction:column;border:1px solid var(--ty-line);border-radius:14px;overflow:hidden;
+  position:relative;display:flex;flex-direction:column;
+  border:1px solid var(--ty-line);border-radius:14px;
   background:var(--ty-surface);transition:var(--t);
 }
+.acWork.is-menu{z-index:2}
 .acWork:hover{border-color:#C9D8BE;box-shadow:0 2px 10px rgba(26,45,34,.06)}
+.acWork__open{
+  display:flex;flex-direction:column;min-width:0;color:inherit;text-decoration:none;
+  border-radius:inherit;overflow:hidden;
+}
+.acWork:has(.acWork__open:focus-visible){outline:2px solid var(--ty-ink);outline-offset:2px}
 .acWork__art{position:relative;aspect-ratio:16/11;background:var(--ty-surface-soft);display:grid;place-items:center}
 .acWork__art img{width:100%;height:100%;object-fit:cover;display:block}
 .acWork__art--empty{color:var(--ty-muted)}
@@ -812,11 +910,30 @@ const inventoryUpdatedLabel = computed(() => {
   position:absolute;left:8px;top:8px;padding:2px 8px;border-radius:99px;
   background:rgba(255,255,255,.92);color:var(--ty-ink);
 }
+.acWork__menu{position:absolute;right:8px;top:8px;z-index:2}
 .acWork__more{
-  position:absolute;right:8px;top:8px;width:26px;height:26px;border-radius:50%;
-  display:grid;place-items:center;background:rgba(255,255,255,.92);color:var(--ty-ink);
+  width:32px;height:32px;padding:0;border:0;border-radius:50%;
+  display:grid;place-items:center;background:rgba(255,255,255,.92);color:var(--ty-ink);cursor:pointer;
 }
-.acWork__more:hover{background:#fff}
+.acWork__more:hover,
+.acWork__more[aria-expanded="true"]{background:#fff}
+.acWork__more:focus-visible{outline:2px solid var(--ty-ink);outline-offset:2px}
+.acWork__drop{
+  position:absolute;top:calc(100% + 6px);right:0;z-index:3;
+  min-width:128px;padding:6px;
+  border:1px solid var(--ty-line);border-radius:12px;background:var(--ty-surface);
+  box-shadow:0 8px 24px rgba(26,45,34,.12);
+  display:flex;flex-direction:column;gap:2px;
+}
+.acWork__drop button{
+  width:100%;height:36px;padding:0 10px;border:0;border-radius:8px;background:transparent;
+  font-family:var(--font-sans);font-size:var(--ty-caption);font-weight:500;
+  line-height:var(--ty-caption-lh);letter-spacing:0;color:var(--ty-ink);
+  text-align:left;cursor:pointer;
+}
+.acWork__drop button:hover,
+.acWork__drop button:focus-visible{background:var(--ty-surface-soft);outline:none}
+.acWork__drop button.is-danger{color:var(--ty-warn)}
 .acWork__body{padding:12px 14px 14px;display:flex;flex-direction:column;gap:2px}
 .acWork__name{margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acWork__meta{margin:0}
