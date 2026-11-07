@@ -10,7 +10,7 @@ const { tip } = useShortcutTip()
 <template>
   <div
     v-if="tip.on"
-    class="stip no-print" :class="{ 'is-out': tip.fading }"
+    class="stip no-print" :class="{ 'is-out': tip.fading, 'is-stack': tip.stack }"
     :style="{ left: tip.left + 'px', top: tip.top + 'px' }"
     role="tooltip"
     data-shortcut-tip
@@ -37,6 +37,8 @@ const { tip } = useShortcutTip()
   opacity:1;transition:opacity .45s ease;
 }
 .stip.is-out{opacity:0}
+/* 上下错开时 top 是标签顶边，不再按中线平移 */
+.stip.is-stack{transform:none}
 .stip__row{display:flex;align-items:center;justify-content:space-between;gap:14px}
 .stip__title{font-size:13px;font-weight:700;line-height:18px;color:#fff;white-space:nowrap}
 .stip__desc{font-size:12px;font-weight:500;line-height:16px;color:rgba(255,255,255,.72)}

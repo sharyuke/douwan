@@ -25,16 +25,23 @@
   else {
     const tr = box(tip)
     const rr = box(rail)
-    if (tr.left < rr.right + 170) fail('offset', { tip: tr.left, rail: rr.right })
-    if (tr.right > innerWidth + 1 || tr.top < 0) fail('inView', tr)
+    if (tr.left < rr.right - 1 || tr.left > rr.right + 24) fail('besideRail', { tip: tr.left, rail: rr.right })
+    if (tr.right > innerWidth + 1 || tr.top < 0 || tr.bottom > innerHeight + 1) fail('inView', tr)
   }
 
   arrow.click()
-  await sleep(80)
+  await sleep(120)
   const menu = document.querySelector('[data-brush-size]')
   const tip2 = document.querySelector('[data-shortcut-tip]')
   if (!menu) fail('menu', false)
-  else if (tip2 && hit(box(tip2), box(menu))) fail('overlap', { tip: box(tip2), menu: box(menu) })
+  else if (!tip2) fail('tipWhileMenu', false)
+  else {
+    const tr = box(tip2)
+    const mr = box(menu)
+    if (hit(tr, mr)) fail('overlap', { tip: tr, menu: mr })
+    const stacked = tr.bottom <= mr.top + 2 || tr.top >= mr.bottom - 2
+    if (!stacked) fail('stacked', { tip: tr, menu: mr })
+  }
 
   await sleep(3100)
   if (document.querySelector('[data-shortcut-tip]')) fail('faded', true)
