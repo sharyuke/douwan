@@ -301,6 +301,8 @@ function onDeskChange(e) { desk.value = e.matches }
 /** 工具的原生 tooltip。电脑端带上快捷键（B / E / G / I…），
     悬停时另有浮动标签写同一份信息。平板 / 手机没有这套键，标题里不写键名。 */
 function toolTitle(t) {
+  /* 竖屏平板没有 Shift，标题里不写「按住 Shift 拖左键画直线」。 */
+  if (!desk.value && t.key === 'paint') return '画笔：点一下格子就改成当前颜色'
   if (!desk.value) return t.title
   return t.shortcut ? `${t.title}（${t.shortcut}）` : t.title
 }
@@ -580,7 +582,7 @@ let painting = false
 let lineStroke = null
 const paintNote = computed(() => (brushStroke.value === 'line'
   ? '从按下的格子拉一条直线（当前工具：画笔）'
-  : '点格子改色，按住 Shift 拖左键画直线（当前工具：画笔）'))
+  : '点格子改色（当前工具：画笔）'))
 
 /* 触屏上的分工：单指 / 笔只编辑，画布固定。
    浏览器默认会把单指拖动解释成滚动（画布跟着手指跑），
@@ -2396,7 +2398,7 @@ defineExpose({
             <button
               v-for="t in tools" :key="t.key"
               class="tool" :class="{ on: tool === t.key }"
-              :title="toolTitle(t)" :aria-label="t.title" :aria-pressed="tool === t.key"
+              :title="toolTitle(t)" :aria-label="desk ? t.title : toolTitle(t)" :aria-pressed="tool === t.key"
               :data-tip="desk ? t.label : (t.key === 'pick' ? '吸色' : null)"
               :data-tip-desc="desk ? (t.desc || '') : (t.key === 'pick' ? '手指长按一格，取这一格的颜色当画笔色' : null)"
               :data-tip-key="desk ? (t.shortcut || '') : null"

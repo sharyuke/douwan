@@ -314,6 +314,9 @@ async function main() {
     const okTip = !!tip && tip.text.includes(label) && (tip.key || '').trim() === key &&
       tip.x >= tip.railRight - 1 && tip.x < tip.vw && tip.y >= 0 && tip.y < tip.vh
     check(`悬停「${label}」浮出标签并标注快捷键 ${key}`, okTip, tip)
+    if (label === '画笔' && tip) {
+      check('电脑端：画笔说明仍写按住 Shift 画直线', /按住 Shift 拖左键画直线/.test(tip.text || ''), tip.text)
+    }
     if (label === '移动' || label === '画笔') {
       const shot = await send('Page.captureScreenshot', { format: 'png' })
       fs.writeFileSync(path.join(OUT, label === '移动' ? 'tip-pan.png' : 'tip-brush.png'), Buffer.from(shot.data, 'base64'))
@@ -504,6 +507,17 @@ async function main() {
         !!gestureTip.pick && /长按一格/.test(gestureTip.pickDesc || '') && /长按一格/.test(pickTip) &&
         /两根手指/.test(gestureTip.undoDesc || ''), { gestureTip, pickTip })
       check('平板：画布提示能看见吸色和撤回', /长按一格吸色/.test(gestureTip.note || '') && /撤回/.test(gestureTip.note || ''), gestureTip)
+      const lineHint = await evalJs(send2, `(() => {
+        const note = document.querySelector('.chartNote .only-lg')
+        const paint = [...document.querySelectorAll('.editPanel .tool')].find(x => (x.textContent || '').replace(/\\s+/g, '') === '画笔')
+        const shown = el => !!el && getComputedStyle(el).display !== 'none' && (!el.parentElement || getComputedStyle(el.parentElement).display !== 'none')
+        return {
+          note: shown(note) ? (note.textContent || '') : '',
+          title: paint ? (paint.getAttribute('title') || '') : ''
+        }
+      })()`)
+      check('平板：画直线不写 Shift 快捷键',
+        lineHint.note.length > 0 && !/Shift/.test(lineHint.note) && !/Shift/.test(lineHint.title), lineHint)
 
       /* 平板锁画布：顶栏不再给缩放按钮，工具行里没有「移动」；
          连隐藏的手机浮控被脚本点到、滚轮事件打上去都不改缩放。 */
@@ -988,11 +1002,13 @@ async function main() {
         const gesture = document.querySelector('.csStatus__gesture')
         const pick = byText('吸色')
         const undo = byText('撤销')
+        const paint = byText('画笔')
         const shown = el => !!el && getComputedStyle(el).display !== 'none'
         return {
           gesture: shown(gesture) ? (gesture.textContent || '') : '',
           pick: pick ? (pick.getAttribute('data-tip-desc') || '') : '',
           undo: undo ? (undo.getAttribute('data-tip-desc') || '') : '',
+          paint: paint ? (paint.getAttribute('data-tip-desc') || '') : '',
           pickKey: pick ? (pick.getAttribute('data-tip-key') || '') : 'missing'
         }
       })()`)
@@ -1000,6 +1016,8 @@ async function main() {
         /长按一格吸色/.test(wideGuide.gesture) && /两指同时点一下撤回/.test(wideGuide.gesture) &&
         /长按一格/.test(wideGuide.pick || '') && /两根手指/.test(wideGuide.undo || '') &&
         !(wideGuide.pickKey || '').trim(), wideGuide)
+      check('横屏平板：画笔说明不写 Shift 画直线',
+        wideGuide.paint.length > 0 && !/Shift/.test(wideGuide.paint), wideGuide.paint)
       const widePainted = await evalJs(send4, `(async () => {
         const S = await window.__douzao.studio()
         const canvas = document.querySelector('.board.editing canvas')

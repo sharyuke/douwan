@@ -384,6 +384,10 @@ function railToolMeta(t) {
   if (t.key === 'paint' && brushStroke.value === 'line') {
     return { ...t, title: '画笔：从按下的格子拉到指针，画一条直线', desc: '从按下的格子拉到指针，画一条直线' }
   }
+  /* 平板和手指设备没有 Shift。直线用菜单，说明里不写快捷键。 */
+  if (t.key === 'paint' && coarsePointer.value) {
+    return { ...t, title: '画笔：点一下格子就改成当前颜色，或在菜单里选直线', desc: '点一下格子就改成当前颜色，或在菜单里选直线' }
+  }
   if (t.key !== 'swap') return t
   const copy = SWAP_MODE_COPY[swapMode.value]
   return copy ? { ...t, ...copy } : t
