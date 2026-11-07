@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   pattern, hasPattern, width, height, zoom, setZoom, tool, brushColorId,
   BRUSH_MAX, toolSizeOf, setToolSize, beadKey,
-  options, currentView, canvasEl, paintAt, paintLine, fillAt, pickAt, shiftPattern, undo, redo,
+  options, currentView, canvasEl, paintAt, paintLine, fillAt, pickAt, shiftPattern, restorePendingPattern, undo, redo,
   canUndo, canRedo, undoDepth, redoDepth, beginEdit, endEdit, cancelEdit, revertEdit,
   mirrorPattern, replaceColorEverywhere,
   stats, sourceUrl, sourceImg, sourceCssFilter, generating, genMs,
@@ -712,6 +712,7 @@ function twoFingerUndoNow() {
   lassoDrag.value = false
   lassoTrace.value = null
   lassoAnchor = null
+  lassoMoveBase = null
   dragging.value = false
   moved = true
   fingerPicked = true
@@ -732,6 +733,7 @@ function startTwoFingerGesture(stage) {
   lassoDrag.value = false
   lassoTrace.value = null
   lassoAnchor = null
+  lassoMoveBase = null
   dragging.value = false
   midPan.value = false
   moved = true
@@ -847,7 +849,10 @@ const lasso = ref(null) // { kind: 'all' } | { kind: 'part', mask, outline }
 const lassoDrag = ref(false) // 正在拖动选中的豆子
 const lassoTrace = ref(null) // 正在画的轨迹，屏幕坐标 [[x, y], ...]
 let lassoAnchor = null // { cellX, cellY, mode: 'move' | 'draw', sx, sy }
-/* 每次真正挪动选区时记下移动了几格。撤销 / 重做按这个把选区退回去。 */
+/* 按下时的局部选区。拖动中每次都从这份掩码加重置后的总位移重算，
+   不要跟着上一步的结果改掩码再挪一格。整张拖动时是 null。 */
+let lassoMoveBase = null
+/* 每次真正挪动选区时记下相对按下时挪了几格。撤销 / 重做按这个把选区退回去。 */
 const lassoShifts = []
 let lassoShiftAt = 0
 
@@ -1101,8 +1106,20 @@ function clearLasso() {
   lassoDrag.value = false
   lassoTrace.value = null
   lassoAnchor = null
+  lassoMoveBase = null
   lassoShifts.length = 0
   lassoShiftAt = 0
+}
+
+/** 按下时的局部选区复制一份。拖动过程里会换成新掩码，底稿不能跟着变。 */
+function clonePart(sel) {
+  if (!sel || sel.kind !== 'part' || !sel.mask) return null
+  return {
+    kind: 'part',
+    mask: sel.mask.slice(),
+    outline: (sel.outline || []).map(([x, y]) => [x, y]),
+    outside: sel.outside ? sel.outside.map(b => ({ x: b.x, y: b.y })) : null
+  }
 }
 
 /** 套索按下：点在豆子上就准备拖整张（或已选中的那一块）；从空格开始则画轨迹。 */
@@ -1127,11 +1144,13 @@ function startLasso(e, stage) {
     if (!inPart) lasso.value = { kind: 'all' }
     lassoDrag.value = true
     lassoTrace.value = null
+    lassoMoveBase = lasso.value && lasso.value.kind === 'part' ? clonePart(lasso.value) : null
     lassoAnchor = { cellX: hit.x, cellY: hit.y, mode: 'move', sx: e.clientX, sy: e.clientY }
     /* 一整次拖动共用一份「按下前」的快照，松手才入历史 */
     beginEdit({ progress: true })
   } else {
     lasso.value = null
+    lassoMoveBase = null
     lassoTrace.value = [[e.clientX, e.clientY]]
     lassoAnchor = { cellX: hit.x, cellY: hit.y, mode: 'draw', sx: e.clientX, sy: e.clientY }
   }
@@ -1153,15 +1172,25 @@ function moveLasso(e) {
   }
   const hit = lassoHit(e, p, { clamp: false })
   if (!hit) return
+  /* dx / dy 相对按下的那一格，不是相对上一格。选区掩码也用按下时的那份。 */
   const dx = hit.x - a.cellX
   const dy = hit.y - a.cellY
-  /* 按下时已经定了是拖整张还是拖这一块。指针跟着豆子离开原来的轮廓
-     仍是同一次拖动，不要中途改成重新画线。 */
-  if (!dx && !dy) return
-  const region = lasso.value && lasso.value.kind === 'part' ? lasso.value : null
+  if (!dx && !dy) {
+    const last = lassoShifts[lassoShiftAt - 1]
+    if (last && last.open) {
+      restorePendingPattern()
+      lassoShifts.pop()
+      lassoShiftAt = lassoShifts.length
+      const cur = pattern.value
+      if (!cur) return
+      lasso.value = lassoMoveBase
+        ? (shiftSelection(lassoMoveBase, 0, 0, cur.width, cur.height) || lassoMoveBase)
+        : (patternHasBeads(cur) ? { kind: 'all' } : null)
+    }
+    return
+  }
+  const region = lassoMoveBase
   if (!shiftPattern(dx, dy, region)) return
-  a.cellX += dx
-  a.cellY += dy
   noteLassoShift(dx, dy)
   const cur = pattern.value
   if (!cur) return
@@ -1191,12 +1220,12 @@ function offscreenBeadAt(p, x, y) {
   return false
 }
 
-/** 同一次拖动里连续跨格，合成一步平移，撤销时一次退回。 */
+/** 记下这一次拖动相对按下时挪了几格。同一笔里后来的跨格覆盖这个数，不累加。 */
 function noteLassoShift(dx, dy) {
   const last = lassoShifts[lassoShiftAt - 1]
   if (last && last.open) {
-    last.dx += dx
-    last.dy += dy
+    last.dx = dx
+    last.dy = dy
     return
   }
   lassoShifts.length = lassoShiftAt
@@ -1235,6 +1264,7 @@ function finishLassoTrace() {
   const trace = lassoTrace.value
   lassoTrace.value = null
   lassoAnchor = null
+  lassoMoveBase = null
   if (!trace) return
   const p = pattern.value
   if (!p) { lasso.value = null; return }
@@ -1417,6 +1447,7 @@ function onPointerUp(e) {
   } else if (lassoAnchor && lassoAnchor.mode === 'draw') finishLassoTrace()
   lassoDrag.value = false
   lassoAnchor = null
+  lassoMoveBase = null
   dragging.value = false
   midPan.value = false
   const stage = stageEl.value
@@ -1466,6 +1497,7 @@ function onPointerCancel(e) {
   lassoDrag.value = false
   lassoTrace.value = null
   lassoAnchor = null
+  lassoMoveBase = null
   dragging.value = false
   midPan.value = false
   /* 系统抢走指针时手势不结算，也不撤回 */
@@ -1893,6 +1925,7 @@ onBeforeUnmount(() => {
   lassoDrag.value = false
   lassoTrace.value = null
   lassoAnchor = null
+  lassoMoveBase = null
   dragging.value = false
 })
 

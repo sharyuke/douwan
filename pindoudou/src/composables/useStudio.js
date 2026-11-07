@@ -21,6 +21,7 @@ import {
 } from '../lib/boardSpec.js'
 import { packPattern, unpackPattern, packProgress, unpackProgress, encodeCells, decodeCells } from '../lib/archive.js'
 import { packCellColors } from '../lib/render.js'
+import { translateBeads } from '../lib/lassoMove.js'
 import { estimateComplexity } from '../lib/complexity.js'
 import { matteLevel, MATTE_LEVELS, estimateMatte } from '../lib/matte.js'
 import { cartoonize, CARTOON_STYLES } from '../lib/cartoon.js'
@@ -2729,7 +2730,9 @@ export function mirrorPattern(axis = 'h') {
  * 选中的豆子落到还留在原地的豆子上时，选中的盖住原地的。
  *
  * 一次拖动是一步可撤销的操作：调用方在按下时 beginEdit({ progress: true })、
- * 松手时 endEdit()，中途每次跨格都复用外层那份快照。
+ * 松手时 endEdit()。拖动中每次跨格都从那份按下前的快照重算，dx / dy 是相对
+ * 按下时的总位移，region 也是按下时的选区。不要在上一步的结果上再挪一格，
+ * 否则选区扫过的没选中豆子会被盖住，挪开后也回不来。
  * 手工修改记录跟着格子走（recordEdits）；拼制进度也跟着被搬走的格子走，
  * 画布外的勾先摘掉，拖回来再挂上。撤销时由快照里的 progress 一起回到拖之前。
  * @returns {boolean} 是否真的挪动了（dx、dy 都是 0，或选区里没有豆，返回 false）
@@ -2747,74 +2750,49 @@ export function shiftPattern(dx, dy, region) {
   const mask = region && region.mask
   const own = editDepth === 0
   if (own) beginEdit({ progress: true })
-  const cells = p.cells
-  const next = Int32Array.from(cells)
-  const picked = []
-  for (let y = 0; y < h; y++) {
-    const row = y * w
-    for (let x = 0; x < w; x++) {
-      const i = row + x
-      if (mask && !mask[i]) continue
-      const k = cells[i]
-      if (k < 0) continue
-      next[i] = EMPTY
-      picked.push({ x, y, k, i })
-    }
-  }
-  /* 已经停在画布外的豆子：全选时一起搬。
-     局部选区只搬 region.outside 里记下的那几颗，避免把别的画布外豆子捎上。 */
-  const parked = []
-  const outsideKey = region && region.outside ? outsideKeys(region.outside) : null
-  const held = Array.isArray(p.offscreen) ? p.offscreen : []
-  for (let i = 0; i < held.length; i++) {
-    const bead = held[i]
-    if (mask && !(outsideKey && outsideKey.has(bead.x + ',' + bead.y))) {
-      parked.push(bead)
-      continue
-    }
-    picked.push({ x: bead.x, y: bead.y, k: bead.k, i: -1, marked: !!bead.marked })
-  }
-  if (!picked.length) {
+  const snap = pendingSnap && pendingSnap.cells && pendingSnap.cells.length === w * h ? pendingSnap : null
+  const cells = snap ? snap.cells : p.cells
+  const held = snap
+    ? (Array.isArray(snap.offscreen) ? snap.offscreen : [])
+    : (Array.isArray(p.offscreen) ? p.offscreen : [])
+  const progress = snap && snap.progress ? new Set(snap.progress) : buildProgress.value
+  const moved = translateBeads({
+    cells, width: w, height: h, offscreen: held,
+    dx, dy, mask, outside: region && region.outside, progress
+  })
+  if (!moved.moved) {
     if (own) cancelEdit()
     return false
   }
-  const progress = buildProgress.value
-  const marks = []
-  for (const bead of picked) {
-    const nx = bead.x + dx
-    const ny = bead.y + dy
-    const marked = bead.i >= 0 ? progress.has(bead.i) : !!bead.marked
-    if (nx < 0 || ny < 0 || nx >= w || ny >= h) {
-      parked.push({ x: nx, y: ny, k: bead.k, marked })
-      continue
-    }
-    next[ny * w + nx] = bead.k
-    if (marked) marks.push(ny * w + nx)
-  }
-  replaceCells(activeKey.value, next, { deferStats: true, offscreen: parked })
+  replaceCells(activeKey.value, moved.cells, { deferStats: true, offscreen: moved.offscreen })
 
   /* 拼制进度按格子下标记。被搬走的那几颗，打勾跟着走；
      暂时停在画布外的勾先摘掉，拖回来时再挂上。没选中的勾留在原地。 */
-  if (progress.size || marks.length) {
-    const lifted = new Set()
-    for (const bead of picked) {
-      if (bead.i >= 0 && progress.has(bead.i)) lifted.add(bead.i)
-    }
-    if (lifted.size || marks.length) {
-      const moved = new Set()
-      for (const i of progress) if (!lifted.has(i)) moved.add(i)
-      for (let i = 0; i < marks.length; i++) moved.add(marks[i])
-      buildProgress.value = moved
+  if (progress.size || moved.marks.length) {
+    const lifted = new Set(moved.lifted)
+    if (lifted.size || moved.marks.length) {
+      const next = new Set()
+      for (const i of progress) if (!lifted.has(i)) next.add(i)
+      for (let i = 0; i < moved.marks.length; i++) next.add(moved.marks[i])
+      buildProgress.value = next
     }
   }
   if (own) return endEdit()
   return true
 }
 
-function outsideKeys(list) {
-  const set = new Set()
-  for (let i = 0; i < list.length; i++) set.add(list[i].x + ',' + list[i].y)
-  return set
+/** 拖动又回到按下的那一格：把画面退回这一笔开始前，编辑事务还开着。 */
+export function restorePendingPattern() {
+  if (editDepth === 0 || !pendingSnap || !pendingSnap.cells) return false
+  const snap = pendingSnap
+  replaceCells(snap.key, snap.cells, {
+    deferStats: true,
+    offscreen: snap.offscreen
+      ? snap.offscreen.map(b => ({ x: b.x, y: b.y, k: b.k, marked: !!b.marked }))
+      : []
+  })
+  if (snap.progress) buildProgress.value = new Set(snap.progress)
+  return true
 }
 
 /** 吸色：把点击处的颜色设为当前画笔色（空格上没有颜色，保持画笔不变） */
