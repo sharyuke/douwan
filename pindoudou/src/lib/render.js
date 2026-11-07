@@ -22,11 +22,14 @@ export const EMPTY_DOT = '#CBD0D8'
 
 /**
  * 画布格线默认色。浅灰，不把豆子颜色压暗，画面主体是图案。
- * 每 10 格的辅助线只比细格线深一档，仍然是浅灰。
- * 导出标版走 opts.theme.grid / theme.bold，不读这里。
+ * 每 10 格的辅助线只比细格线深一档，仍然是浅灰实线。
+ * 细格线在编辑器里是点状虚线（GRID_FINE_DASH）。
+ * 导出标版走 opts.theme.grid / theme.bold，不读这里，细格线仍是实线。
  */
 const GRID_FINE = '#E0E1E6'
 const GRID_BOLD = '#CDCED3'
+/** 圆点直径约 1.5px，点距 4px。lineCap 必须是 round，0 长度的 dash 才会画成圆点。 */
+const GRID_FINE_DASH = [0, 4]
 
 function drawEmptyCell(ctx, x, y, cell) {
   ctx.fillStyle = EMPTY_FILL
@@ -678,10 +681,16 @@ function paintChartOverlay(ctx, g, pattern) {
   const hitCol = x => !region || (x >= region.x - PAD && x <= region.x + region.w + PAD)
   const hitRow = y => !region || (y >= region.y - PAD && y <= region.y + region.h + PAD)
 
-  // 细格线
+  // 细格线。编辑器是点状虚线；导出标版带了 theme.grid，保持实线。
   if (o.grid && cell >= 3.5) {
+    const dotted = !(o.theme && o.theme.grid)
+    ctx.save()
     ctx.strokeStyle = (o.theme && o.theme.grid) || GRID_FINE
-    ctx.lineWidth = 1
+    ctx.lineWidth = dotted ? 1.5 : 1
+    if (dotted) {
+      ctx.lineCap = 'round'
+      ctx.setLineDash(GRID_FINE_DASH)
+    }
     ctx.beginPath()
     for (let i = 0; i <= gw; i++) {
       const v = OX + i * cell + 0.5
@@ -696,6 +705,7 @@ function paintChartOverlay(ctx, g, pattern) {
       ctx.lineTo(OX + gridW, h)
     }
     ctx.stroke()
+    ctx.restore()
   }
 
   // 每 10 格加粗
@@ -1068,10 +1078,13 @@ export function drawBoard(el, pattern, board, {
   }
   resetBrush()
 
-  // 网格
+  // 网格：和主画布同一套点状虚线
   if (grid && cell >= 3.5) {
+    ctx.save()
     ctx.strokeStyle = GRID_FINE
-    ctx.lineWidth = 1
+    ctx.lineWidth = 1.5
+    ctx.lineCap = 'round'
+    ctx.setLineDash(GRID_FINE_DASH)
     ctx.beginPath()
     for (let i = 0; i <= board.w; i++) {
       const v = OX + i * cell + 0.5
@@ -1084,6 +1097,7 @@ export function drawBoard(el, pattern, board, {
       ctx.lineTo(OX + gridW, h)
     }
     ctx.stroke()
+    ctx.restore()
   }
 
   if (codes && cell >= 11) {
