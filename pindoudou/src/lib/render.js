@@ -20,6 +20,14 @@ import { normalizeBoardSize } from './boardSpec.js'
 export const EMPTY_FILL = '#EFF1F4'
 export const EMPTY_DOT = '#CBD0D8'
 
+/**
+ * 画布格线默认色。浅灰，不把豆子颜色压暗，画面主体是图案。
+ * 每 10 格的辅助线只比细格线深一档，仍然是浅灰。
+ * 导出标版走 opts.theme.grid / theme.bold，不读这里。
+ */
+const GRID_FINE = '#E0E1E6'
+const GRID_BOLD = '#CDCED3'
+
 function drawEmptyCell(ctx, x, y, cell) {
   ctx.fillStyle = EMPTY_FILL
   ctx.fillRect(x, y, cell, cell)
@@ -672,7 +680,7 @@ function paintChartOverlay(ctx, g, pattern) {
 
   // 细格线
   if (o.grid && cell >= 3.5) {
-    ctx.strokeStyle = (o.theme && o.theme.grid) || 'rgba(28,28,32,.14)'
+    ctx.strokeStyle = (o.theme && o.theme.grid) || GRID_FINE
     ctx.lineWidth = 1
     ctx.beginPath()
     for (let i = 0; i <= gw; i++) {
@@ -692,7 +700,7 @@ function paintChartOverlay(ctx, g, pattern) {
 
   // 每 10 格加粗
   if (o.bold && cell >= 4) {
-    ctx.strokeStyle = (o.theme && o.theme.bold) || 'rgba(28,28,32,.44)'
+    ctx.strokeStyle = (o.theme && o.theme.bold) || GRID_BOLD
     ctx.lineWidth = Math.max(1, Math.round(cell / 11))
     ctx.beginPath()
     for (let i = 10; i < gw; i += 10) {
@@ -1062,7 +1070,7 @@ export function drawBoard(el, pattern, board, {
 
   // 网格
   if (grid && cell >= 3.5) {
-    ctx.strokeStyle = 'rgba(28,28,32,.16)'
+    ctx.strokeStyle = GRID_FINE
     ctx.lineWidth = 1
     ctx.beginPath()
     for (let i = 0; i <= board.w; i++) {
