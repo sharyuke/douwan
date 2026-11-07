@@ -2391,14 +2391,14 @@ defineExpose({
         <div class="canvasCard__foot">
           <div
             class="toolgroup" role="toolbar" aria-label="编辑工具"
-            @mouseover="desk && onTipOver($event)" @mouseleave="desk && hideTip()"
+            @mouseover="onTipOver($event)" @mouseleave="hideTip()"
           >
             <button
               v-for="t in tools" :key="t.key"
               class="tool" :class="{ on: tool === t.key }"
               :title="toolTitle(t)" :aria-label="t.title" :aria-pressed="tool === t.key"
-              :data-tip="desk ? t.label : null"
-              :data-tip-desc="desk ? (t.desc || '') : null"
+              :data-tip="desk ? t.label : (t.key === 'pick' ? '吸色' : null)"
+              :data-tip-desc="desk ? (t.desc || '') : (t.key === 'pick' ? '手指长按一格，取这一格的颜色当画笔色' : null)"
               :data-tip-key="desk ? (t.shortcut || '') : null"
               @click="pickTool(t.key)"
             >
@@ -2411,6 +2411,8 @@ defineExpose({
             <span
               v-for="h in history" :key="h.key"
               class="toolSlot" :title="historyTitle(h)"
+              :data-tip="!desk && h.key === 'undo' ? '撤销' : null"
+              :data-tip-desc="!desk && h.key === 'undo' ? '两根手指同时点一下，撤回上一步' : null"
             >
               <button
                 class="tool" :aria-label="historyTitle(h)"

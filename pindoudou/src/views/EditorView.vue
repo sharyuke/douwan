@@ -1576,7 +1576,9 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
             <button
               type="button" class="tool csTool" :class="{ on: tool === t.key }"
               :aria-label="coarsePointer ? t.label : railToolMeta(t).title" :aria-pressed="tool === t.key"
-              :data-tip="t.label" :data-tip-desc="railToolMeta(t).desc" :data-tip-key="coarsePointer ? '' : (t.shortcut || '')"
+              :data-tip="t.label"
+              :data-tip-desc="coarsePointer && t.key === 'pick' ? '手指长按一格，取这一格的颜色当画笔色' : railToolMeta(t).desc"
+              :data-tip-key="coarsePointer ? '' : (t.shortcut || '')"
               :data-tool-key="t.key"
               :data-swap-mode="t.key === 'swap' ? swapMode : undefined"
               :data-brush-stroke="t.key === 'paint' ? brushStroke : undefined"
@@ -1628,7 +1630,9 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
           <button
             type="button" class="tool csTool" :aria-label="coarsePointer ? '撤销' : '撤销 (Ctrl+Z)'"
             :disabled="!canUndo"
-            data-tip="撤销" data-tip-desc="撤销上一步操作，含尺寸、色板和参数" :data-tip-key="coarsePointer ? '' : 'Ctrl+Z'"
+            data-tip="撤销"
+            :data-tip-desc="coarsePointer ? '两根手指同时点一下，撤回上一步' : '撤销上一步操作，含尺寸、色板和参数'"
+            :data-tip-key="coarsePointer ? '' : 'Ctrl+Z'"
             @click="undo()"
           >
             <Icon name="undo-2" :size="24" /><span class="toolLabel">撤销</span>
@@ -1849,6 +1853,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
 
     <!-- 画布状态栏：当前状态 · 缩放 · 适应 / 实际大小 -->
     <footer v-if="consoleMode" class="csStatus no-print">
+      <span v-if="lockCanvas" class="csStatus__gesture">长按一格吸色 · 两指同时点一下撤回</span>
       <span class="csStatus__line">{{ statusLine }}</span>
       <span class="csSpacer"></span>
       <span class="csDiv"></span>
@@ -2711,7 +2716,8 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
     font-family:var(--font-sans);font-size:11px;font-weight:400;line-height:18px;letter-spacing:0;
     color:var(--cs-muted);white-space:nowrap;
   }
-  .csStatus__line{overflow:hidden;text-overflow:ellipsis;color:var(--cs-muted)}
+  .csStatus__gesture{flex:0 0 auto;color:var(--cs-ink-2)}
+  .csStatus__line{overflow:hidden;text-overflow:ellipsis;color:var(--cs-muted);min-width:0}
   .csZoom{gap:4px}
   .csZoom .zoomText{
     font-family:var(--font-numeric);font-size:12px;font-weight:500;line-height:var(--ty-caption-lh);letter-spacing:0;

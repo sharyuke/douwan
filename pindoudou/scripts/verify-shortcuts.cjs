@@ -474,6 +474,36 @@ async function main() {
       const tip = await evalJs(send2, `!!document.querySelector('[data-shortcut-tip]')`)
       check('平板：悬停工具不浮出快捷键标签', tip === false, tip)
       await hoverAt(send2, 5, 5)
+      const gestureTip = await evalJs(send2, `(() => {
+        const pick = [...document.querySelectorAll('.editPanel .tool')].find(x => (x.textContent || '').replace(/\\s+/g, '') === '吸色')
+        const undo = document.querySelector('.editPanel [data-tip="撤销"]')
+        const box = el => {
+          const r = el.getBoundingClientRect()
+          return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + Math.min(r.height / 2, 20)) }
+        }
+        const note = document.querySelector('.hintTouch')
+        const shown = el => !!el && getComputedStyle(el).display !== 'none' && (!el.parentElement || getComputedStyle(el.parentElement).display !== 'none')
+        return {
+          pick: pick ? box(pick) : null,
+          undo: undo ? box(undo) : null,
+          pickDesc: pick ? pick.getAttribute('data-tip-desc') : '',
+          undoDesc: undo ? undo.getAttribute('data-tip-desc') : '',
+          note: shown(note) && (note.textContent || '')
+        }
+      })()`)
+      let pickTip = ''
+      if (gestureTip.pick) {
+        await hoverAt(send2, gestureTip.pick.x, gestureTip.pick.y)
+        pickTip = await evalJs(send2, `(() => {
+          const tip = document.querySelector('[data-shortcut-tip]')
+          return tip ? (tip.textContent || '').replace(/\\s+/g, '') : ''
+        })()`)
+        await hoverAt(send2, 5, 5)
+      }
+      check('平板：吸色指引写长按取色，撤销指引写两指',
+        !!gestureTip.pick && /长按一格/.test(gestureTip.pickDesc || '') && /长按一格/.test(pickTip) &&
+        /两根手指/.test(gestureTip.undoDesc || ''), { gestureTip, pickTip })
+      check('平板：画布提示能看见吸色和撤回', /长按一格吸色/.test(gestureTip.note || '') && /撤回/.test(gestureTip.note || ''), gestureTip)
 
       /* 平板锁画布：顶栏不再给缩放按钮，工具行里没有「移动」；
          连隐藏的手机浮控被脚本点到、滚轮事件打上去都不改缩放。 */
@@ -951,6 +981,25 @@ async function main() {
       })()`)
       check('横屏平板：工具上不标快捷键', wideKeys.keys.length === 0, wideKeys)
       check('横屏平板：画布提示是两指撤回', wideKeys.touch === true && wideKeys.wheel === false, wideKeys)
+      const wideGuide = await evalJs(send4, `(async () => {
+        const toggle = document.querySelector('[data-rail-toggle]')
+        if (toggle) { toggle.click(); await new Promise(r => setTimeout(r, 80)) }
+        const byText = (word) => [...document.querySelectorAll('.csTools .tool')].find(b => (b.textContent || '').replace(/\\s+/g, '').includes(word))
+        const gesture = document.querySelector('.csStatus__gesture')
+        const pick = byText('吸色')
+        const undo = byText('撤销')
+        const shown = el => !!el && getComputedStyle(el).display !== 'none'
+        return {
+          gesture: shown(gesture) ? (gesture.textContent || '') : '',
+          pick: pick ? (pick.getAttribute('data-tip-desc') || '') : '',
+          undo: undo ? (undo.getAttribute('data-tip-desc') || '') : '',
+          pickKey: pick ? (pick.getAttribute('data-tip-key') || '') : 'missing'
+        }
+      })()`)
+      check('横屏平板：指引写长按吸色和两指撤回',
+        /长按一格吸色/.test(wideGuide.gesture) && /两指同时点一下撤回/.test(wideGuide.gesture) &&
+        /长按一格/.test(wideGuide.pick || '') && /两根手指/.test(wideGuide.undo || '') &&
+        !(wideGuide.pickKey || '').trim(), wideGuide)
       const widePainted = await evalJs(send4, `(async () => {
         const S = await window.__douzao.studio()
         const canvas = document.querySelector('.board.editing canvas')

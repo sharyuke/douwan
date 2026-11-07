@@ -61,9 +61,19 @@ export function useShortcutTip() {
 
   function placeTip(el) {
     const r = el.getBoundingClientRect()
+    /* 平板底部工具行没有竖轨：标签贴在按钮上方，放不下就贴到下面。 */
+    const rail = el.closest('.csRail')
+    if (!rail) {
+      const width = Math.min(TIP_MAX_W, window.innerWidth - 24)
+      const left = Math.max(12, Math.min(r.left, window.innerWidth - width - 12))
+      const below = r.bottom + TIP_GAP
+      const above = r.top - TIP_GAP - 72
+      const top = above >= 12 ? above : Math.min(below, window.innerHeight - 12 - 72)
+      return { left, top: Math.max(12, top), stack: true }
+    }
     /* 贴在这一栏的右边：工具轨是竖排的一整栏，标签跟着这一栏走，
        不会每换一个按钮就横跳一截。 */
-    const host = el.closest('.csRail') || el.parentElement || el
+    const host = rail
     const hr = host.getBoundingClientRect()
     const left = Math.max(12, Math.min(hr.right + 12, window.innerWidth - TIP_MAX_W - 12))
     const wrap = el.closest && el.closest('.csToolWrap.has-size')
