@@ -11,7 +11,9 @@
      ③-3 手机顶栏「保存」对已保存的画布直接落盘，不再弹名字框；
      ④ 打开旧作品 → 它的图纸还是原来那张（不是新图）；
      ⑤ 回归：打开旧作品改一格再保存 → 仍是同一件作品，不新建、不动别的作品；
-     ⑥ 打开旧作品后拖新图再保存 → 第 3 件作品，前两件都不受影响。
+     ⑥ 打开旧作品后拖新图再保存 → 第 3 件作品，前两件都不受影响；
+     ⑦ 换图前的保存提示：空画布不弹、已有作品必弹；
+        选「取消」= 不保存直接换图，选「保存」= 旧作品落盘、新图仍是一张未保存的新画布。
 
    注意：保存按钮走真实界面（桌面顶栏「保存」；手机顶栏「保存」），
    上传走真实的 file input change，不直接调 saveProject。 */
@@ -29,7 +31,7 @@
     }
     return null
   }
-  const out = { ok: true, steps: [] }
+  const out = { ok: true, steps: [], promptLog: [] }
   const step = (name, pass, info) => {
     out.steps.push({ name, pass, info: info || '' })
     if (!pass) out.ok = false
@@ -76,8 +78,24 @@
   await sleep(150)
   step('起点没有作品', S.projects.value.length === 0, `${S.projects.value.length} 件`)
 
-  /** 造一张纯色 + 角标的图，经真实 file input 载入 */
-  async function upload(name, color, mark) {
+  /** 换图前的保存提示（画布上已有作品时才出现） */
+  const replaceDlg = () => [...document.querySelectorAll('.modal.show .dialog')]
+    .find(d => d.querySelector('[data-audit="replace-save-tip"]')) || null
+
+  /** 按 choice 回答保存提示：'save' 存进「我的作品」再换，'discard' 不保存直接换 */
+  async function answerReplacePrompt(choice) {
+    const dlg = await waitFor(replaceDlg, 2500)
+    if (!dlg) return false
+    const key = choice === 'save' ? 'replace-save-ok' : 'replace-save-discard'
+    const btn = dlg.querySelector(`[data-audit="${key}"]`)
+    if (btn) btn.click()
+    await sleep(400)
+    return true
+  }
+
+  /** 造一张纯色 + 角标的图，经真实 file input 载入。
+      画布上已有作品时，替换前会弹保存提示，按 choice 回答。 */
+  async function upload(name, color, mark, choice = 'discard') {
     const w = 320
     const h = 320
     const cv = document.createElement('canvas')
@@ -97,8 +115,21 @@
     const input = document.querySelector('input[type=file]:not(.libFile)')
     if (!input) return false
     const before = pat()
+    const had = !!(before && before.width > 0)
     input.files = dt.files
     input.dispatchEvent(new Event('change', { bubbles: true }))
+    /* 空画布不该问；已有作品时必须先问 */
+    const prompted = had
+      ? await answerReplacePrompt(choice)
+      : !!(await waitFor(replaceDlg, 300))
+    out.promptLog.push({ name, prompted })
+    if (prompted && !had) {
+      /* 空画布真弹了就点掉，别让后面的步骤全卡住 */
+      const btn = replaceDlg()?.querySelector('[data-audit="replace-save-discard"]')
+      if (btn) btn.click()
+      await sleep(300)
+    }
+    if (had && !prompted) return false
     return !!(await waitFor(() => pat() && pat() !== before && pat().width > 0))
   }
 
@@ -129,7 +160,9 @@
   }
 
   /* ---------------------------------------------------- ① 第一件作品：上传 + 保存 */
-  step('上传第一张图', await upload('probe-old', '#E4572E', 0.5))
+  const up1 = await upload('probe-old', '#E4572E', 0.5)
+  step('上传第一张图', up1)
+  step('空画布上传不弹保存提示', up1 && out.promptLog[0].prompted === false, JSON.stringify(out.promptLog[0]))
   const first = pat()
   const how1 = await saveViaUI()
   step('界面保存可用', !!how1, how1)
@@ -141,7 +174,9 @@
   step('旧作品已落盘', !!recA0 && recA0.length > 100, `${recA0.length} 字符 / ${aSig}`)
 
   /* ------------------------------------------- ② 新拖一张图：与旧作品解除关联 */
-  step('上传第二张图', await upload('probe-new', '#2F6FB4', 0.3))
+  const up2 = await upload('probe-new', '#2F6FB4', 0.3)
+  step('上传第二张图', up2)
+  step('已有作品换图先弹保存提示', up2 && out.promptLog[1].prompted === true, JSON.stringify(out.promptLog[1]))
   step('新图不再挂在旧作品上', S.currentProjectId.value === '', `currentProjectId=${S.currentProjectId.value || '空'}`)
   step('状态回到「未保存」', S.saveStatus.value === '未保存', S.saveStatus.value)
   /* 换图 = 新建画布：地址也收回 /editor，不再停在 /editor/<旧作品> */
@@ -222,7 +257,9 @@
 
   /* --------------------- ⑥ 打开旧作品后拖新图：再保存应另建第 3 件 */
   const recA3 = recText(idA)
-  step('打开旧作品后上传第三张图', await upload('probe-third', '#3FA06A', 0.7))
+  const up3 = await upload('probe-third', '#3FA06A', 0.7)
+  step('打开旧作品后上传第三张图', up3)
+  step('打开旧作品换图同样先弹保存提示', up3 && out.promptLog[2].prompted === true, JSON.stringify(out.promptLog[2]))
   step('第三张图同样解除关联', S.currentProjectId.value === '', `currentProjectId=${S.currentProjectId.value || '空'}`)
   step('打开旧作品换图后地址同样收回新建画布', location.pathname === '/editor', location.pathname)
   const how4 = await saveViaUI()
@@ -231,6 +268,20 @@
   step('保存后是 3 件作品', S.projects.value.length === 3, `${S.projects.value.length} 件`)
   step('第三件是新 id', !!idC && idC !== idA && idC !== idB, `${idC}`)
   step('前两件都没被改写', recText(idA) === recA3 && recText(idB) === recBAfter)
+
+  /* ------------- ⑦ 换图前选「保存」：旧作品落盘，新图仍是一张未保存的新画布 */
+  step('回到旧作品准备换图', S.openProject(idA))
+  await sleep(200)
+  const beforeKeep = pat()
+  const recA4Before = recText(idA)
+  const up4 = await upload('probe-keep', '#7B4BD6', 0.5, 'save')
+  step('选「保存」后新图照样载入', up4)
+  step('选「保存」时也先弹了提示', out.promptLog[3].prompted === true, JSON.stringify(out.promptLog[3]))
+  step('选「保存」后新图是未保存画布', S.currentProjectId.value === '', `currentProjectId=${S.currentProjectId.value || '空'}`)
+  step('选「保存」后作品数不变（存的是原作品）', S.projects.value.length === 3, `${S.projects.value.length} 件`)
+  step('旧作品保存了换图前的画面', recText(idA) !== recA4Before, `${recA4Before.length} → ${recText(idA).length} 字符`)
+  step('新图没有写进旧作品', sig(pat()) !== sig(beforeKeep), `${sig(beforeKeep)} → ${sig(pat())}`)
+  step('选「保存」后地址同样收回新建画布', location.pathname === '/editor', location.pathname)
 
   out.ids = { old: idA, second: idB, third: idC }
   out.persisted = rawList().map(p => ({ id: p.id, name: p.name, updatedAt: p.updatedAt }))

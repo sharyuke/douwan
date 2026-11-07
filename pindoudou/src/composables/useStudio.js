@@ -3372,7 +3372,37 @@ export function svgToImage(svg, w = 200, h = 160) {
   })
 }
 
+/* ---------------------------------------------------------------- 换图前保存提示
+   更换图片 = 新建画布（见 loadImageSource）。画布上已经有作品时，替换前先问一句
+   「要保存当前作品吗」：取消 = 不保存直接换图，保存 = 先存进「我的作品」再换。
+   弹窗由工作台挂载（EditorView），这里只留一个钩子 —— useStudio 不直接渲染 UI。
+   没有挂工作台的入口（首页 / 素材页）按「不保存直接换图」放行。 */
+let replaceConfirmHandler = null
+
+/** 工作台挂上换图前的保存提示。传 null 卸载。 */
+export function setReplaceConfirm(fn) {
+  replaceConfirmHandler = typeof fn === 'function' ? fn : null
+}
+
+/**
+ * 换图前的保存提示。只有画布上已经有作品时才问。
+ * @returns {Promise<boolean>} true = 继续换图；false = 这次换图中止
+ */
+export async function confirmBeforeReplace() {
+  if (!hasPattern.value || !replaceConfirmHandler) return true
+  try {
+    return (await replaceConfirmHandler()) !== false
+  } catch {
+    return false
+  }
+}
+
 export async function useImageFile(file) {
+  /* 文件类型 / 体积先做同步校验，不合格就别让用户先回答「要不要保存」 */
+  if (!file || !/^image\//.test(file.type)) throw new Error('请选择图片文件（JPG / PNG / WebP / GIF）')
+  if (file.size > 12 * 1024 * 1024) throw new Error('图片不能超过 12MB')
+  /* 画布上已有作品：先问要不要保存，再读图 */
+  if (!(await confirmBeforeReplace())) return false
   const { img, url } = await fileToImage(file)
   /* 导入图片属于「图纸转换」这件事。当前如果在自由画布，先把自由画布那份文档收进它的槽位，
      再切到图纸转换来写这份文档 —— 不管入口是上传 / 拖图 / 素材库 / 首页拖图，
@@ -3547,6 +3577,8 @@ function autoFitForSource(img) {
 }
 
 export async function useAsset(asset) {
+  /* 素材同样是「更换图片」：画布上已有作品时先问要不要保存 */
+  if (!(await confirmBeforeReplace())) return false
   const { img, url } = await svgToImage(asset.svg)
   /* 素材库选图同样是「图纸转换」的入口：在自由画布下选素材也要切过去，别污染手绘稿 */
   enterConversionWorkspace()

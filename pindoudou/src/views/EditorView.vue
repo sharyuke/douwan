@@ -29,7 +29,7 @@ import {
   setCanvasCapacity, setBrand,
   undo, redo, canUndo, canRedo,
   openColorReplace, activateCreateMode,
-  sourceRecommend, newCanvasAt
+  sourceRecommend, newCanvasAt, setReplaceConfirm
 } from '../composables/useStudio.js'
 import { EDIT_TOOLS } from '../data/icons.js'
 import { BOARD_SPECS, boardSpecFor } from '../lib/boardSpec.js'
@@ -778,6 +778,8 @@ function openFeedback() {
    按层级从高到低收：选色面板盖在画布上、层级最高，先收它。 */
 function onKeydown(e) {
   if (e.key === 'Escape') {
+    /* 换图前的保存提示开着：Esc 归弹窗（BaseDialog 会关掉它），别顺手收起下面的面板 */
+    if (replaceSaveOpen.value) return
     if (swapMenu.value) { closeSwapMenu(); return }
     if (sizePop.value) { closeSizePop(); return }
     if (paletteOpen.value) { closePaletteFly(); return }
@@ -924,6 +926,9 @@ onBeforeUnmount(() => {
   coarseQuery.removeEventListener('change', onCoarseChange)
   narrowQuery.removeEventListener('change', onNarrowChange)
   tabletQuery.removeEventListener('change', onTabletChange)
+  /* 换图前的保存提示跟着工作台走：卸掉钩子，并把等着的换图流程放掉 */
+  setReplaceConfirm(null)
+  if (replaceSaveResolve) settleReplace(false)
 })
 
 // 切到别的存档（切作品、从作品页打开）时地址变了但组件不会重建，得自己盯住参数
@@ -977,9 +982,57 @@ function onLoginSuccess() {
     } else {
       doSave()
     }
+  } else if (loginReason.value === 'replace-save') {
+    /* 换图前选了「保存」、登录完成：落盘后继续换图 */
+    settleReplace(!!saveProject(undefined, { createMode: 'edit' }))
   }
   loginReason.value = ''
 }
+
+/* ---------------------------------------------------------------- 换图前的保存提示
+   更换图片 = 新建画布（见 useStudio 的 loadImageSource）。画布上已经有作品时，
+   替换前先问一句：要保存当前作品吗？
+     · 取消 = 不保存，直接换上新图片；
+     · 保存 = 先把当前作品存进「我的作品」，再换上新图片。
+   入口统一在 useStudio 的 useImageFile / useAsset：桌面命令栏、手机「换图」、
+   画布拖图、左栏上传、素材库都经过它们。 */
+const replaceSaveOpen = ref(false)
+let replaceSaveResolve = null
+
+/** 收掉提示并把结果交给等着的换图流程 */
+function settleReplace(proceed) {
+  replaceSaveOpen.value = false
+  const resolve = replaceSaveResolve
+  replaceSaveResolve = null
+  if (resolve) resolve(proceed)
+}
+
+/** 「保存」：先落盘（未登录先登录），再继续换图 */
+function chooseReplaceSave() {
+  replaceSaveOpen.value = false
+  if (needAccount.value) {
+    loginReason.value = 'replace-save'
+    loginOpen.value = true
+    return
+  }
+  /* 不走 doSave()：那里会把地址改成 /editor/<id>，紧接着换图又收回 /editor，
+     来回两次导航会重新装载旧作品。作品已经进「我的作品」，地址交给换图收回。 */
+  settleReplace(!!saveProject(undefined, { createMode: 'edit' }))
+}
+
+/* 登录框被关掉、没登录成功：这次换图一起中止，别把没保存的作品顶掉 */
+watch(loginOpen, open => {
+  if (open || loginReason.value !== 'replace-save' || !replaceSaveResolve) return
+  loginReason.value = ''
+  settleReplace(false)
+})
+
+/* 工作台挂上提示。卸载时收掉，别把等着的换图流程永远挂在 await 上。 */
+setReplaceConfirm(() => new Promise(resolve => {
+  if (!hasPattern.value) { resolve(true); return }
+  replaceSaveResolve = resolve
+  replaceSaveOpen.value = true
+}))
 
 /* ---------------------------------------------------------------- 手机端保存
    手机顶栏不放作品名，保存时再问名字：预填当前名字，确认后落盘并更新地址。
@@ -1658,6 +1711,21 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
     <!-- 未登录时的登录框：保存被拦下来时说明「登录后才能保存」，
          登录成功后自动把那次保存补上；关掉弹窗就回到工作台。 -->
     <LoginDialog v-model="loginOpen" :reason="loginReason" @success="onLoginSuccess" />
+
+    <!-- 换图前的保存提示：取消 = 不保存直接换图，保存 = 先存进「我的作品」再换。
+         层级压过素材库等命令弹窗（同样是 z-index 200），选完素材才弹时不会被盖住。 -->
+    <BaseDialog
+      v-model="replaceSaveOpen" title="保存当前作品" size="sm" :layer="210"
+      @close="settleReplace(false)"
+    >
+      <p data-audit="replace-save-tip" style="font-size:var(--fs-sm);line-height:var(--ty-body-lh);color:var(--ink-2)">
+        更换图片会新建一张画布。要先把当前作品保存到「我的作品」吗？不保存会直接换上新图片。
+      </p>
+      <template #footer>
+        <button class="btn btn-secondary" data-audit="replace-save-discard" @click="settleReplace(true)">取消</button>
+        <button class="btn primary" data-audit="replace-save-ok" @click="chooseReplaceSave">保存</button>
+      </template>
+    </BaseDialog>
 
     <!-- 手机端弹层：只显示命令对应的那张卡，底部升起 -->
     <BaseDialog v-model="mobilePanelOpen" :title="mobilePanelTitle" sheet>
