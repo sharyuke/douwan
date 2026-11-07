@@ -1520,7 +1520,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
           <button
             type="button" class="tool csTool" :aria-label="coarsePointer ? '撤销' : '撤销 (Ctrl+Z)'"
             :disabled="!canUndo"
-            data-tip="撤销" data-tip-desc="撤销上一步" :data-tip-key="coarsePointer ? '' : 'Ctrl+Z'"
+            data-tip="撤销" data-tip-desc="撤销上一步操作，含尺寸、色板和参数" :data-tip-key="coarsePointer ? '' : 'Ctrl+Z'"
             @click="undo()"
           >
             <Icon name="undo-2" :size="24" /><span class="toolLabel">撤销</span>

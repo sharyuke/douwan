@@ -110,7 +110,7 @@ function historyTitle(h) {
   const base = desk.value ? h.title : h.title.replace(/\s*\([^)]*\)\s*$/, '')
   if (!n) {
     return isUndo
-      ? `${base} · 现在没有可撤销的操作：在图纸上点几格、拖一笔试试`
+      ? `${base} · 现在没有可撤销的操作：画一笔，或改一下尺寸、色板、参数`
       : `${base} · 现在没有可重做的操作：撤销之后才有`
   }
   return `${base} · 可${isUndo ? '撤销' : '重做'} ${n} 步`

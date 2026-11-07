@@ -249,6 +249,9 @@ export const canvasEl = shallowRef(null)
 export const lastSearch = ref(null)
 
 const undoStack = []
+/** 操作台一步（换尺寸 / 换色板 / 换方案 / 改参数）包着的时候 > 0。
+ *  里面的重新生成不再清掉已经记下的步骤。 */
+let operationDepth = 0
 const redoStack = []
 
 /* ------------------------------------------------------------------ 派生 */
@@ -1434,13 +1437,15 @@ function remapVariantsToBrand(brandId, colors, fromBrand) {
  * 画布会继续印着旧色号，而色板面板已经列着新品牌。三条选色板入口
  * （命令栏下拉 / 平板右栏 / 色板卡 / 手机色板抽屉）都走这里。
  *
- * 旧品牌的撤销步骤在换色板后没有意义（快照里的色板对象对不上新品牌），
- * 所以清空撤销 / 重做栈；手工修改记录与修改层保留，并一起换成新色号。
+ * 换色板是操作台上的一步：撤销回到换之前的品牌、色号和图纸。
+ * 手工修改记录与修改层跟着这一步一起换成新色号，撤销时整份退回。
  */
 export function setBrand(brandId) {
   if (!brandId || brandId === options.brandId) return false
   /* 换色预览开着时先取消：预览事务的快照指向旧色板，不能跨品牌收口 */
   cancelColorReplace()
+  beginOperation()
+  try {
   const fromBrand = options.brandId
   options.brandId = brandId
   const colors = availableColors.value
@@ -1452,13 +1457,15 @@ export function setBrand(brandId) {
   }
   brandTargetColors[brandId] = options.targetColors
   const { changed, after, restored } = remapVariantsToBrand(brandId, colors, fromBrand)
-  clearUndoStacks()
   if (changed || restored) saveStatus.value = '未保存'
   const name = getBrand(brandId).name.replace(/\s*套装$/, '')
   if (changed) toastOk(`已按 ${name}重新匹配 ${changed} 颗豆${after ? `（${after} 色）` : ''}`)
   else if (restored) toastOk(`已恢复 ${name} 色板${after ? `（${after} 色）` : ''}`)
   else toastOk(`已切换到 ${name} 色板${after ? `（${after} 色）` : ''}`)
   return true
+  } finally {
+    endOperation()
+  }
 }
 
 /**
@@ -1534,15 +1541,27 @@ export const currentMatteLevel = computed(() => matteLevel(options.matteLevel))
  * 参数变了必须重跑生成，否则用户看到的还是旧图案，会以为开关没生效。
  */
 export function setRemoveBg(on) {
-  options.removeBg = !!on
-  if (!sourceImg.value) return false
-  return regenerate()
+  if (!!on === !!options.removeBg) return false
+  beginOperation()
+  try {
+    options.removeBg = !!on
+    if (!sourceImg.value) return false
+    return regenerate()
+  } finally {
+    endOperation()
+  }
 }
 
 export function setMatteLevel(key) {
-  options.matteLevel = key
-  if (!options.removeBg || !sourceImg.value) return false
-  return regenerate()
+  if (key === options.matteLevel) return false
+  beginOperation()
+  try {
+    options.matteLevel = key
+    if (!options.removeBg || !sourceImg.value) return false
+    return regenerate()
+  } finally {
+    endOperation()
+  }
 }
 
 /* ------------------------------------------------- 卡通化（照片 → 卡通形象） */
@@ -1593,23 +1612,35 @@ export const cartoonInfo = computed(() => {
  * 会以为开关没生效（抠图那边踩过同一个坑）。
  */
 export function setCartoon(on) {
-  options.cartoon = !!on
-  previewMode.value = options.cartoon ? 'cartoon' : 'source'
-  if (!sourceImg.value) {
-    if (options.cartoon) toastWarn('先上传一张图片，「卡通化」会在生成时生效')
-    cartoonPreviewUrl.value = ''
-    return false
+  if (!!on === !!options.cartoon) return false
+  beginOperation()
+  try {
+    options.cartoon = !!on
+    previewMode.value = options.cartoon ? 'cartoon' : 'source'
+    if (!sourceImg.value) {
+      if (options.cartoon) toastWarn('先上传一张图片，「卡通化」会在生成时生效')
+      cartoonPreviewUrl.value = ''
+      return false
+    }
+    refreshCartoonPreview()
+    return regenerate()
+  } finally {
+    endOperation()
   }
-  refreshCartoonPreview()
-  return regenerate()
 }
 
 export function setCartoonStyle(key) {
   if (!CARTOON_STYLES.some(s => s.key === key)) return false
-  options.cartoonStyle = key
-  if (!options.cartoon || !sourceImg.value) return false
-  refreshCartoonPreview()
-  return regenerate()
+  if (key === options.cartoonStyle) return false
+  beginOperation()
+  try {
+    options.cartoonStyle = key
+    if (!options.cartoon || !sourceImg.value) return false
+    refreshCartoonPreview()
+    return regenerate()
+  } finally {
+    endOperation()
+  }
 }
 
 /**
@@ -1723,6 +1754,11 @@ export const stats = computed(() => {
 
    ④ 空操作不留历史：点了一下原色、在同一格里拖动，cells 没变就不入栈，
       否则用户点「撤销」会看到画面纹丝不动，以为按钮坏了。
+
+   ⑤ 工具栏以外的操作（换尺寸、换底板、换色板、换方案、改颜色数 / 抠图 /
+      卡通 / 适应方式、裁切原图、恢复方案）各记一步。快照留着改之前的整份
+      方案和参数，所以格子数变了也能退回去。换图、打开存档、清空工作区
+      仍是一份新图纸，旧步骤清掉。
    ------------------------------------------------------------------ */
 
 /* 撤销步数上限。小画布按步数（60 步足够用），大画布改成按**内存预算**折算：
@@ -1898,7 +1934,7 @@ export function endEdit() {
   /* 这一笔已经落在格子上。去抖写一份草稿，刷新时按这一笔恢复。 */
   scheduleEditDraft()
   undoStack.push(snap)
-  if (undoStack.length > historyLimit()) undoStack.shift()
+  trimUndo()
   redoStack.length = 0
   saveStatus.value = '未保存'
   /* 真的改动了 ⇒ 这张图纸带手工修改，模式切换 / 参数重算要拿它做保护判断 */
@@ -1939,20 +1975,24 @@ export function revertEdit() {
   return restored
 }
 
-/** 只清撤销 / 重做栈。格子整体挪位但图纸仍是用户手改的那张时用它（manualEdited 必须保留） */
+/** 只清撤销 / 重做栈。格子整体挪位但图纸仍是用户手改的那张时用它（manualEdited 必须保留）。
+ *  包在操作台一步里时不清：那一步自己的快照会把旧图纸留住。 */
 function clearUndoStacks() {
-  undoStack.length = 0
-  redoStack.length = 0
   editDepth = 0
   pendingSnap = null
+  if (operationDepth > 0) return
+  undoStack.length = 0
+  redoStack.length = 0
   syncHistoryFlags()
 }
 
-/** 清空历史（重新生成 / 换方案 / 打开存档时用：图纸换了，旧步骤没有意义） */
+/** 清空历史（换图 / 打开存档 / 清空工作区：图纸换了一份，旧步骤没有意义）。
+ *  包在操作台一步里时只把「手改过」放下，栈留给这一步收口。 */
 function clearHistory() {
   clearUndoStacks()
   /* 重新生成出来的图是「机器画的」，不带任何手工修改 */
   manualEdited.value = false
+  if (operationDepth === 0) commitSettled()
 }
 
 /** 挂起的统计重算（哪一份方案还没算），见 replaceCells 的说明 */
@@ -2030,21 +2070,21 @@ function applySnapshot(snap) {
 export function undo() {
   /* 拖笔 / 换色预览这类开着的事务不能被撤销插进来：
      否则会把「改到一半」的中间态写进历史，收口时快照对不上 */
-  if (editDepth > 0) return false
+  if (editDepth > 0 || operationDepth > 0) return false
   while (undoStack.length) {
     const snap = undoStack.pop()
-    const current = snapshotOf(snap.key)
+    const current = snap.kind === 'workspace' ? captureOperation() : snapshotOf(snap.key)
     /* 镜像的快照带着「翻之前」的拼制进度；重做要回到翻之后的那一份 */
-    const progressNow = snap.progress ? Uint32Array.from(buildProgress.value) : null
-    if (!applySnapshot(snap)) continue
+    const progressNow = snap.kind === 'workspace' || !snap.progress ? null : Uint32Array.from(buildProgress.value)
+    if (!applyHistorySnap(snap)) continue
     /* 重做要回到「刚撤销掉的那个状态」，所以先记当前状态再还原 */
     if (current) {
       if (progressNow) current.progress = progressNow
       redoStack.push(current)
     }
-    /* 正常情况下历史只属于当前方案（换方案会清空历史）；
-       万一真出现跨方案的历史，就跟着切过去，免得「撤销了但画面没动」 */
-    if (snap.key !== activeKey.value && variants.value.some(x => x.key === snap.key)) {
+    /* 格子级快照万一跨了方案，跟着切过去，免得「撤销了但画面没动」。
+       换方案本身是工作区快照，还原时 activeKey 已经回去了。 */
+    if (snap.kind !== 'workspace' && snap.key !== activeKey.value && variants.value.some(x => x.key === snap.key)) {
       activeKey.value = snap.key
     }
     saveStatus.value = '未保存'
@@ -2057,17 +2097,18 @@ export function undo() {
 
 /** 重做 */
 export function redo() {
-  if (editDepth > 0) return false
+  if (editDepth > 0 || operationDepth > 0) return false
   while (redoStack.length) {
     const snap = redoStack.pop()
-    const current = snapshotOf(snap.key)
-    const progressNow = snap.progress ? Uint32Array.from(buildProgress.value) : null
-    if (!applySnapshot(snap)) continue
+    const current = snap.kind === 'workspace' ? captureOperation() : snapshotOf(snap.key)
+    const progressNow = snap.kind === 'workspace' || !snap.progress ? null : Uint32Array.from(buildProgress.value)
+    if (!applyHistorySnap(snap)) continue
     if (current) {
       if (progressNow) current.progress = progressNow
       undoStack.push(current)
+      trimUndo()
     }
-    if (snap.key !== activeKey.value && variants.value.some(x => x.key === snap.key)) {
+    if (snap.kind !== 'workspace' && snap.key !== activeKey.value && variants.value.some(x => x.key === snap.key)) {
       activeKey.value = snap.key
     }
     saveStatus.value = '未保存'
@@ -2077,6 +2118,179 @@ export function redo() {
   syncHistoryFlags()
   return false
 }
+
+/* ------------------------------------------------ 操作台一步（工作区快照）
+   工具栏的一笔只存当前方案的格子。换尺寸 / 换色板 / 换方案会把整份方案换掉，
+   格子快照对不上，所以另存改之前的方案数组和参数。方案对象之后只被整份替换、
+   不就地改字段，快照留着当时的引用就能还原。 */
+
+const OPERATION_OPTION_KEYS = [
+  'canvasW', 'canvasH', 'canvasMaxW', 'canvasMaxH', 'brandId', 'targetColors',
+  'fit', 'dither', 'cleanup', 'enhance', 'removeBg', 'matteLevel',
+  'cartoon', 'cartoonStyle', 'beadKey'
+]
+
+/** 最近一次落定的参数。滑杆先改 options 再调用生成，快照要的是改之前的值。 */
+let settledControls = null
+let settledBrandTargets = null
+
+function readControls() {
+  const c = {}
+  for (const k of OPERATION_OPTION_KEYS) c[k] = options[k]
+  c.useInventory = useInventory.value
+  c.inventoryMode = inventoryMode.value
+  c.previewMode = previewMode.value
+  return c
+}
+
+function commitSettled() {
+  settledControls = readControls()
+  settledBrandTargets = { ...brandTargetColors }
+}
+
+function sameProgress(a, b) {
+  if (a === b) return true
+  if (!a || !b || a.size !== b.size) return false
+  for (const x of a) if (!b.has(x)) return false
+  return true
+}
+
+/** 改之前 / 重做用的整份工作区。方案数组是当时的引用。 */
+function captureOperation() {
+  return {
+    kind: 'workspace',
+    variants: variants.value,
+    activeKey: activeKey.value,
+    manualEdited: manualEdited.value,
+    brushColorId: brushColorId.value,
+    buildProgress: new Set(buildProgress.value),
+    sourceImg: sourceImg.value,
+    sourceUrl: sourceUrl.value,
+    sourceName: sourceName.value,
+    sourceKind: sourceKind.value,
+    sourceAspect: sourceAspect.value,
+    sourceFromPattern: sourceFromPattern.value,
+    sourceSnapshot,
+    rebuildSourceGrid,
+    rawSnapshotImg,
+    controls: readControls(),
+    brandTargets: { ...brandTargetColors }
+  }
+}
+
+function controlsDiffer(saved, now) {
+  const keys = saved ? Object.keys(saved) : []
+  for (const k of keys) if (saved[k] !== now[k]) return true
+  return false
+}
+
+function sameOperation(snap) {
+  if (!snap) return true
+  if (snap.variants !== variants.value) return false
+  if (snap.activeKey !== activeKey.value) return false
+  if (snap.manualEdited !== manualEdited.value) return false
+  if (snap.brushColorId !== brushColorId.value) return false
+  if (!sameProgress(snap.buildProgress, buildProgress.value)) return false
+  if (snap.sourceImg !== sourceImg.value || snap.sourceUrl !== sourceUrl.value) return false
+  if (snap.sourceFromPattern !== sourceFromPattern.value) return false
+  if (snap.sourceAspect !== sourceAspect.value) return false
+  if (controlsDiffer(snap.controls, readControls())) return false
+  return true
+}
+
+function restoreBrandTargets(saved) {
+  const next = saved || {}
+  for (const k of Object.keys(brandTargetColors)) {
+    if (!Object.prototype.hasOwnProperty.call(next, k)) delete brandTargetColors[k]
+  }
+  Object.assign(brandTargetColors, next)
+}
+
+function restoreOperation(snap) {
+  variants.value = snap.variants
+  activeKey.value = snap.activeKey
+  manualEdited.value = snap.manualEdited
+  brushColorId.value = snap.brushColorId
+  buildProgress.value = new Set(snap.buildProgress || [])
+  sourceImg.value = snap.sourceImg
+  sourceUrl.value = snap.sourceUrl
+  sourceName.value = snap.sourceName
+  sourceKind.value = snap.sourceKind
+  sourceAspect.value = snap.sourceAspect
+  sourceFromPattern.value = snap.sourceFromPattern
+  sourceSnapshot = snap.sourceSnapshot
+  rebuildSourceGrid = snap.rebuildSourceGrid
+  rawSnapshotImg = snap.rawSnapshotImg
+  const c = snap.controls || {}
+  for (const k of OPERATION_OPTION_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(c, k)) options[k] = c[k]
+  }
+  if (Object.prototype.hasOwnProperty.call(c, 'useInventory')) useInventory.value = c.useInventory
+  if (Object.prototype.hasOwnProperty.call(c, 'inventoryMode')) inventoryMode.value = c.inventoryMode
+  if (Object.prototype.hasOwnProperty.call(c, 'previewMode')) previewMode.value = c.previewMode
+  restoreBrandTargets(snap.brandTargets)
+  if (options.cartoon && sourceImg.value) refreshCartoonPreview()
+  else cartoonPreviewUrl.value = ''
+  saveStatus.value = '未保存'
+  scheduleEditDraft()
+  commitSettled()
+  return true
+}
+
+function applyHistorySnap(snap) {
+  if (snap && snap.kind === 'workspace') return restoreOperation(snap)
+  return applySnapshot(snap)
+}
+
+function snapWeight(snap) {
+  if (!snap || snap.kind !== 'workspace' || !snap.variants) return 1
+  return Math.max(1, snap.variants.length)
+}
+
+function trimUndo() {
+  const limit = historyLimit()
+  let weight = 0
+  for (let i = 0; i < undoStack.length; i++) weight += snapWeight(undoStack[i])
+  while (undoStack.length > 1 && weight > limit) {
+    weight -= snapWeight(undoStack[0])
+    undoStack.shift()
+  }
+}
+
+/** 开始操作台上的一步。可以嵌套：换底板里再改成品尺寸，只留最外层那一步。 */
+function beginOperation() {
+  if (operationDepth === 0) {
+    const snap = captureOperation()
+    /* 参数可能已经写成新值（滑杆先改 v-model）。用上次落定的值当「改之前」。 */
+    if (settledControls) snap.controls = { ...settledControls }
+    if (settledBrandTargets) snap.brandTargets = { ...settledBrandTargets }
+    pendingOp = snap
+  }
+  operationDepth++
+}
+
+/** 这一步结束。参数或图纸真有变化才入栈。 */
+function endOperation() {
+  if (operationDepth === 0) return false
+  operationDepth--
+  if (operationDepth > 0) return false
+  const snap = pendingOp
+  pendingOp = null
+  const changed = !!snap && !sameOperation(snap)
+  if (changed) {
+    undoStack.push(snap)
+    trimUndo()
+    redoStack.length = 0
+    saveStatus.value = '未保存'
+    syncHistoryFlags()
+  }
+  commitSettled()
+  return changed
+}
+
+let pendingOp = null
+
+commitSettled()
 
 function recalcStats(p) {
   /* 先修剪色板：手动擦掉某种颜色之后，色板里会留下"一颗豆都没有"的死色，
@@ -2929,7 +3143,12 @@ export async function yieldForBusyPaint() {
  * keepSizeCache：换尺寸那条路要保留别的尺寸的缓存（见 setCanvasSize）；
  * 其它调用（换图 / 改参数 / 恢复方案）都让旧尺寸的结果作废，只记当前尺寸。
  */
-export function regenerate({ silent = false, keys, keepSizeCache = false } = {}) {
+export function regenerate({ silent = false, keys, keepSizeCache = false, history = 'record' } = {}) {
+  /* 换图 / 打开新图纸传 history:'reset'，旧步骤清掉。
+     其余调用是操作台上的一步；已经包在外层（换尺寸、抠图）里时不再另记一步。 */
+  const record = history !== 'reset' && operationDepth === 0
+  if (record) beginOperation()
+  try {
   const gw0 = Math.min(options.canvasW, maxCells.value, canvasCapW.value)
   const gh0 = Math.min(options.canvasH, maxCells.value, canvasCapH.value)
   const img = sourceImageForGenerate(gw0, gh0)
@@ -3064,6 +3283,9 @@ export function regenerate({ silent = false, keys, keepSizeCache = false } = {})
   } finally {
     generating.value = false
   }
+  } finally {
+    if (record) endOperation()
+  }
 }
 
 /** 只重算当前方案（编辑参数时用，保留其它方案不动） */
@@ -3129,9 +3351,15 @@ export function regenerateActive() {
 
 export function selectVariant(key) {
   if (!variants.value.some(v => v.key === key)) return
-  activeKey.value = key
-  /* 换方案等于换了一张图纸：旧方案的撤销步骤套到新方案上没有意义 */
-  clearHistory()
+  if (key === activeKey.value) return
+  /* 换方案是操作台上的一步：撤销回到刚才那个方案，之前画的步骤还留着 */
+  beginOperation()
+  try {
+    activeKey.value = key
+    saveStatus.value = '未保存'
+  } finally {
+    endOperation()
+  }
 }
 
 /* ------------------------------------------------------------------ 源图载入 */
@@ -3248,16 +3476,21 @@ export async function cropSource(rect) {
   } catch {
     return false
   }
-  sourceImg.value = next
-  sourceUrl.value = url
-  sourceAspect.value = w / h
-  sourceFromPattern.value = false
-  rebuildSourceGrid = null
-  rawSnapshotImg = null
-  sourceSnapshot = makeSourceSnapshot(next)
-  cartoonPreviewUrl.value = ''
-  regenerate()
-  return true
+  beginOperation()
+  try {
+    sourceImg.value = next
+    sourceUrl.value = url
+    sourceAspect.value = w / h
+    sourceFromPattern.value = false
+    rebuildSourceGrid = null
+    rawSnapshotImg = null
+    sourceSnapshot = makeSourceSnapshot(next)
+    cartoonPreviewUrl.value = ''
+    regenerate()
+    return true
+  } finally {
+    endOperation()
+  }
 }
 
 /**
@@ -3413,7 +3646,7 @@ export async function useImageFile(file) {
   /* 手机上成功不再弹长 toast（画布上方那张「已生成图纸」卡已去掉）；
      只有抠背景没生效这种需要用户知道的失败才补一条短提示。 */
   const mobile = isMobileViewport()
-  const ok = regenerate({ silent: mobile })
+  const ok = regenerate({ silent: mobile, history: 'reset' })
   /* 导入图像后回到拼豆图纸：图纸转换模式进来时停在「原图」（先调原图再生成），
      换图 / 拖图完成后如果还停在那儿，用户看到的仍是原图，会以为图纸没生成。
      生成失败就留在原图，让用户看清是哪张图出的问题。 */
@@ -3612,7 +3845,7 @@ export async function useAsset(asset) {
   }
   /* 手机上不弹「已生成 N 个方案」长提示：它会盖住画布中央，
      而选完素材后图案本身就换好了，不需要再用 toast 确认。 */
-  const ok = regenerate({ silent: isMobileViewport() })
+  const ok = regenerate({ silent: isMobileViewport(), history: 'reset' })
   /* 选素材也是导入图像：同样回到拼豆图纸，不停在原图（见 useImageFile 的说明） */
   if (ok) currentView.value = 'pattern'
   if (ok) scheduleEditDraft()
@@ -5218,6 +5451,8 @@ function applyCanvasSize(w, h, { silent = false, announce = true } = {}) {
       : `当前套餐单边最大 ${max} 格，升级 Pro 可到 ${MAX_CELLS} 格（按规格一块一块加，104 × 9 = 936 这种）`, 'warn')
   }
   if (cw === options.canvasW && ch === options.canvasH) return
+  beginOperation()
+  try {
   const prevW = options.canvasW
   const prevH = options.canvasH
   options.canvasW = cw
@@ -5298,6 +5533,9 @@ function applyCanvasSize(w, h, { silent = false, announce = true } = {}) {
     return r
   }
   return null
+  } finally {
+    endOperation()
+  }
 }
 
 /**
@@ -5313,6 +5551,8 @@ export function setCanvasCapacity(w, h, { silent = false, announce = true } = {}
   const cw = Math.max(1, Math.min(max, Math.round(w) || 1))
   const ch = Math.max(1, Math.min(max, Math.round(h) || 1))
   if (cw === options.canvasMaxW && ch === options.canvasMaxH) return false
+  beginOperation()
+  try {
   options.canvasMaxW = cw
   options.canvasMaxH = ch
   const aw = Math.min(options.canvasW, cw)
@@ -5332,6 +5572,9 @@ export function setCanvasCapacity(w, h, { silent = false, announce = true } = {}
     scheduleEditDraft()
   }
   return true
+  } finally {
+    endOperation()
+  }
 }
 
 /** 一键可拼性优化（PRD P0 AI优化） */
@@ -5341,12 +5584,17 @@ export function optimizeBuildability() {
     toastWarn(gate.reason)
     return false
   }
-  options.cleanup = true
-  options.dither = 'off'
-  options.targetColors = Math.min(options.targetColors, 16)
-  const ok = regenerateActive()
-  if (ok) toastOk('已优化可拼性：关闭抖动、清理孤立豆、收敛颜色数')
-  return ok
+  beginOperation()
+  try {
+    options.cleanup = true
+    options.dither = 'off'
+    options.targetColors = Math.min(options.targetColors, 16)
+    const ok = regenerateActive()
+    if (ok) toastOk('已优化可拼性：关闭抖动、清理孤立豆、收敛颜色数')
+    return ok
+  } finally {
+    endOperation()
+  }
 }
 
 /** 恢复方案（PRD 交互原则 4：所有结果都要可逆） */

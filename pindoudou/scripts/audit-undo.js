@@ -250,20 +250,26 @@
     }
   }
 
-  /* ---------- 8) 换方案 = 换了一张图纸，旧历史必须作废 ---------- */
+  /* ---------- 8) 换方案是一步：撤销回到刚才的方案，之前的画笔步骤还在 ---------- */
   {
     const other = Array.from(document.querySelectorAll('.schemeCard')).find(e => !e.classList.contains('on'))
     const depthBefore = S.undoDepth.value
+    const keyBefore = S.activeKey.value
     other?.click()
     await sleep(260)
+    const depthAfter = S.undoDepth.value
+    const keyAfter = S.activeKey.value
+    if (other && keyAfter !== keyBefore) S.undo()
+    await sleep(80)
     out.switchVariant = {
       cardFound: !!other,
       depthBefore,
-      depthAfter: S.undoDepth.value,
-      canUndo: S.canUndo.value,
-      undoDisabled: !!toolBtn('撤销')?.disabled,
-      /* 换方案后旧快照不能还留着：图纸都换了，撤销回去没有意义 */
-      historyCleared: S.undoDepth.value === 0 && !S.canUndo.value
+      depthAfter,
+      keyBefore,
+      keyAfter,
+      keyRestored: S.activeKey.value === keyBefore,
+      /* 换方案多一步，撤回后深度回到换之前，画笔那些步骤还在 */
+      stepKept: !other || keyAfter === keyBefore || (depthAfter === depthBefore + 1 && S.undoDepth.value === depthBefore)
     }
   }
 

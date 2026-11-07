@@ -8,7 +8,7 @@
      · 每个用到的颜色都换成新色板里 ΔE00 最近的色号（独立重算一遍对照）；
      · 形状不变（cells 长度、空格位置、豆子数）、色板无重复、色号全部属于新品牌；
      · 底稿 / 手工修改层 / 手工修改记录 / 画笔一起搬过去，不把旧色号带回来；
-     · 换色板后旧撤销步骤失效（快照里的旧色板对象不能跨品牌套用）。
+     · 换色板是一步撤销：撤回后品牌、色号和落笔都回到换之前。
 */
 (async () => {
   const d = window.__douzao
@@ -115,9 +115,25 @@
   if (S.options.brandId !== 'coco291') fail('setBrand.options', S.options.brandId)
   verifyBrand('coco291', '数据层 COCO', prev1)
 
-  /* 换色板后旧撤销步骤失效（旧快照里的色板对象不能跨品牌） */
-  out.checks.history = { canUndo: S.canUndo.value, canRedo: S.canRedo.value }
-  if (S.canUndo.value || S.canRedo.value) fail('history', '换色板后撤销 / 重做栈没有清空')
+  /* 换色板是一步：撤销回到换之前的品牌和落笔，重做再换回去 */
+  const brandNow = S.options.brandId
+  const cocoCodes = Array.from(active().cells).map(k => (k < 0 ? '' : (active().palette[k] || {}).code || '?')).join(',')
+  const undone = S.undo()
+  const backBrand = S.options.brandId
+  const backCodes = Array.from(active().cells).map(k => (k < 0 ? '' : (active().palette[k] || {}).code || '?')).join(',')
+  const paintedCodes = paintedSnap.cells.map(k => (k < 0 ? '' : (paintedSnap.palette[k] || {}).code || '?')).join(',')
+  const redone = S.redo()
+  out.checks.history = {
+    canUndo: S.canUndo.value,
+    undone,
+    backBrand,
+    codesRestored: backCodes === paintedCodes,
+    redone,
+    brandAgain: S.options.brandId
+  }
+  if (!undone || backBrand === brandNow) fail('history.undo', out.checks.history)
+  if (backCodes !== paintedCodes) fail('history.cells', { backCodes: backCodes.slice(0, 80), painted: paintedCodes.slice(0, 80) })
+  if (!redone || S.options.brandId !== brandNow) fail('history.redo', out.checks.history)
 
   /* 画笔跟着换：不能停在一个新色板里不存在的旧色号上 */
   out.checks.brush = { id: S.brushColorId.value, brand: brandOfId(S.brushColorId.value) }
