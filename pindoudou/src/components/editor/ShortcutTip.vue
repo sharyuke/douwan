@@ -10,7 +10,7 @@ const { tip } = useShortcutTip()
 <template>
   <div
     v-if="tip.on"
-    class="stip no-print"
+    class="stip no-print" :class="{ 'is-out': tip.fading }"
     :style="{ left: tip.left + 'px', top: tip.top + 'px' }"
     role="tooltip"
     data-shortcut-tip
@@ -34,7 +34,9 @@ const { tip } = useShortcutTip()
   box-shadow:0 8px 22px rgba(26,45,34,.24);
   display:flex;flex-direction:column;gap:4px;
   font-family:var(--font-sans);text-align:left;
+  opacity:1;transition:opacity .45s ease;
 }
+.stip.is-out{opacity:0}
 .stip__row{display:flex;align-items:center;justify-content:space-between;gap:14px}
 .stip__title{font-size:13px;font-weight:700;line-height:18px;color:#fff;white-space:nowrap}
 .stip__desc{font-size:12px;font-weight:500;line-height:16px;color:rgba(255,255,255,.72)}
