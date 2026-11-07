@@ -224,6 +224,8 @@ export const zoom = ref(1)
 export const tool = ref('paint')
 /** 换色工具点一格时做什么。brush 换成当前画笔色，nearest 换成同系列最接近的色号，empty 换成空豆。 */
 export const swapMode = ref('brush')
+/** 画笔落笔形状。free 是涂抹，line 是从按下的格子拉到指针的直线。快捷键仍是 B，Shift 拖动也还在。 */
+export const brushStroke = ref('free')
 /** 画笔的笔刷边长（格）。1 = 单格编辑，2~5 用于大面积上色（设计稿 124:84） */
 export const brushSize = ref(1)
 /** 橡皮的笔刷边长（格）。与画笔分开存，切换工具不会把对方的尺寸带走 */

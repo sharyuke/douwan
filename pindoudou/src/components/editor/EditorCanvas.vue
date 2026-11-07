@@ -5,7 +5,7 @@ import {
   BRUSH_MAX, toolSizeOf, setToolSize, beadKey,
   options, currentView, canvasEl, paintAt, paintLine, fillAt, pickAt, shiftPattern, restorePendingPattern, undo, redo,
   canUndo, canRedo, undoDepth, redoDepth, beginEdit, endEdit, cancelEdit, revertEdit,
-  mirrorPattern, replaceColorEverywhere, clearColorEverywhere, nearestSwapColor, swapMode,
+  mirrorPattern, replaceColorEverywhere, clearColorEverywhere, nearestSwapColor, swapMode, brushStroke,
   stats, sourceUrl, sourceImg, sourceCssFilter, generating, genMs,
   selectedBoard, layout, materials
 } from '../../composables/useStudio.js'
@@ -576,8 +576,11 @@ let startY = 0
 let startLeft = 0
 let startTop = 0
 let painting = false
-/** 按住 Shift 按下左键：直线的起点格子。没有它时这一笔是普通涂抹。 */
+/** 这一笔走直线时的起点格子。画笔菜单选了「直线」，或按住 Shift 按下左键，都会记下它。 */
 let lineStroke = null
+const paintNote = computed(() => (brushStroke.value === 'line'
+  ? '从按下的格子拉一条直线（当前工具：画笔）'
+  : '点格子改色，按住 Shift 拖左键画直线（当前工具：画笔）'))
 
 /* 触屏上的分工：单指 / 笔只编辑，画布固定。
    浏览器默认会把单指拖动解释成滚动（画布跟着手指跑），
@@ -1321,7 +1324,10 @@ function onPointerDown(e) {
        反复调用，靠 beginEdit 的嵌套计数把这一笔合成一条历史。
        画笔按住 Shift 时这一笔改成直线：起点是按下的格子，终点跟着指针走。 */
     beginEdit()
-    if (tool.value === 'paint' && e.shiftKey && e.pointerType !== 'touch') {
+    /* 直线：菜单里选了「直线」之后每一笔都是直线，触屏也一样。
+       没选时仍是按住 Shift 拖左键（触屏没有 Shift，不走这条）。 */
+    const straight = tool.value === 'paint' && (brushStroke.value === 'line' || (e.shiftKey && e.pointerType !== 'touch'))
+    if (straight) {
       const hit = cv.value && pattern.value ? hitTest(cv.value, pattern.value, e, hitOpts.value) : null
       lineStroke = hit ? { x: hit.x, y: hit.y } : null
       if (hit) paintLine(hit.x, hit.y, hit.x, hit.y)
@@ -2296,7 +2302,7 @@ defineExpose({
       <div v-if="!showEmpty && currentView === 'pattern'" class="chartNote">
         <span class="hintWheel">滚轮缩放 · 按住鼠标中键拖动平移</span>
         <span class="hintTouch">双指同时点一下撤回 · 单指编辑 · 长按一格吸色</span>
-        <span v-if="tool !== 'pan'" class="only-lg">· {{ tool === 'lasso' ? '点住豆子拖动整张图案，从空格画出一圈只选圈里的豆子，Esc 取消选区（当前工具：套索）' : tool === 'paint' ? '点格子改色，按住 Shift 拖左键画直线（当前工具：画笔）' : '直接点格子改色（当前工具：' + (tool === 'erase' ? '橡皮' : tool === 'pick' ? '吸色' : '填充') + '）' }}</span>
+        <span v-if="tool !== 'pan'" class="only-lg">· {{ tool === 'lasso' ? '点住豆子拖动整张图案，从空格画出一圈只选圈里的豆子，Esc 取消选区（当前工具：套索）' : tool === 'paint' ? paintNote : '直接点格子改色（当前工具：' + (tool === 'erase' ? '橡皮' : tool === 'pick' ? '吸色' : '填充') + '）' }}</span>
       </div>
 
       <!-- 画布太大就不逐格印色号了（见 CODES_CELL_LIMIT）。必须说清楚去哪儿看：

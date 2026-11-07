@@ -22,7 +22,7 @@ import {
   currentProjectId, ensureProjectLoaded, saveProject, generating,
   restoreEditDraft, bareEditorDraftMatches,
   projectLimit, projects, useImageFile, sourceUrl,
-  tool, swapMode, brushSize, eraserSize, BRUSH_MAX, toolSizeOf, setToolSize, brushColorId,
+  tool, swapMode, brushStroke, brushSize, eraserSize, BRUSH_MAX, toolSizeOf, setToolSize, brushColorId,
   mirrorPattern, removeSpecks, options, currentView,
   zoom, setZoom, layout, availableColors, maxCells, brand,
   canvasCapW, canvasCapH,
@@ -157,6 +157,7 @@ const msSheet = ref('')
 const MS_SHEET_TITLES = { color: '颜色', more: '更多工具', menu: '更多', adjust: '图纸调整' }
 const msSheetTitle = computed(() => MS_SHEET_TITLES[msSheet.value] || '')
 function openMsSheet(key) {
+  closeMsToolMenu()
   msSheet.value = msSheet.value === key ? '' : key
 }
 function closeMsSheet() { msSheet.value = '' }
@@ -303,6 +304,7 @@ const sizePop = ref(null)
    绝对定位的子元素跑到轨道右外侧会被裁掉（实测只剩 2% 露在轨道里，点开像没反应）。
    fixed 的包含块是视口（中间没有 transform/filter 的祖先），不会被轨道裁。 */
 const sizePopPos = ref({ left: 0, top: 0 })
+const sizeCardEl = ref(null)
 const SIZE_CARD_W = 156
 const SIZE_CARD_H = 81
 const sizePopStyle = computed(() => ({ left: `${sizePopPos.value.left}px`, top: `${sizePopPos.value.top}px` }))
@@ -323,10 +325,12 @@ function placeSizePop() {
   const rail = chev.closest('.csRail')
   const br = toolBtn.getBoundingClientRect()
   const rr = (rail || toolBtn).getBoundingClientRect()
+  /* 画笔卡底部多一行「直线」，高度不固定；橡皮卡仍是 81。 */
+  const cardH = sizeCardEl.value?.getBoundingClientRect().height || (sizePop.value === 'paint' ? 120 : SIZE_CARD_H)
   /* 卡片贴在工具轨右缘外侧 8px，竖直中线对齐当前这颗工具按钮（设计稿 124:84） */
   let left = Math.round(rr.right + 8)
   if (left + SIZE_CARD_W > window.innerWidth - 12) left = Math.round(rr.left - 8 - SIZE_CARD_W)
-  const top = Math.round(Math.min(Math.max(12, br.top + br.height / 2 - SIZE_CARD_H / 2), window.innerHeight - SIZE_CARD_H - 12))
+  const top = Math.round(Math.min(Math.max(12, br.top + br.height / 2 - cardH / 2), window.innerHeight - cardH - 12))
   sizePopPos.value = { left, top }
 }
 function bindSizePop() {
@@ -344,7 +348,11 @@ function toggleToolSize(key) {
   sizePop.value = next
   if (next) closeSwapMenu()
   unbindSizePop()
-  if (next) { placeSizePop(); bindSizePop() }
+  if (next) {
+    placeSizePop()
+    bindSizePop()
+    nextTick(placeSizePop)
+  }
 }
 function closeSizePop() {
   sizePop.value = null
@@ -373,6 +381,9 @@ const SWAP_MODE_COPY = {
   }
 }
 function railToolMeta(t) {
+  if (t.key === 'paint' && brushStroke.value === 'line') {
+    return { ...t, title: '画笔：从按下的格子拉到指针，画一条直线', desc: '从按下的格子拉到指针，画一条直线' }
+  }
   if (t.key !== 'swap') return t
   const copy = SWAP_MODE_COPY[swapMode.value]
   return copy ? { ...t, ...copy } : t
@@ -421,10 +432,19 @@ function pickSwapMode(mode) {
   swapMode.value = swapMode.value === mode ? 'brush' : mode
   tool.value = 'swap'
   closeSwapMenu()
+  closeMsToolMenu()
 }
 function openSwapTutorial() {
   closeSwapMenu()
+  closeMsToolMenu()
   swapTutorialOpen.value = true
+}
+/** 画笔菜单里的直线。再点一次回到涂抹。快捷键仍是 B，不另设键。 */
+function pickBrushLine() {
+  brushStroke.value = brushStroke.value === 'line' ? 'free' : 'line'
+  tool.value = 'paint'
+  closeSizePop()
+  closeMsToolMenu()
 }
 function setSizePopValue(value) {
   setToolSize(value, sizePop.value === 'erase' ? 'erase' : 'paint')
@@ -517,6 +537,9 @@ function onDocPointerDown(e) {
   }
   if (swapMenu.value) {
     if (!inside('[data-swap-menu]') && !inside('[data-swap-arrow]')) closeSwapMenu()
+  }
+  if (msToolMenu.value) {
+    if (!inside('[data-ms-tool-menu]') && !inside('[data-ms-tool-arrow]')) closeMsToolMenu()
   }
   if (boardOpen.value && !inside('[data-cmd-board]')) boardOpen.value = false
   if (brandOpen.value && !inside('[data-cmd-brand]')) brandOpen.value = false
@@ -650,6 +673,7 @@ function pickMobileTool(key) {
   if (!hasPattern.value) return
   const same = tool.value === key
   tool.value = key
+  closeMsToolMenu()
   mobileMore.value = 'none'
   /* 从「更多工具」抽屉里点填充：选中后收起，和底部工具同一套手感 */
   if (msSheet.value === 'more') closeMsSheet()
@@ -664,6 +688,65 @@ function pickMoreFunction(f) {
 
 const showBrushParams = computed(() => hasPattern.value && brushParams.value &&
   (tool.value === 'paint' || tool.value === 'erase'))
+
+/* 手机底栏：画笔 / 换色右侧没有桌面那颗箭头，菜单从按钮右上角向上展开。
+   画笔菜单是直线和笔刷大小，换色菜单与桌面相同。点外面先收起，不把这一下画进图纸。 */
+const msToolMenu = ref('')
+const msToolMenuPos = ref({ left: 8, bottom: 80, width: 200 })
+const msToolMenuStyle = computed(() => ({
+  left: `${msToolMenuPos.value.left}px`,
+  bottom: `${msToolMenuPos.value.bottom}px`,
+  width: `${msToolMenuPos.value.width}px`
+}))
+function placeMsToolMenu() {
+  const key = msToolMenu.value
+  if (!key) return
+  const btn = document.querySelector(`[data-ms-tool-arrow="${key}"]`)
+  const slot = btn?.closest('.msToolSlot') || btn
+  if (!slot) return
+  const r = slot.getBoundingClientRect()
+  const width = key === 'paint' ? 200 : 188
+  let left = Math.round(r.left)
+  if (left + width > window.innerWidth - 8) left = window.innerWidth - width - 8
+  if (left < 8) left = 8
+  msToolMenuPos.value = { left, bottom: Math.round(window.innerHeight - r.top + 8), width }
+}
+function bindMsToolMenu() {
+  window.addEventListener('resize', placeMsToolMenu)
+  document.addEventListener('pointerdown', onMsToolMenuPointerDown, true)
+}
+function unbindMsToolMenu() {
+  window.removeEventListener('resize', placeMsToolMenu)
+  document.removeEventListener('pointerdown', onMsToolMenuPointerDown, true)
+}
+function onMsToolMenuPointerDown(e) {
+  if (!msToolMenu.value) return
+  const t = e.target
+  const inside = (sel) => !!(t && t.closest && t.closest(sel))
+  if (inside('[data-ms-tool-menu]') || inside('[data-ms-tool-arrow]')) return
+  closeMsToolMenu()
+  e.preventDefault()
+  e.stopPropagation()
+}
+function closeMsToolMenu() {
+  if (!msToolMenu.value) return
+  msToolMenu.value = ''
+  unbindMsToolMenu()
+}
+function toggleMsToolMenu(key) {
+  if (!hasPattern.value) return
+  const next = msToolMenu.value === key ? '' : key
+  tool.value = key
+  if (!next) { closeMsToolMenu(); return }
+  closeMsSheet()
+  closeSizePop()
+  closeSwapMenu()
+  msToolMenu.value = next
+  unbindMsToolMenu()
+  placeMsToolMenu()
+  bindMsToolMenu()
+  nextTick(placeMsToolMenu)
+}
 
 /* 手机工具行第一格：左右镜像是一次性动作，不切换画笔工具 */
 function mobileMirror() {
@@ -780,6 +863,7 @@ function onKeydown(e) {
   if (e.key === 'Escape') {
     /* 换图前的保存提示开着：Esc 归弹窗（BaseDialog 会关掉它），别顺手收起下面的面板 */
     if (replaceSaveOpen.value) return
+    if (msToolMenu.value) { closeMsToolMenu(); return }
     if (swapMenu.value) { closeSwapMenu(); return }
     if (sizePop.value) { closeSizePop(); return }
     if (paletteOpen.value) { closePaletteFly(); return }
@@ -921,6 +1005,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
   document.removeEventListener('pointerdown', onDocPointerDown)
   unbindSizePop()
+  unbindMsToolMenu()
   window.removeEventListener('resize', placePaletteFly)
   wideQuery.removeEventListener('change', onWideChange)
   coarseQuery.removeEventListener('change', onCoarseChange)
@@ -1374,16 +1459,38 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
         </button>
       </div>
 
-      <!-- 手机端工具轨：画笔 / 橡皮 / 换色 / 颜色 / 更多工具 -->
+      <!-- 手机端工具轨：画笔 / 橡皮 / 换色 / 颜色 / 更多工具。
+           画笔和换色右上角有箭头，菜单向上展开，底栏五个字不改。 -->
       <div v-if="mobileConsole" class="msTools no-print" role="toolbar" aria-label="编辑工具">
-        <button
-          v-for="t in mobileBarTools" :key="t.key" type="button"
-          class="msTool" :class="{ on: tool === t.key }"
-          :disabled="!hasPattern" :aria-pressed="tool === t.key"
-          @click="pickMobileTool(t.key)"
-        >
-          <Icon :name="t.icon" :size="20" /><span>{{ t.label }}</span>
-        </button>
+        <template v-for="t in mobileBarTools" :key="t.key">
+          <div v-if="t.key === 'paint' || t.key === 'swap'" class="msToolSlot">
+            <button
+              type="button" class="msTool" :class="{ on: tool === t.key }"
+              :disabled="!hasPattern" :aria-pressed="tool === t.key"
+              @click="pickMobileTool(t.key)"
+            >
+              <Icon :name="t.icon" :size="20" /><span>{{ t.label }}</span>
+            </button>
+            <button
+              type="button" class="msTool__arrow"
+              :class="{ 'is-on': (t.key === 'paint' && brushStroke === 'line') || (t.key === 'swap' && swapMode !== 'brush'), 'is-open': msToolMenu === t.key }"
+              :data-ms-tool-arrow="t.key"
+              :disabled="!hasPattern"
+              :aria-expanded="msToolMenu === t.key" aria-haspopup="menu"
+              :aria-label="t.key === 'paint' ? '画笔菜单：直线、画笔大小' : '换色菜单：自动替换相近色、替换为空豆、查看教程'"
+              @click.stop="toggleMsToolMenu(t.key)"
+            >
+              <Icon name="chevron-up" :size="12" />
+            </button>
+          </div>
+          <button
+            v-else type="button" class="msTool" :class="{ on: tool === t.key }"
+            :disabled="!hasPattern" :aria-pressed="tool === t.key"
+            @click="pickMobileTool(t.key)"
+          >
+            <Icon :name="t.icon" :size="20" /><span>{{ t.label }}</span>
+          </button>
+        </template>
         <button type="button" class="msTool msTool--color" :class="{ on: msSheet === 'color' }" :disabled="!hasPattern" @click="openMsSheet('color')">
           <span class="msTool__swatch" :style="{ background: brush?.hex || '#F3EFE6' }">
             <Icon v-if="brush" name="check" :size="16" />
@@ -1474,6 +1581,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
               :data-tip="t.label" :data-tip-desc="railToolMeta(t).desc" :data-tip-key="coarsePointer ? '' : (t.shortcut || '')"
               :data-tool-key="t.key"
               :data-swap-mode="t.key === 'swap' ? swapMode : undefined"
+              :data-brush-stroke="t.key === 'paint' ? brushStroke : undefined"
               @click="onRailTool(t.key)"
             >
               <Icon :name="t.icon" :size="24" /><span class="toolLabel">{{ t.label }}</span>
@@ -1482,11 +1590,13 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
                  点它选中该工具并展开自己那张 1–5 颗的滑杆卡 -->
             <button
               v-if="t.key === 'paint' || t.key === 'erase'"
-              type="button" class="csTool__sizeBtn" :class="{ on: tool === t.key }"
+              type="button" class="csTool__sizeBtn"
+              :class="{ on: tool === t.key, 'is-line': t.key === 'paint' && brushStroke === 'line' }"
               :data-tool-size="t.key"
-              :data-tip="`${t.label}大小`" data-tip-desc="1–5 颗，点开调整笔刷大小"
+              :data-tip="t.key === 'paint' ? '画笔菜单' : `${t.label}大小`"
+              :data-tip-desc="t.key === 'paint' ? '调笔刷大小，或选直线' : '1–5 颗，点开调整笔刷大小'"
               :aria-expanded="sizePop === t.key" aria-haspopup="dialog" aria-controls="cs-size-card"
-              :aria-label="`${t.label}大小，点开调整（1–5 颗）`"
+              :aria-label="t.key === 'paint' ? '画笔菜单：大小和直线' : `${t.label}大小，点开调整（1–5 颗）`"
               @click.stop="toggleToolSize(t.key)"
             >
               <Icon name="chevron-right" :size="16" />
@@ -1570,9 +1680,10 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
       <!-- 画笔 / 橡皮尺寸卡（设计稿 124:84 / 124:2）：156×81，标题 + 当前颗数、1–5 颗滑杆、范围行。
            fixed 定位贴在对应工具按钮右侧、竖直居中（工具轨是 overflow 容器，绝对定位会被裁）。 -->
       <div
-        v-if="consoleMode && sizePop" id="cs-size-card"
-        class="csSizeCard no-print" :style="sizePopStyle" data-brush-size
-        role="dialog" :aria-label="`${sizePopLabel}（1–5 颗）`"
+        v-if="consoleMode && sizePop" id="cs-size-card" ref="sizeCardEl"
+        class="csSizeCard no-print" :class="{ 'csSizeCard--paint': sizePop === 'paint' }"
+        :style="sizePopStyle" data-brush-size
+        role="dialog" :aria-label="sizePop === 'paint' ? '画笔菜单：大小和直线' : `${sizePopLabel}（1–5 颗）`"
       >
         <div class="csSizeCard__head">
           <b>{{ sizePopLabel }}</b>
@@ -1585,6 +1696,62 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
           @input="setSizePopValue($event.target.value)" @wheel="onRangeWheel"
         >
         <div class="csSizeCard__foot"><span>1–5 颗</span><span>格 / 颗</span></div>
+        <button
+          v-if="sizePop === 'paint'"
+          type="button" class="csSizeCard__line" data-brush-line
+          role="menuitemradio" :aria-checked="brushStroke === 'line'"
+          @click="pickBrushLine"
+        >
+          <span>直线</span>
+          <Icon v-if="brushStroke === 'line'" name="check" :size="14" />
+        </button>
+      </div>
+
+      <!-- 手机：画笔 / 换色菜单贴在底栏上方。 -->
+      <div
+        v-if="mobileConsole && msToolMenu"
+        class="msToolMenu no-print" data-ms-tool-menu
+        :style="msToolMenuStyle" role="menu"
+        :aria-label="msToolMenu === 'paint' ? '画笔菜单' : '换色菜单'"
+      >
+        <template v-if="msToolMenu === 'paint'">
+          <button
+            type="button" role="menuitemradio" data-brush-line
+            :aria-checked="brushStroke === 'line'"
+            @click="pickBrushLine"
+          >
+            <span>直线</span>
+            <Icon v-if="brushStroke === 'line'" name="check" :size="14" />
+          </button>
+          <div class="msToolMenu__size">
+            <div class="msToolMenu__sizeHead"><b>画笔大小</b><span>{{ brushSize }} 颗</span></div>
+            <input
+              type="range" min="1" :max="BRUSH_MAX" step="1"
+              :value="brushSize" aria-label="画笔大小（颗）" data-brush-range
+              @input="setToolSize($event.target.value, 'paint')"
+            >
+          </div>
+        </template>
+        <template v-else>
+          <button
+            type="button" role="menuitemradio" :aria-checked="swapMode === 'nearest'"
+            @click="pickSwapMode('nearest')"
+          >
+            <span>自动替换相近色</span>
+            <Icon v-if="swapMode === 'nearest'" name="check" :size="14" />
+          </button>
+          <button
+            type="button" role="menuitemradio" :aria-checked="swapMode === 'empty'"
+            @click="pickSwapMode('empty')"
+          >
+            <span>替换为空豆</span>
+            <Icon v-if="swapMode === 'empty'" name="check" :size="14" />
+          </button>
+          <span class="msToolMenu__sep" aria-hidden="true"></span>
+          <button type="button" role="menuitem" @click="openSwapTutorial">
+            <span>查看教程</span>
+          </button>
+        </template>
       </div>
 
       <!-- 换色菜单：贴在换色按钮右侧。点一项就选中这个动作，再点格子才替换。 -->
@@ -2386,6 +2553,8 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
   /* 设计稿：箭头在选中态是深墨绿、未选中是灰绿；展开时背景压一层同色浅底便于看出点中了 */
   .csTool__sizeBtn.on{color:var(--cs-ink)}
   .csTool__sizeBtn:hover{background:rgba(26,45,34,.06)}
+  .csTool__sizeBtn.is-line,
+  .csTool__sizeBtn.is-line:hover{background:#C8E63C;color:#1A2D22}
   .csTool__sizeBtn[aria-expanded="true"]{background:rgba(26,45,34,.10)}
   .csTool__sizeBtn:focus-visible{outline:2px solid var(--cs-ink);outline-offset:-2px}
   /* 换色菜单：和尺寸卡同一套白卡片，贴在工具轨右缘外侧。 */
@@ -2608,6 +2777,15 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
     background:#fff;border:1px solid #DDE5D8;border-radius:16px;
     box-shadow:0 3px 16px rgba(26,45,34,.08);
   }
+  .csSizeCard--paint{height:auto}
+  .csSizeCard__line{
+    display:flex;align-items:center;justify-content:space-between;gap:8px;
+    height:28px;margin-top:1px;padding:0 8px;border:0;border-radius:8px;
+    background:transparent;cursor:pointer;text-align:left;
+    font-family:var(--font-sans);font-size:12px;font-weight:600;line-height:28px;
+    color:#1A2D22;
+  }
+  .csSizeCard__line[aria-checked="true"]{background:#C8E63C}
   .csSizeCard__head{
     display:flex;align-items:center;justify-content:space-between;gap:8px;height:13px;
   }
@@ -2777,6 +2955,35 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
   }
   .msTool.on{background:var(--ms-accent);color:var(--ms-ink);font-weight:700}
   .msTool:disabled{opacity:.4}
+  .msToolSlot{position:relative;min-width:0;display:flex}
+  .msToolSlot > .msTool{flex:1 1 auto;width:100%;min-width:0}
+  .msTool__arrow{
+    position:absolute;top:3px;right:2px;z-index:1;
+    width:16px;height:16px;display:grid;place-items:center;
+    border-radius:5px;color:var(--ms-ink-2);background:transparent;
+  }
+  .msTool__arrow.is-on,.msTool__arrow.is-open{background:#C8E63C;color:var(--ms-ink)}
+  .msTool__arrow:disabled{opacity:.4}
+  .msToolMenu{
+    position:fixed;z-index:40;box-sizing:border-box;
+    padding:6px;display:flex;flex-direction:column;gap:2px;
+    background:#fff;border:1px solid var(--ms-line-strong);border-radius:16px;
+    box-shadow:0 8px 24px rgba(31,31,29,.16);
+  }
+  .msToolMenu button{
+    display:flex;align-items:center;justify-content:space-between;gap:8px;
+    min-height:40px;padding:0 10px;border:0;border-radius:10px;
+    background:transparent;text-align:left;
+    font-family:var(--font-sans);font-size:14px;font-weight:500;line-height:var(--ty-body-lh);letter-spacing:0;
+    color:var(--ms-ink);
+  }
+  .msToolMenu button[aria-checked="true"]{background:#C8E63C;font-weight:700}
+  .msToolMenu__sep{height:1px;margin:4px 6px;background:var(--ms-line)}
+  .msToolMenu__size{padding:8px 10px 6px}
+  .msToolMenu__sizeHead{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .msToolMenu__sizeHead b{font-family:var(--font-sans);font-size:13px;font-weight:700;line-height:var(--ty-label-lh);color:var(--ms-ink)}
+  .msToolMenu__sizeHead span{font-family:var(--font-numeric);font-size:12px;font-weight:500;line-height:var(--ty-caption-lh);color:var(--ms-muted)}
+  .msToolMenu__size input{width:100%;margin-top:8px;accent-color:var(--ms-accent)}
   .msTool--color .msTool__swatch{
     width:22px;height:22px;border-radius:5px;display:grid;place-items:center;
     color:var(--ms-ink);border:1px solid rgba(31,31,29,.12);
