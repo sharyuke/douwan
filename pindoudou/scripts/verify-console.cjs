@@ -616,31 +616,41 @@ async function main() {
     check('钉板下拉里的成品尺寸始终展开，没有收起卡头', cardOpen.inBoard && cardOpen.open && !cardOpen.head, cardOpen)
     check('成品尺寸卡文案与设计稿一致', cardOpen.intro === '默认锁定宽高比，整体等比例缩放' && cardOpen.valueLabel === '等比例缩放' && cardOpen.nowLabel === '当前尺寸' && cardOpen.title === '成品尺寸', cardOpen)
     check('滑杆上限 = 底板长边', Number(cardOpen.max) > 0 && Number(cardOpen.max) === Number(cardOpen.value), { min: cardOpen.min, max: cardOpen.max, value: cardOpen.value })
-    await shotEl(send, '[data-cmd-board] .csPop', 'size-card')
+    /* beyond=false：captureBeyondViewport 会临时改视口，宽度跌破 1100 时命令栏浮层会被关掉 */
+    await shotEl(send, '[data-cmd-board] .csPop', 'size-card', 1, false)
 
     // 滑杆改尺寸：真键盘方向键（Chrome 原生 range 会派发 input + change）
-    await evalJs(send, `document.querySelector('.szq__range').focus(); 1`)
+    await evalJs(send, `(() => { if (!document.querySelector('[data-board-finish] .szq__range')) document.querySelector('[data-cmd-board] .csBoard__btn').click(); return 1 })()`)
+    await sleep(400)
+    await evalJs(send, `(() => { const range = document.querySelector('[data-board-finish] .szq__range'); range.focus(); return 1 })()`)
     const beforeSize = await evalJs(send, `document.querySelector('.csStatus__line').textContent`)
     for (let i = 0; i < 3; i++) {
       await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowLeft', code: 'ArrowLeft', windowsVirtualKeyCode: 37 })
       await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'ArrowLeft', code: 'ArrowLeft', windowsVirtualKeyCode: 37 })
       await sleep(80)
     }
-    await sleep(1600)
-    const afterSize = await evalJs(send, `(() => ({ status: document.querySelector('.csStatus__line').textContent, note: (document.querySelector('[data-size-card-note]') || {}).textContent || '', now: (document.querySelector('[data-size-card-current]') || {}).textContent || '' }))()`)
+    /* 松手 240ms 后才落到画布，重算原图常常超过 1.6s。等到状态栏变掉，最多再等 16s。 */
+    let afterSize = null
+    for (let i = 0; i < 40; i++) {
+      await sleep(400)
+      afterSize = await evalJs(send, `(() => ({ status: document.querySelector('.csStatus__line').textContent, note: (document.querySelector('[data-board-finish] [data-size-card-note]') || {}).textContent || '', now: (document.querySelector('[data-board-finish] [data-size-card-current]') || {}).textContent || '' }))()`)
+      if (afterSize.status !== beforeSize) break
+    }
     console.log('sizeChanged:', JSON.stringify({ beforeSize, afterSize }))
     check('滑杆改成品尺寸（状态栏网格跟着变）', afterSize.status !== beforeSize && /格/.test(afterSize.status), { beforeSize, afterSize: afterSize.status })
 
     // 标注开关（原「更多设置」位置，按主要控件规范做的开关）：
     // 关 = 画布上的成品尺寸标注（W/H 尺寸线 + 厘米胶囊）隐藏，开 = 恢复
-    const sw0 = await evalJs(send, `(() => { const b = document.querySelector('[data-size-card-switch]'); if (!b) return null; const r = b.getBoundingClientRect(); return { on: b.getAttribute('aria-checked'), w: Math.round(r.width), h: Math.round(r.height) } })()`)
+    const sw0 = await evalJs(send, `(() => { const b = document.querySelector('[data-board-finish] [data-size-card-switch]'); if (!b) return null; const r = b.getBoundingClientRect(); return { on: b.getAttribute('aria-checked'), w: Math.round(r.width), h: Math.round(r.height) } })()`)
     check('尺寸卡标题右侧有标注开关（默认开）', !!sw0 && sw0.on === 'true', sw0)
-    await evalJs(send, `document.querySelector('[data-size-card-switch]').click(); 1`)
+    await evalJs(send, `document.querySelector('[data-board-finish] [data-size-card-switch]').click(); 1`)
     await sleep(400)
-    const swOff = await evalJs(send, `(() => { const r = document.querySelector('[data-canvas-ruler]'); const b = document.querySelector('[data-size-card-switch]'); return { dim: r && r.getAttribute('data-ruler-dim'), on: b.getAttribute('aria-checked') } })()`)
+    const swOff = await evalJs(send, `(() => { const r = document.querySelector('[data-canvas-ruler]'); const b = document.querySelector('[data-board-finish] [data-size-card-switch]'); return { dim: r && r.getAttribute('data-ruler-dim'), on: b && b.getAttribute('aria-checked') } })()`)
     check('关掉开关后画布成品尺寸标注隐藏', swOff.dim === 'off' && swOff.on === 'false', swOff)
-    await shotEl(send, '[data-canvas-ruler]', 'ruler-dim-off')
-    await evalJs(send, `document.querySelector('[data-size-card-switch]').click(); 1`)
+    await shotEl(send, '[data-canvas-ruler]', 'ruler-dim-off', 1, false)
+    await evalJs(send, `(() => { if (!document.querySelector('[data-board-finish] [data-size-card-switch]')) document.querySelector('[data-cmd-board] .csBoard__btn').click(); return 1 })()`)
+    await sleep(400)
+    await evalJs(send, `document.querySelector('[data-board-finish] [data-size-card-switch]').click(); 1`)
     await sleep(400)
     const swOn = await evalJs(send, `(() => { const r = document.querySelector('[data-canvas-ruler]'); const b = document.querySelector('[data-size-card-switch]'); return { dim: r && r.getAttribute('data-ruler-dim'), on: b.getAttribute('aria-checked'), cm: r && r.getAttribute('data-ruler-cm') } })()`)
     check('再开启后成品尺寸标注恢复', swOn.dim === 'on' && swOn.on === 'true' && !!swOn.cm && /cm/.test(swOn.cm), swOn)
