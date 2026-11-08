@@ -23,6 +23,8 @@
     await sleep(300)
     const kinds = [...document.querySelectorAll('.msShapeGrid [data-shape-kind]')].map(el => txt(el))
     if (kinds.join(',') !== '五角星,心形,云,四角星') fail('mobileKinds', kinds)
+    const hint = txt(document.querySelector('.msSheet--more .msHint'))
+    if (hint !== '拖动建立，点图形移动，点空白取消') fail('mobileHint', hint)
     const star = document.querySelector('.msShapeGrid [data-shape-kind="star5"]')
     star?.click()
     await sleep(200)
@@ -33,6 +35,9 @@
   } else if (tablet) {
     const btn = document.querySelector('.editPanel [data-tool-key="shape"]')
     if (!btn || txt(btn) !== '图形') fail('tabletBtn', btn ? txt(btn) : 'missing')
+    if (btn && btn.getAttribute('data-tip-desc') !== '拖动建立，点图形移动，点空白取消') {
+      fail('tabletTip', btn && btn.getAttribute('data-tip-desc'))
+    }
     btn?.click()
     await sleep(40)
     const kinds = [...document.querySelectorAll('.brushBar [data-shape-kind]')].map(el => txt(el))
@@ -45,6 +50,13 @@
   } else {
     const btn = document.querySelector('.csRail [data-tool-key="shape"]')
     if (!btn || txt(btn) !== '图形') fail('rail', btn ? txt(btn) : 'missing')
+    if (btn && (btn.getAttribute('data-tip-key') !== 'U' || btn.getAttribute('data-tip-desc') !== '拖动建立，点图形移动，点空白取消')) {
+      fail('tip', { key: btn && btn.getAttribute('data-tip-key'), desc: btn && btn.getAttribute('data-tip-desc') })
+    }
+    S.tool.value = 'paint'
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'u', bubbles: true }))
+    await sleep(20)
+    if (S.tool.value !== 'shape') fail('shortcut', S.tool.value)
     document.querySelector('[data-shape-arrow]')?.click()
     await sleep(40)
     const menu = document.querySelector('[data-shape-menu]')
@@ -87,6 +99,13 @@
       pointer('pointerup', pb)
       await sleep(40)
     }
+    async function click(a) {
+      const pt = pointFor(a.x, a.y)
+      pointer('pointerdown', pt)
+      await sleep(20)
+      pointer('pointerup', pt)
+      await sleep(30)
+    }
     const p = S.pattern.value
     const w = p.width
     const snap = () => Array.from(S.pattern.value.cells)
@@ -110,6 +129,12 @@
     }
     const before = snap()
     const depth = S.undoDepth.value
+    await click({ x: 4, y: 4 })
+    if (S.undoDepth.value !== depth) fail('clickStep', S.undoDepth.value)
+    let clickDiff = 0
+    const afterClick = snap()
+    for (let i = 0; i < afterClick.length; i++) if (afterClick[i] !== before[i]) clickDiff++
+    if (clickDiff) fail('clickPaint', clickDiff)
     await drag({ x: 12, y: 12 }, { x: 26, y: 20 })
     const stamped = snap()
     const box = changedBox(before, stamped)
@@ -133,6 +158,12 @@
     if (S.undoDepth.value !== depth + 1) fail('oneStep', { before: depth, after: S.undoDepth.value })
 
     const anchor = { x: Math.round((box.x0 + box.x1) / 2), y: Math.round((box.y0 + box.y1) / 2) }
+    await click(anchor)
+    if (document.querySelectorAll('.shapeHandle').length !== 4) fail('stay', document.querySelectorAll('.shapeHandle').length)
+    let stayDiff = 0
+    const stayed = snap()
+    for (let i = 0; i < stayed.length; i++) if (stayed[i] !== stamped[i]) stayDiff++
+    if (stayDiff) fail('clickMove', stayDiff)
     await drag(anchor, { x: anchor.x + 6, y: anchor.y })
     const moved = snap()
     const movedBox = changedBox(before, moved)
@@ -148,6 +179,12 @@
       }
       if (leaked) fail('leaked', leaked)
     }
+    await click({ x: 2, y: 2 })
+    if (document.querySelectorAll('.shapeHandle').length) fail('deselect', document.querySelectorAll('.shapeHandle').length)
+    let blankDiff = 0
+    const afterBlank = snap()
+    for (let i = 0; i < afterBlank.length; i++) if (afterBlank[i] !== moved[i]) blankDiff++
+    if (blankDiff) fail('blankPaint', blankDiff)
     if (S.undo()) {
       const back = snap()
       let diff = 0

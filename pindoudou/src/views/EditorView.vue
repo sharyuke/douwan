@@ -950,7 +950,7 @@ function onKeydown(e) {
 }
 
 /* ---------------------------------------------------------------- 键盘快捷键
-   只在电脑端（≥1100px）：套索 L / 画笔 B / 橡皮 E / 填充 G / 吸色 I / 换色 C / 去杂色 R / 镜像 M。
+   只在电脑端（≥1100px）：套索 L / 画笔 B / 橡皮 E / 填充 G / 吸色 I / 换色 C / 图形 U / 去杂色 R / 镜像 M。
    与工具轨上的浮动标签一一对应（标签里标的就是这些键）。
    平板（781–1099）和手机（≤780）没有这套键：触屏上按这些字母没意义，
    外接键盘打字也不该把工具切走。吸色在这两档改成手指长按一格。
@@ -959,7 +959,7 @@ function onKeydown(e) {
      · 正在输入（改名输入框、尺寸滑杆等）—— 打字不能被工具切走；
      · 按着 Ctrl / Cmd / Alt —— 那些是浏览器与撤销重做的键；
      · 弹层开着 —— 按键归弹层（换色弹窗里按 C 不该切工具）。 */
-const SHORTCUT_TOOLS = { l: 'lasso', b: 'paint', e: 'erase', g: 'fill', i: 'pick', c: 'swap' }
+const SHORTCUT_TOOLS = { l: 'lasso', b: 'paint', e: 'erase', g: 'fill', i: 'pick', c: 'swap', u: 'shape' }
 
 function onShortcutKey(e) {
   if (e.defaultPrevented) return
@@ -1707,10 +1707,11 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
           <div class="csToolWrap has-size">
             <button
               type="button" class="tool csTool" :class="{ on: tool === 'shape' }"
-              :aria-label="coarsePointer ? '图形' : '图形：拖出轮廓，拖边角等比例缩放，拖中间移动，里面自己填'"
+              :aria-label="coarsePointer ? '图形' : '图形：拖动建立，点图形移动，点空白取消'"
               :aria-pressed="tool === 'shape'"
               data-tip="图形"
-              data-tip-desc="拖出轮廓，拖边角等比例缩放，拖中间移动，里面自己填"
+              data-tip-desc="拖动建立，点图形移动，点空白取消"
+              :data-tip-key="coarsePointer ? '' : 'U'"
               data-tool-key="shape"
               @click="onShapeTool"
             >
@@ -2254,6 +2255,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
             <Icon :name="s.icon" :size="20" /><span>{{ s.label }}</span>
           </button>
         </div>
+        <p class="msHint">拖动建立，点图形移动，点空白取消</p>
 
         <p class="msGroupTitle">辅助绘制</p>
         <button type="button" class="msRowBtn" :class="{ on: tool === 'lasso' }" @click="pickMobileTool('lasso')">

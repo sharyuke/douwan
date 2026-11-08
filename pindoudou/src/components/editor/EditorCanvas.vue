@@ -16,7 +16,7 @@ import { boardBeadCounts } from '../../lib/pattern.js'
 import { beadOf, boardOf, BOARD_SPEC_LIST_TEXT } from '../../lib/boardSpec.js'
 import { getColorById } from '../../lib/palettes.js'
 import { EDIT_TOOLS, EDIT_HISTORY, EDIT_ACTIONS } from '../../data/icons.js'
-import { SHAPES, boxFromCorner, minShapeBox, nudgeBox } from '../../lib/shapes.js'
+import { SHAPES, boxFromCorner, nudgeBox } from '../../lib/shapes.js'
 import Icon from '../ui/Icon.vue'
 import BaseDialog from '../ui/BaseDialog.vue'
 import PatternPreview from '../ui/PatternPreview.vue'
@@ -1295,8 +1295,8 @@ function finishLassoTrace() {
 }
 
 /* ---------------------------------------------------------------- 图形
-   选一种轮廓后，在格子上拖出一圈描边，内部留空。边角等比例缩放，拖框的中间移动。
-   一整次按下到松开是一步撤销。画面始终从按下前的格子重画，不会越拖越叠。 */
+   拖动才建立描边，点空白取消选取，点图形移动。边角仍可等比例缩放。
+   点一下不落豆。拖出第一格才开始画，松手记一步。 */
 const shapeLive = ref(null)
 const shapeScroll = ref(0)
 const shapeCursor = ref('')
@@ -1389,10 +1389,15 @@ function applyShapeGesture(e) {
   const geo = cellFromPointer(e)
   if (!geo) return
   let box
+  if (g.pending) {
+    if (geo.x === g.ax && geo.y === g.ay) return
+    g.pending = false
+    beginEdit()
+  }
   if (g.mode === 'move') {
     box = { x: geo.x - g.offX, y: geo.y - g.offY, w: g.w, h: g.h }
   } else if (g.mode === 'create' && geo.x === g.ax && geo.y === g.ay) {
-    box = g.origin
+    return
   } else {
     box = boxFromCorner(g.kind, g.fx, g.fy, geo.x, geo.y)
   }
@@ -1406,6 +1411,11 @@ function finishShapeGesture(how) {
   const g = shapeGesture
   if (!g) return
   shapeGesture = null
+  /* 没拖出格子：点空白只取消选取，不建立图形，也不记撤销。 */
+  if (g.pending) {
+    if (how === 'commit') clearShapeLive()
+    return
+  }
   if (how === 'revert') {
     revertEdit()
     shapeLive.value = g.prev
@@ -1446,20 +1456,42 @@ function startShape(e) {
     offY = geo.y - prev.y
     under = prev.under || []
   } else if (!inside) return false
+  /* 空白处：按下就取消选取。拖出这一格才建立新图形。 */
+  if (mode === 'create') {
+    clearShapeLive()
+    shapeGesture = {
+      mode: 'create',
+      pending: true,
+      kind: shapeKind.value,
+      fx: geo.x,
+      fy: geo.y,
+      offX: 0,
+      offY: 0,
+      ax: geo.x,
+      ay: geo.y,
+      w: 0,
+      h: 0,
+      under: [],
+      prev: null,
+      prevHistory: -1,
+      box: null
+    }
+    updateShapeCursor(e)
+    return true
+  }
   beginEdit()
   shapeGesture = {
     mode,
-    kind: mode === 'create' ? shapeKind.value : prev.kind,
+    kind: prev.kind,
     fx,
     fy,
     offX,
     offY,
     ax: geo.x,
     ay: geo.y,
-    w: prev ? prev.w : 0,
-    h: prev ? prev.h : 0,
+    w: prev.w,
+    h: prev.h,
     under,
-    origin: mode === 'create' ? nudgeBox(minShapeBox(shapeKind.value, geo.x, geo.y), p.width, p.height) : null,
     prev,
     prevHistory: shapeHistoryAt,
     box: null
@@ -1565,7 +1597,7 @@ function onPointerDown(e) {
     applyPaint(e)
     return
   }
-  /* 图形：点格子拖出轮廓。落在已有图形上时，边角等比例缩放，中间拖动。
+  /* 图形：拖动建立，点空白取消选取，点图形移动。边角等比例缩放。
      触屏单指也走这里，不落到下面「非画笔工具 = 拖视野」。 */
   if (currentView.value === 'pattern' && e.button === 0 && tool.value === 'shape') {
     if (startShape(e)) {
@@ -2563,7 +2595,7 @@ defineExpose({
       <div v-if="!showEmpty && currentView === 'pattern'" class="chartNote">
         <span class="hintWheel">滚轮缩放 · 按住鼠标中键拖动平移</span>
         <span class="hintTouch">双指同时点一下撤回 · 单指编辑 · 长按一格吸色</span>
-        <span v-if="tool !== 'pan'" class="only-lg">· {{ tool === 'lasso' ? '点住豆子拖动整张图案，从空格画出一圈只选圈里的豆子，Esc 取消选区（当前工具：套索）' : tool === 'paint' ? paintNote : tool === 'shape' ? '拖出轮廓，拖边角等比例缩放，拖中间移动，里面自己填（当前工具：图形）' : '直接点格子改色（当前工具：' + (tool === 'erase' ? '橡皮' : tool === 'pick' ? '吸色' : '填充') + '）' }}</span>
+        <span v-if="tool !== 'pan'" class="only-lg">· {{ tool === 'lasso' ? '点住豆子拖动整张图案，从空格画出一圈只选圈里的豆子，Esc 取消选区（当前工具：套索）' : tool === 'paint' ? paintNote : tool === 'shape' ? '拖动建立，点图形移动，点空白取消（当前工具：图形）' : '直接点格子改色（当前工具：' + (tool === 'erase' ? '橡皮' : tool === 'pick' ? '吸色' : '填充') + '）' }}</span>
       </div>
 
       <!-- 画布太大就不逐格印色号了（见 CODES_CELL_LIMIT）。必须说清楚去哪儿看：
@@ -2669,7 +2701,9 @@ defineExpose({
             <button
               type="button" class="tool" :class="{ on: tool === 'shape' }"
               data-tool-key="shape"
-              aria-label="图形：拖出轮廓，拖边角等比例缩放，拖中间移动，里面自己填"
+              data-tip="图形"
+              data-tip-desc="拖动建立，点图形移动，点空白取消"
+              aria-label="图形：拖动建立，点图形移动，点空白取消"
               :aria-pressed="tool === 'shape'"
               @click="pickTool('shape')"
             >
