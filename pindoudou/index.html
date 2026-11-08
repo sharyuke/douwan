@@ -12,6 +12,8 @@
 <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1">
 <meta name="baidu-site-verification" content="codeva-wiHiaJr2y6" />
 <!--seo-head-->
+<!-- 服务端注入的 SEO 正文（.seo-shell）只给爬虫读，挂载前先藏起来，避免打开首页时闪现纯文字页 -->
+<style>#app > .seo-shell{display:none}</style>
 </head>
 <body>
 <div id="app"><!--seo-body--></div>
