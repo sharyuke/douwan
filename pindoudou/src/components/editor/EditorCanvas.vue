@@ -318,6 +318,11 @@ const consoleViewport = computed(() =>
 function pickTool(key) {
   tool.value = key
 }
+/** 竖屏平板的画笔条。和电脑、手机菜单同一根斜线图标，再点一次回到涂抹。 */
+function toggleBrushLine() {
+  brushStroke.value = brushStroke.value === 'line' ? 'free' : 'line'
+  tool.value = 'paint'
+}
 /* 适应：重新按舞台量一次，并恢复「跟随容器」的自动适配。
    实际大小是另一种缩放口径，点「适应」就退出它，回到整张图纸放得下的视图。 */
 function fitStage() {
@@ -2476,6 +2481,15 @@ defineExpose({
               ><Icon name="plus" :size="16" /></button>
               <b class="brushSizeVal">{{ activeToolSize }} 格</b>
             </div>
+            <button
+              v-if="tool === 'paint'"
+              type="button" class="brushLine" data-brush-line
+              :aria-pressed="brushStroke === 'line'"
+              @click="toggleBrushLine"
+            >
+              <Icon name="line" :size="16" /><span>直线</span>
+              <Icon v-if="brushStroke === 'line'" name="check" :size="16" />
+            </button>
           </template>
         </div>
       </div>
@@ -2709,6 +2723,12 @@ defineExpose({
 .brushStep:disabled{opacity:.4;cursor:not-allowed}
 .brushRange{width:104px;accent-color:var(--primary);cursor:pointer}
 .brushSizeVal{min-width:38px;text-align:center;font-size:var(--fs-2xs);color:var(--ink-2);white-space:nowrap;line-height:var(--ty-caption-lh)}
+.brushLine{
+  display:inline-flex;align-items:center;gap:4px;height:30px;padding:0 8px;flex:0 0 auto;
+  border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink-2);
+  font-size:12px;font-weight:700;line-height:var(--ty-caption-lh);white-space:nowrap;
+}
+.brushLine[aria-pressed="true"]{background:#C8E63C;border-color:#C8E63C;color:#1A2D22}
 /* 手机专属的浮动图纸缩略图：桌面端画布一直看得见，直接不显示 */
 .miniPreview{
   display:none;position:fixed;right:10px;bottom:78px;z-index:45;

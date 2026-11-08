@@ -69,7 +69,26 @@
   }
 
   const mobile = innerWidth <= 780
-  if (mobile) {
+  const tablet = innerWidth > 780 && innerWidth < 1100
+  if (tablet) {
+    const paint = [...document.querySelectorAll('.editPanel .tool')].find(b => txt(b) === '画笔')
+    paint?.click()
+    await sleep(40)
+    const lineBtn = document.querySelector('.brushBar [data-brush-line]')
+    const icon = lineBtn && lineBtn.querySelector('[data-icon="line"]')
+    if (!lineBtn || txt(lineBtn) !== '直线' || icon?.querySelector('path')?.getAttribute('d') !== 'M6 18L18 6') {
+      fail('tabletLine', { text: lineBtn ? txt(lineBtn) : '', icon: icon && icon.getAttribute('data-icon') })
+    } else {
+      lineBtn.click()
+      await sleep(40)
+      if (S.brushStroke.value !== 'line') fail('lineMode', S.brushStroke.value)
+      lineBtn.click()
+      await sleep(40)
+      if (S.brushStroke.value !== 'free') fail('lineOff', S.brushStroke.value)
+    }
+    out.checks.final = { stroke: S.brushStroke.value, tool: S.tool.value }
+    return out
+  } else if (mobile) {
     const labels = [...document.querySelectorAll('.msTools .msTool')].map(txt)
     if (labels.join(',') !== '画笔,橡皮,换色,颜色,更多工具') fail('labels', labels)
     /* 真机是 pointerdown 再 click。只发 click 会漏掉「按下先收起、click 又打开」。 */
@@ -119,6 +138,7 @@
     }
     const lineBtn = document.querySelector('[data-ms-tool-menu] [data-brush-line]')
     if (!lineBtn || txt(lineBtn) !== '直线') fail('paintMenu', txt(lineBtn))
+    else if (lineBtn.querySelector('[data-icon="line"] path')?.getAttribute('d') !== 'M6 18L18 6') fail('lineIcon', lineBtn.querySelector('[data-icon]')?.getAttribute('data-icon'))
     else lineBtn.click()
     await sleep(60)
     if (S.brushStroke.value !== 'line') fail('lineMode', S.brushStroke.value)
@@ -184,6 +204,7 @@
     await sleep(80)
     const lineBtn = document.querySelector('[data-brush-size] [data-brush-line]')
     if (!lineBtn || txt(lineBtn) !== '直线') fail('lineItem', txt(lineBtn))
+    else if (lineBtn.querySelector('[data-icon="line"] path')?.getAttribute('d') !== 'M6 18L18 6') fail('lineIcon', lineBtn.querySelector('[data-icon]')?.getAttribute('data-icon'))
     else lineBtn.click()
     await sleep(60)
     if (S.brushStroke.value !== 'line') fail('lineMode', S.brushStroke.value)

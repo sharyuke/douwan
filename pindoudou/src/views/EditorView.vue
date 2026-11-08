@@ -1714,7 +1714,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
           role="menuitemradio" :aria-checked="brushStroke === 'line'"
           @click="pickBrushLine"
         >
-          <span>直线</span>
+          <span class="csSizeCard__lineLabel"><Icon name="line" :size="16" /><span>直线</span></span>
           <Icon v-if="brushStroke === 'line'" name="check" :size="14" />
         </button>
       </div>
@@ -1732,7 +1732,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
             :aria-checked="brushStroke === 'line'"
             @click="pickBrushLine"
           >
-            <span>直线</span>
+            <span class="msToolMenu__lineLabel"><Icon name="line" :size="16" /><span>直线</span></span>
             <Icon v-if="brushStroke === 'line'" name="check" :size="14" />
           </button>
           <div class="msToolMenu__size">
@@ -2810,6 +2810,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
     color:#1A2D22;
   }
   .csSizeCard__line[aria-checked="true"]{background:#C8E63C}
+  .csSizeCard__lineLabel{display:inline-flex;align-items:center;gap:6px;min-width:0}
   .csSizeCard__head{
     display:flex;align-items:center;justify-content:space-between;gap:8px;height:13px;
   }
@@ -3001,6 +3002,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
     color:var(--ms-ink);
   }
   .msToolMenu button[aria-checked="true"]{background:#C8E63C;font-weight:700}
+  .msToolMenu__lineLabel{display:inline-flex;align-items:center;gap:6px;min-width:0}
   .msToolMenu__sep{height:1px;margin:4px 6px;background:var(--ms-line)}
   .msToolMenu__size{padding:8px 10px 6px}
   .msToolMenu__sizeHead{display:flex;align-items:center;justify-content:space-between;gap:8px}
