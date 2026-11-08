@@ -231,6 +231,11 @@ export const MAX_SOURCE_SIDE = 2048
  *  感知空间的平均，线性光平均会把黑白色块平均成过亮的灰）。
  * 留白区域按白底填充（拼豆没有透明，白底最接近实物）。
  *
+ * snapMajority：窗口里有一种颜色（5bit 桶）占到 VOTE_MIN_SHARE 以上时，用它的均值，
+ * 不用整窗平均。大钉板缩到小钉板时，边缘一格往往同时盖住头发和留白，面积平均会
+ * 混出原图没有的浅色豆，看起来像颜色从轮廓上散开。占多数的那一侧直接落色，
+ * 轮廓就停在原来的边界上。没有一种颜色够集中（渐变、肤色过渡）时仍走面积平均。
+ *
  * 两个可选参数服务于「自动抠背景」：
  *   · srcRect 只对源图的某个矩形采样（主体紧包围盒）——主体因此占满画布，
  *     格子全用在主体上，还原度会明显好于「整图缩小 + 一圈背景」；
@@ -239,7 +244,7 @@ export const MAX_SOURCE_SIDE = 2048
  *       - 目标像素的颜色只由「主体样本」平均（覆盖率 ≥0.5 的源像素），
  *         **不与背景做平均** —— 否则轮廓一圈会混出原图没有的浅色，也就是白边。
  */
-export function resampleRGBA(src, sw, sh, tw, th, fit = 'contain', srcRect = null, mask = null, nearest = false) {
+export function resampleRGBA(src, sw, sh, tw, th, fit = 'contain', srcRect = null, mask = null, nearest = false, snapMajority = false) {
   const out = new Uint8ClampedArray(tw * th * 4)
   const cover = mask ? new Float32Array(tw * th) : null
   for (let i = 0; i < out.length; i += 4) {
@@ -305,6 +310,7 @@ export function resampleRGBA(src, sw, sh, tw, th, fit = 'contain', srcRect = nul
     return { data: out, rect: { x: dx, y: dy, w: dw, h: dh }, cover }
   }
 
+  const groups = snapMajority ? new Map() : null
   for (let y = y0; y < y1; y++) {
     // 目标像素 y 覆盖的源区间（像素中心对齐：目标像素 y 的中心在 dy + y + 0.5 - dy）
     let v0 = (y + 0.5 - dy) * sy - sy / 2
@@ -326,6 +332,8 @@ export function resampleRGBA(src, sw, sh, tw, th, fit = 'contain', srcRect = nul
 
       let ar = 0, ag = 0, ab = 0, wsum = 0
       let asum = 0, awsum = 0
+      /* 复用同一个 Map：每个目标像素的源窗口通常只有几个桶 */
+      if (snapMajority) groups.clear()
       for (let v = vy0; v < vy1; v++) {
         const cy = Math.min(v + 1, v1) - Math.max(v, v0)
         if (cy <= 0) continue
@@ -335,33 +343,55 @@ export function resampleRGBA(src, sw, sh, tw, th, fit = 'contain', srcRect = nul
           if (cx <= 0) continue
           const w = cx * cy
           const i = (rowOff + u) * 4
+          let rr, gg, bb
           if (mask) {
             // 覆盖率用连续 α 累加；颜色只用主体样本，避免白边
             const a = mask[rowOff + u]
             asum += a * w
             awsum += w
-            if (a >= 0.5) {
-              ar += src[i] * w
-              ag += src[i + 1] * w
-              ab += src[i + 2] * w
-              wsum += w
-            }
+            if (a < 0.5) continue
+            rr = src[i]
+            gg = src[i + 1]
+            bb = src[i + 2]
           } else {
             const a = src[i + 3] / 255
             // 透明像素按白底合成，避免变成黑豆
-            ar += (src[i] * a + 255 * (1 - a)) * w
-            ag += (src[i + 1] * a + 255 * (1 - a)) * w
-            ab += (src[i + 2] * a + 255 * (1 - a)) * w
-            wsum += w
+            rr = src[i] * a + 255 * (1 - a)
+            gg = src[i + 1] * a + 255 * (1 - a)
+            bb = src[i + 2] * a + 255 * (1 - a)
+          }
+          ar += rr * w
+          ag += gg * w
+          ab += bb * w
+          wsum += w
+          if (snapMajority) {
+            const key = ((rr >> 3) << 10) | ((gg >> 3) << 5) | (bb >> 3)
+            let e = groups.get(key)
+            if (!e) { e = { n: 0, r: 0, g: 0, b: 0 }; groups.set(key, e) }
+            e.n += w
+            e.r += rr * w
+            e.g += gg * w
+            e.b += bb * w
           }
         }
       }
       const o = (y * tw + x) * 4
       if (cover && awsum > 0) cover[y * tw + x] = asum / awsum
       if (!wsum) continue
-      out[o] = Math.round(ar / wsum)
-      out[o + 1] = Math.round(ag / wsum)
-      out[o + 2] = Math.round(ab / wsum)
+      let pr = ar, pg = ag, pb = ab, pw = wsum
+      if (snapMajority && groups.size > 1) {
+        let best = null
+        for (const e of groups.values()) if (!best || e.n > best.n) best = e
+        if (best && best.n >= wsum * VOTE_MIN_SHARE) {
+          pr = best.r
+          pg = best.g
+          pb = best.b
+          pw = best.n
+        }
+      }
+      out[o] = Math.round(pr / pw)
+      out[o + 1] = Math.round(pg / pw)
+      out[o + 2] = Math.round(pb / pw)
       out[o + 3] = 255
     }
   }
@@ -562,7 +592,9 @@ export function sampleCellsMatted(src, sw, sh, gw, gh, fit = 'contain', SS = 3, 
   const hiW = gw * SS
   const hiH = gh * SS
   const rect = srcRect || (matte && matte.bbox) || null
-  const { data, cover } = resampleRGBA(src, sw, sh, hiW, hiH, fit, rect, matte ? matte.alpha : null, nearest)
+  /* 缩小（以及任何面积采样）按窗口多数色落点，避免边缘混出浅色碎豆。
+     最近邻是图纸源图放大用的，一格一个真色，不再做这一步。 */
+  const { data, cover } = resampleRGBA(src, sw, sh, hiW, hiH, fit, rect, matte ? matte.alpha : null, nearest, !nearest)
   return cellsFromSupersampled(data, hiW, hiH, gw, gh, SS, voteMinShare, cover)
 }
 

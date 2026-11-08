@@ -529,6 +529,10 @@ function ensureMaster(p) {
  * 把底稿的成品区域投影到 aw × ah：每个新格子取覆盖它的那块底稿里**出现最多的豆色**
  * （整块没豆就留空；平手取先扫到的，结果稳定可复现）。
  * 放大时覆盖块落在一格之内 ⇒ 就是那颗豆，等于按比例铺满；缩小就是块内多数色。
+ *
+ * 空格算进这一块的面积。一种颜色至少要盖住半块（含空格）才落进新格子，
+ * 刚好一半仍保留，实心边缘不会被吃薄。盖不满一半的零星豆留空，
+ * 大钉板缩到小钉板时轮廓外侧的碎豆不会各自占满一格。
  */
 function projectMasterArt(master, aw, ah) {
   const mw = master.artW
@@ -545,9 +549,11 @@ function projectMasterArt(master, aw, ah) {
       counts.clear()
       let best = EMPTY
       let bestN = 0
+      let total = 0
       for (let y = y0; y < y1; y++) {
         const row = y * mw
         for (let x = x0; x < x1; x++) {
+          total++
           const v = master.cells[row + x]
           if (v < 0) continue
           const n = (counts.get(v) || 0) + 1
@@ -555,7 +561,7 @@ function projectMasterArt(master, aw, ah) {
           if (n > bestN) { bestN = n; best = v }
         }
       }
-      out[ny * aw + nx] = best
+      out[ny * aw + nx] = bestN * 2 >= total ? best : EMPTY
     }
   }
   return out
