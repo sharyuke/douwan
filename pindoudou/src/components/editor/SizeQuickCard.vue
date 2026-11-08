@@ -16,7 +16,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import {
   options,
-  width, height, canvasCapW, canvasCapH, sourceUrl, sourceAspect, hasPattern,
+  width, height, canvasCapW, canvasCapH, sourceUrl, sourceAspect, sourceKind, hasPattern,
   bead, setCanvasSize, yieldForBusyPaint
 } from '../../composables/useStudio.js'
 import { finishCmText } from '../../lib/boardSpec.js'
@@ -42,8 +42,9 @@ const SIZE_APPLY_DELAY = 240
 
 const ready = computed(() => !!sourceUrl.value || hasPattern.value)
 
-/** 素材宽高比（等比例缩放锁的就是它；矢量素材按 1:1） */
+/** 素材宽高比（等比例缩放锁的就是它；矢量素材按 1:1，栅格化画布不是图案比例） */
 const ratio = computed(() => {
+  if (sourceKind.value !== 'raster') return 1
   const a = Number(sourceAspect.value)
   return a > 0 ? a : 1
 })

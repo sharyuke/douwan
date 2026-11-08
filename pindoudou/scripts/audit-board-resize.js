@@ -9,7 +9,8 @@
      · **手改部分** → 独立修改层（editLayer）按**改那一刻的网格**保存，投影到新网格：
        放大 = 一颗铺满对应的块，缩小 = 块内改过的值占多数者胜；
      · 成品区域变了 → 画面按新网格重建（界面写「78 × 78 颗」，画面就是 78 × 78 格大）；
-     · 成品区域没变（只换了大底板）→ 旧格子 1:1 按**底板中心**整体平移、居中落位；
+     · 从小钉板换到更大的钉板 → 成品尺寸填到新板里同比例的最大网格，再按这个尺寸重算；
+     · 换到更小、原来的成品还放得下 → 旧格子 1:1 按**底板中心**整体平移、居中落位；
      · 手改标记跟存档走：保存后重新打开，换尺寸仍走保留那条路。
 
    ⚠️ 2026-11-01 最终口径（用户：「缩放分两部分：原图部分按原图缩放，修改的部分按修改时
@@ -18,13 +19,14 @@
        不复制工作区里那张已经缩过的图；**不弹层**；
      · **修改过的部分**存在独立的修改层里（editLayer），分辨率 = 改那一刻的网格：
        在 104 上改的一颗，缩到 52 再放回 104 仍是那一颗；在 52 上改的一颗，放大到 104 是 2×2；
-     · 只换钉板（成品区域不变）→ 旧格子 1:1 居中平移，不重新取样；
+     · 从小钉板换到更大的钉板 → 成品尺寸填到新板的最大值，按原图重新取样，手改按修改层落回；
+     · 换到更小且成品还放得下 → 旧格子 1:1 居中平移，不重新取样；
      · 老存档的源图是按图纸重建的（sourceFromPattern）→ 那不是原图，退回按当前图纸块缩放。
    2026-11-05 补充（用户硬性要求）：小尺寸回到用过的尺寸时，直接还原那个尺寸的生成结果，
    细节与颜色数量一颗不少（`restored` 为 true），保存 / 未保存的作品都一样。
    所以本探针里：A / C / D / F / H 换到没生成过的尺寸**重新取样**（`regenerated` 为 true）；
    G 存档往返后放大、I 缩回用过的 52 都走尺寸缓存**还原**（`restored` 为 true）；
-   手改格子的期望位置由 `projectEditKeys` 按修改层投影算出来；C2 只换钉板仍是 1:1 平移。
+   手改格子的期望位置由 `projectEditKeys` 按修改层投影算出来；C2 小钉板换大钉板，成品尺寸填到 104。
 
    所以断言全部落在真实状态上（调试桥只驱动、不下结论）：
      · 换尺寸前后逐格比对「色号 id 平面」（palette 下标会被重映射，色号才稳定）；
@@ -58,21 +60,6 @@
   const out = { ok: true, asset: asset.name }
   const pat = () => S.pattern.value
   const idsOf = p => Array.from(p.cells).map(k => (k < 0 ? null : (p.palette[k] || {}).id || '?'))
-  const sameIds = (a, b) => a.length === b.length && a.every((v, i) => v === b[i])
-  /** 旧 ids 平面按 (dx,dy) 平移进新画布，挪不进来的当 null（被裁掉） */
-  const shiftIds = (before, oldW, oldH, dx, dy, newW, newH) => {
-    const o = new Array(newW * newH).fill(null)
-    for (let y = 0; y < oldH; y++) {
-      const ny = y + dy
-      if (ny < 0 || ny >= newH) continue
-      for (let x = 0; x < oldW; x++) {
-        const nx = x + dx
-        if (nx < 0 || nx >= newW) continue
-        o[ny * newW + nx] = before[y * oldW + x]
-      }
-    }
-    return o
-  }
   /** 手工修改记录 → 排序后的格子下标（没记录时是空数组） */
   const editKeys = p => (p.editMap instanceof Map ? [...p.editMap.keys()].sort((a, b) => a - b) : [])
   /** 旧记录按「成品区域等比映射」落到新画布上的下标（与 useStudio.applyPatternEdits 同口径） */
@@ -263,54 +250,46 @@
     return { ok: false, err: 'B: 画的颜色没落到格子上', probeCell: paint, changedCells: changed.slice(0, 8), ...out }
   }
 
-  /* ---------- C2) 只换钉板（成品区域不变）：格子 1:1 居中落位，不重新生成 ----------
-     这是 2026-10-28 那条需求的原场景（「换钉板尺寸时已经编辑好的图不要重置」）：
-     底板变大、成品区域不动，旧格子整体挪进去就行。 */
-  {
-    const p0 = pat()
-    const before = idsOf(p0)
-    const at0 = S.lastSearch.value.at
-    S.setCanvasCapacity(104, 104)
-    await sleep(150)
-    const p1 = pat()
-    const dx = Math.round(104 / 2 - p0.width / 2)
-    const dy = Math.round(104 / 2 - p0.height / 2)
-    const expect = shiftIds(before, p0.width, p0.height, dx, dy, 104, 104)
-    out.C2 = {
-      board: `${p1.width}x${p1.height}`,
-      art: `${p1.artW}x${p1.artH}`,
-      manualEdited: S.manualEdited.value,
-      regenerated: S.lastSearch.value.at > at0,
-      preserved: sameIds(expect, idsOf(p1))
-    }
-    if (out.C2.regenerated) return { ok: false, err: 'C2: 只换钉板却重新生成了（手改被冲掉）', ...out }
-    if (!out.C2.preserved) return { ok: false, err: 'C2: 换钉板后格子没 1:1 居中落位', ...out }
-    if (p1.artW !== 40 || p1.artH !== 40) return { ok: false, err: `C2: 成品区域不该变（art ${p1.artW}x${p1.artH}）`, ...out }
-    if (!S.manualEdited.value) return { ok: false, err: 'C2: manualEdited 丢了', ...out }
-  }
-
-  /* ---------- C) 手改后放大成品区域 40 → 104：按原图重新取样（长细节），手改按修改层落回 ---------- */
+  /* ---------- C2) 小钉板 52 → 大钉板 104：成品尺寸填到新板最大值，按原图重算，手改按修改层落回 ----------
+     2026-11-08：换到更大的钉板时，成品尺寸自动填到这块板能放下的最大同比例网格。
+     素材是矢量，按 1:1，最大值就是 104 × 104。手改不能被冲掉。 */
   {
     const p0 = pat()
     const expectKeys = projectEditKeys(p0, 104, 104, 104, 104)
     const at0 = S.lastSearch.value.at
-    S.setCanvasSize(104, 104)
-    await sleep(200)
+    S.setCanvasCapacity(104, 104)
+    await sleep(250)
     const p1 = pat()
-    out.C = {
+    out.C2 = {
       board: `${p1.width}x${p1.height}`,
       art: `${p1.artW}x${p1.artH}`,
+      cap: `${S.options.canvasMaxW}x${S.options.canvasMaxH}`,
       manualEdited: S.manualEdited.value,
       regenerated: S.lastSearch.value.at > at0,
       editsKept: sameKeys(expectKeys, editKeys(p1)),
       beads: p1.stats && p1.stats.beadCount
     }
-    if (!out.C.regenerated) return { ok: false, err: 'C: 放大没按原图重新取样（画面该长细节）', ...out }
-    if (!S.manualEdited.value) return { ok: false, err: 'C: 放大后 manualEdited 丢了', ...out }
-    if (!out.C.editsKept) return { ok: false, err: 'C: 放大后手改的格子没按修改层落回去', ...out }
-    if (p1.artW !== 104 || p1.artH !== 104) return { ok: false, err: `C: 成品区域没落到 104（art ${p1.artW}x${p1.artH}）`, ...out }
-    if (!(out.C.beads > 0)) return { ok: false, err: 'C: 放大后画面空了', ...out }
-    /* 再画一笔：D 要一张「手改过」的图 */
+    if (S.options.canvasMaxW !== 104 || S.options.canvasMaxH !== 104) {
+      return { ok: false, err: `C2: 底板没换成 104（${out.C2.cap}）`, ...out }
+    }
+    if (p1.width !== 104 || p1.height !== 104 || p1.artW !== 104 || p1.artH !== 104) {
+      return { ok: false, err: `C2: 成品尺寸没填到大板最大值（board ${p1.width}x${p1.height} art ${p1.artW}x${p1.artH}）`, ...out }
+    }
+    if (!out.C2.regenerated) return { ok: false, err: 'C2: 换大板没按原图重新取样', ...out }
+    if (!S.manualEdited.value) return { ok: false, err: 'C2: manualEdited 丢了', ...out }
+    if (!out.C2.editsKept) return { ok: false, err: 'C2: 换大板后手改的格子没按修改层落回去', ...out }
+    if (!(out.C2.beads > 0)) return { ok: false, err: 'C2: 换大板后画面空了', ...out }
+  }
+
+  /* ---------- C) 已经在大板最大值上，再画一笔：D 要一张「手改过」的图 ---------- */
+  {
+    const p1 = pat()
+    out.C = {
+      board: `${p1.width}x${p1.height}`,
+      art: `${p1.artW}x${p1.artH}`,
+      manualEdited: S.manualEdited.value
+    }
+    if (p1.artW !== 104 || p1.artH !== 104) return { ok: false, err: `C: 成品区域不在 104（art ${p1.artW}x${p1.artH}）`, ...out }
     try { geo = geometryOf() } catch (e) { return { ok: false, err: String(e.message || e), ...out } }
     const pp = pat()
     const brushId = pp.palette[0].id
@@ -621,8 +600,8 @@
   }
 
   out.scenarios = [
-    'A 未手改：换尺寸按原图重新取样', 'B 真画一笔立标记', 'C2 只换钉板：1:1 居中不重生成',
-    'C 手改放大：原图重新取样 + 修改层落回',
+    'A 未手改：换尺寸按原图重新取样', 'B 真画一笔立标记', 'C2 小钉板换大钉板：成品尺寸填到最大值并重算',
+    'C 大板上再画一笔',
     'D 同板缩成品区域：画面等比缩小', 'E 画到留白', 'F 缩板按原图重新取样不裁画面',
     'G 存档往返：放大还原 104 那一份、修改层跟着走', 'H 换钉板画面不裁', 'I 拖清晰度滑杆：画面在画布上缩放',
     'J 缩小再放大：细节回到原样'

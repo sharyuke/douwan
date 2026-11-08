@@ -3698,6 +3698,36 @@ function aspectGrid(capW, capH, aspect) {
   return { w: Math.min(cw, w), h: Math.min(ch, h) }
 }
 
+/**
+ * 成品尺寸滑杆拉满时的网格。
+ * 和 SizeQuickCard / 左栏「图案清晰度」的 capLong → gridForLong 是同一套：
+ * 先求底板里放得下的最大同比例长边，再收成整数格。方形图在方形钉板上就是整块板。
+ */
+function maxFinishedGrid(capW, capH, aspect) {
+  const cw = Math.max(1, Math.round(Number(capW) || 1))
+  const ch = Math.max(1, Math.round(Number(capH) || 1))
+  const a = Number(aspect) > 0 ? Number(aspect) : 1
+  const fitW = Math.min(cw, ch * a)
+  const long = Math.max(1, Math.round(Math.max(fitW, fitW / a)))
+  let w
+  let h
+  if (a >= 1) {
+    w = long
+    h = Math.max(1, Math.round(long / a))
+  } else {
+    h = long
+    w = Math.max(1, Math.round(long * a))
+  }
+  return { w: Math.min(cw, w), h: Math.min(ch, h) }
+}
+
+/** 成品尺寸锁的比例。矢量素材按 1:1（栅格化画布不是图案比例）；照片用主体比例。 */
+function finishedAspect() {
+  if (sourceKind.value !== 'raster') return 1
+  const a = Number(sourceAspect.value)
+  return a > 0 ? a : 1
+}
+
 function autoFitForSource(img) {
   const sw = (img && (img.naturalWidth || img.width)) || 0
   const sh = (img && (img.naturalHeight || img.height)) || 0
@@ -4681,11 +4711,12 @@ let rebuildSourceGrid = null
  * 不等的话 setCanvasSize 会以为「没有源图」，退回去把旧格子按块铺开 ——
  * 正是「原图直接放大」。超时仍返回 false，调用方按没有源图处理。
  */
-/** 打开存档后，落色图或没落色的快照还在解码。同一会话里刚生成的图两边都已就绪，这里是 false。 */
+/** 打开存档后，落色图或没落色的快照还在解码。同一会话里刚生成的图两边都已就绪，这里是 false。
+ *  刚导入的图 sourceImg 就是原图，rawSnapshotImg 故意留空，不能拿它当「还在解码」。 */
 function sourceDecodePending() {
   if (!sourceUrl.value || sourceFromPattern.value) return false
   if (!sourceImg.value) return true
-  return !!(sourceSnapshot && !rawSnapshotImg)
+  return !!(rebuildSourceGrid && sourceSnapshot && !rawSnapshotImg)
 }
 
 function waitForSourceImage(ms = 2500) {
@@ -5544,8 +5575,10 @@ function applyCanvasSize(w, h, { silent = false, announce = true } = {}) {
  * 设定「画布规格」= 底板大小（单位：格）。
  *
  * 成品尺寸滑块的上限、自动匹配的上限都读它；成品区域（canvasW/H）可以比它小。
- * 规格变小时成品区域会被裁到画布里（否则界面上会出现「成品 312 × 312，画布 104 × 104」）。
- * 只是换底板（成品区域放得下）时**不重新取样**：把现有方案重新居中贴一遍就行。
+ * 规格变小时成品区域会被收到画布里（否则界面上会出现「成品 312 × 312，画布 104 × 104」）。
+ * 从小钉板换到更大的钉板时，成品尺寸填到新板里同比例的最大网格（滑杆拉满的那一档），
+ * 再走 setCanvasSize：有真原图就按这个尺寸重新取样，手改按修改层落回。
+ * 换到更小、且原来的成品还放得下时，不改成品尺寸，只把现有方案重新居中贴一遍。
  * 没有源图时直接把成品区域也落到画布上：空画布选规格，用户要看到的就是这块板的大小。
  */
 export function setCanvasCapacity(w, h, { silent = false, announce = true } = {}) {
@@ -5553,21 +5586,36 @@ export function setCanvasCapacity(w, h, { silent = false, announce = true } = {}
   const cw = Math.max(1, Math.min(max, Math.round(w) || 1))
   const ch = Math.max(1, Math.min(max, Math.round(h) || 1))
   if (cw === options.canvasMaxW && ch === options.canvasMaxH) return false
+  const prevW = options.canvasMaxW
+  const prevH = options.canvasMaxH
   beginOperation()
   try {
   options.canvasMaxW = cw
   options.canvasMaxH = ch
   const aw = Math.min(options.canvasW, cw)
   const ah = Math.min(options.canvasH, ch)
+  /* 新板两向都不小于旧板，且至少一边更大：从小钉板换到大钉板 */
+  const grew = cw >= prevW && ch >= prevH && (cw > prevW || ch > prevH)
+  let resized = false
   if (aw !== options.canvasW || ah !== options.canvasH) {
-    /* 底板换小了，原来的图放不下：手改过的图按比例缩到新的成品区域，
-       没手改过的图照旧按新尺寸重新取样 —— 两边画面大小一致，
+    /* 底板换小了，原来的图放不下：收到新板里。
+       有真原图按新尺寸重新取样，老存档按块缩放 —— 两边画面大小一致，
        不会一个缩小一个被裁掉（2026-10-29 用户反馈「切换钉板画面会裁掉」）。 */
     setCanvasSize(aw, ah, { silent, announce })
+    resized = true
   } else if (!sourceUrl.value) {
     setCanvasSize(cw, ch, { silent: true, announce })
-  } else {
-    /* 底板换了，成品区域没变：重新贴一遍。格子下标整体平移了，拼制进度得清掉。 */
+    resized = true
+  } else if (grew) {
+    const fit = maxFinishedGrid(cw, ch, finishedAspect())
+    if (fit.w !== options.canvasW || fit.h !== options.canvasH) {
+      setCanvasSize(fit.w, fit.h, { silent, announce })
+      resized = true
+    }
+  }
+  if (!resized) {
+    /* 成品区域没变（换到仍装得下的小板，或已经顶在新板的最大值上）：重新贴一遍。
+       格子下标整体平移了，拼制进度得清掉。 */
     repadVariants(cw, ch)
     if (buildProgress.value.size) buildProgress.value = new Set()
     saveStatus.value = '未保存'

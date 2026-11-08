@@ -532,8 +532,9 @@ watch([width, height], () => {
      沿用上一张图的缩放倍数，新图纸会顶出舞台（手机上表现为只看到一角）。 */
   if (autoFit) nextTick(() => setTimeout(fitToStage, 60))
 })
-/* 只换画布（底板）时成品区域不变、width/height 也不变，但图纸本身从 52 变成 104 格：
+/* 换到仍装得下的小板时，成品区域不变、width/height 也不变，但图纸格子从 104 变成 52：
    沿用旧缩放会让新底板顶出舞台，看不到四周留空，所以同样重新适配一次。
+   换到大板时成品尺寸会填到新板的最大值，width/height 那一路已经会适配。
    必须分开盯两个数：getter 返回新数组时每次落笔都算「变过」，
    会把刚挪好的视野在画完一笔后拽回正中。 */
 watch([() => pattern.value && pattern.value.width, () => pattern.value && pattern.value.height], () => {
