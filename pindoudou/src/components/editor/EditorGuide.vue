@@ -45,7 +45,7 @@ const BOARD_STEPS = [
     body: '点击左侧的编辑工具进行图纸编辑：移动、画笔、橡皮、填充、换色、取色等。手指按住一格约半秒，就能吸这一格的颜色。',
     extra: [
       ['工具', '移动 / 画笔 / 橡皮 / 填充 / 换色 / 取色'],
-      ['吸色', '手指长按一格，取这一格的颜色当画笔色'],
+      ['吸色', '任何工具下，长按一格都能吸色'],
       ['笔刷', '画笔和橡皮都能调笔刷大小，一笔刷过几格算一步']
     ],
     target: () => document.querySelector('.canvasCard__foot') || document.querySelector('.csRail'),
@@ -135,7 +135,7 @@ const MOBILE_STEPS = [
     body: '画布右侧可以撤销 / 重做，也能放大缩小、一键居中显示。两根手指同时点一下就撤回上一步；手指按住一格约半秒，就能吸这一格的颜色。',
     extra: [
       ['撤回', '两根手指同时点一下，退回上一步编辑'],
-      ['吸色', '手指长按一格，取这一格的颜色当画笔色']
+      ['吸色', '任何工具下，长按一格都能吸色']
     ],
     target: () => document.querySelector('.stageTools') || document.querySelector('.stage'),
     place: 'left', pad: 8

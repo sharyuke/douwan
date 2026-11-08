@@ -1656,7 +1656,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
               type="button" class="tool csTool" :class="{ on: tool === t.key }"
               :aria-label="coarsePointer ? t.label : railToolMeta(t).title" :aria-pressed="tool === t.key"
               :data-tip="t.label"
-              :data-tip-desc="coarsePointer && t.key === 'pick' ? '手指长按一格，取这一格的颜色当画笔色' : railToolMeta(t).desc"
+              :data-tip-desc="coarsePointer && t.key === 'pick' ? '任何工具下，长按一格都能吸色' : railToolMeta(t).desc"
               :data-tip-key="coarsePointer ? '' : (t.shortcut || '')"
               :data-tool-key="t.key"
               :data-swap-mode="t.key === 'swap' ? swapMode : undefined"
@@ -2264,7 +2264,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
         </button>
         <button type="button" class="msRowBtn" :class="{ on: tool === 'pick' }" @click="pickMobileTool('pick')">
           <span class="msRowBtn__ico"><Icon name="pipette" :size="20" /></span>
-          <span class="msRowBtn__main"><b>吸色</b><em>从画布取色，或手指长按一格</em></span>
+          <span class="msRowBtn__main"><b>吸色</b><em>长按一格就能吸色</em></span>
         </button>
 
         <p class="msGroupTitle">图纸处理</p>

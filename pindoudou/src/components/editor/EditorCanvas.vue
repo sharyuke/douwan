@@ -610,20 +610,27 @@ const TWO_FINGER_TAP_SLOP = 12
 const TWO_FINGER_TAP_MS = 500
 
 
-/* 手指按住一格约半秒就吸这一格的颜色，然后切回画笔。
+/* 手指按住一格约半秒就吸色，不限当前工具，然后切回画笔。
+   吸色时手指上方放一面放大镜，跟着格子走，方便对准。
    不看窗口宽度：iPad 横过来往往 ≥1100，按宽度会把平板当成电脑、长按完全不生效。
    只认 touch。鼠标、触控笔长按仍按当前工具画，免得和拖动画笔打架。
-   手指按住时会有十几像素的抖动，小于一颗豆的移动不算「开始拖」。 */
+   手指按住时会有十几像素的抖动，小于一颗豆的移动不算「开始拖」。
+   放大镜已经打开之后，再移动是在选格子，不再取消。 */
 const LONG_PRESS_MS = 420
 const FINGER_PICK_SLOP = 28
-const fingerPick = ref(false)
+const LOUPE_ZOOM = 3
+const fingerLoupe = ref(false)
+const fingerLoupeCode = ref('')
 const fingerPickX = ref(0)
 const fingerPickY = ref(0)
+const loupeCv = ref(null)
 let fingerPickTimer = 0
-let fingerPickHideTimer = 0
 let fingerPickPointer = null
 let fingerPickDownX = 0
 let fingerPickDownY = 0
+let lassoBeforeFinger = null
+let loupeCell = -1
+let loupeGotColor = false
 /** 这次长按已经吸过色：松手时不要再当成单击（否则会用刚吸到的颜色盖住那一格） */
 let fingerPicked = false
 
@@ -637,19 +644,18 @@ function stopFingerPickTimer() {
 
 function clearFingerPick() {
   stopFingerPickTimer()
-  if (fingerPickHideTimer) {
-    clearTimeout(fingerPickHideTimer)
-    fingerPickHideTimer = 0
-  }
-  fingerPick.value = false
+  fingerLoupe.value = false
+  fingerLoupeCode.value = ''
+  loupeCell = -1
+  loupeGotColor = false
 }
 
-/** 手指按下：开始计时长按吸色。宽度不参与，横屏平板也算。 */
+/** 手指按下：任何工具都开始计时长按吸色。宽度不参与，横屏平板也算。 */
 function armFingerPick(e) {
   clearFingerPick()
   if (e.pointerType !== 'touch' || e.button !== 0) return
   if (currentView.value !== 'pattern' || showEmpty.value) return
-  if (tool.value === 'pan' || tool.value === 'lasso' || tool.value === 'shape') return
+  lassoBeforeFinger = lasso.value
   fingerPickPointer = e.pointerId
   fingerPickDownX = e.clientX
   fingerPickDownY = e.clientY
@@ -664,35 +670,95 @@ function armFingerPick(e) {
   }, LONG_PRESS_MS)
 }
 
-/** 长按成立：取这一格的颜色，切回画笔。
-    画笔 / 橡皮在按下时已经改了一格，要先退回再吸 —— 否则橡皮长按吸到的是刚擦空的格子。 */
-function runFingerPick(clientX, clientY) {
-  if (!cv.value || !pattern.value) return
+/** 这一笔已经开始的画笔 / 橡皮 / 图形 / 套索先退回，再吸按下前的颜色。 */
+function cancelToolGestureForPick() {
   if (painting) {
     revertEdit()
     painting = false
     lineStroke = null
   }
   if (shapeGesture) finishShapeGesture('revert')
-  const hit = hitTest(cv.value, pattern.value, { clientX, clientY }, hitOpts.value)
-  if (!hit) { clearFingerPick(); return }
-  const c = pickAt(hit.x, hit.y)
-  if (!c) {
-    toastWarn('这一格是空的，没有颜色可吸')
-    clearFingerPick()
+  if (lassoDrag.value) revertEdit()
+  lassoDrag.value = false
+  lassoTrace.value = null
+  lassoAnchor = null
+  lassoMoveBase = null
+  dragging.value = false
+  midPan.value = false
+  lasso.value = lassoBeforeFinger
+}
+
+function paintLoupe(clientX, clientY) {
+  const src = cv.value
+  const dest = loupeCv.value
+  if (!src || !dest || !fingerLoupe.value) return
+  const rect = src.getBoundingClientRect()
+  if (!rect.width || !rect.height) return
+  const dpr = Math.min(window.devicePixelRatio || 1, 2)
+  const css = 120
+  const bw = Math.round(css * dpr)
+  const bh = bw
+  if (dest.width !== bw) dest.width = bw
+  if (dest.height !== bh) dest.height = bh
+  const scaleX = src.width / rect.width
+  const scaleY = src.height / rect.height
+  const cx = (clientX - rect.left) * scaleX
+  const cy = (clientY - rect.top) * scaleY
+  const sw = bw / LOUPE_ZOOM
+  const sh = bh / LOUPE_ZOOM
+  const ctx = dest.getContext('2d')
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
+  ctx.fillStyle = '#fff'
+  ctx.fillRect(0, 0, bw, bh)
+  ctx.imageSmoothingEnabled = false
+  ctx.drawImage(src, cx - sw / 2, cy - sh / 2, sw, sh, 0, 0, bw, bh)
+}
+
+/** 放大镜中心对准这一格。有颜色就吸下来；空格先留着，等手指挪到有豆的格子。 */
+function sampleLoupe(clientX, clientY) {
+  fingerPickX.value = clientX
+  fingerPickY.value = clientY
+  const hit = cv.value && pattern.value
+    ? hitTest(cv.value, pattern.value, { clientX, clientY }, hitOpts.value)
+    : null
+  if (!hit) {
+    loupeCell = -1
+    fingerLoupeCode.value = ''
     return
   }
+  if (hit.index === loupeCell && fingerLoupe.value) return
+  loupeCell = hit.index
+  const c = pickAt(hit.x, hit.y)
+  fingerLoupeCode.value = c ? c.code : ''
+  if (!c || loupeGotColor) return
+  loupeGotColor = true
   fingerPicked = true
   moved = true
   tool.value = 'paint'
-  fingerPickX.value = clientX
-  fingerPickY.value = clientY
-  fingerPick.value = true
   toastOk(`已吸取 ${c.code}，松手后用画笔继续`)
-  fingerPickHideTimer = window.setTimeout(() => {
-    fingerPickHideTimer = 0
-    fingerPick.value = false
-  }, 700)
+}
+
+/** 长按成立：打开放大镜，并吸按下的那一格。 */
+function runFingerPick(clientX, clientY) {
+  if (!cv.value || !pattern.value) return
+  cancelToolGestureForPick()
+  const hit = hitTest(cv.value, pattern.value, { clientX, clientY }, hitOpts.value)
+  if (!hit) { clearFingerPick(); return }
+  fingerLoupe.value = true
+  loupeCell = -1
+  sampleLoupe(clientX, clientY)
+  nextTick(() => paintLoupe(clientX, clientY))
+}
+
+function moveFingerLoupe(clientX, clientY) {
+  sampleLoupe(clientX, clientY)
+  paintLoupe(clientX, clientY)
+}
+
+function finishFingerLoupe() {
+  const missed = fingerLoupe.value && !loupeGotColor
+  clearFingerPick()
+  if (missed) toastWarn('这一格是空的，没有颜色可吸')
 }
 
 function trackTouch(e) {
@@ -1669,6 +1735,11 @@ function onPointerMove(e) {
   if (e.pointerType === 'touch' && touchPoints.has(e.pointerId)) {
     touchPoints.set(e.pointerId, { x: e.clientX, y: e.clientY })
   }
+  /* 放大镜开着：手指移动是在选格子，原工具停住。 */
+  if (fingerLoupe.value && e.pointerId === fingerPickPointer) {
+    moveFingerLoupe(e.clientX, e.clientY)
+    return
+  }
   /* 按住期间的小抖动不当成拖动：不取消吸色，也不要把笔跟着抖出去。
      手指明显挪开（超过约一颗豆）才取消长按，这一笔按原工具继续画。 */
   if (fingerPickTimer && e.pointerId === fingerPickPointer) {
@@ -1708,7 +1779,10 @@ function onPointerMove(e) {
 
 function onPointerUp(e) {
   if (e && e.pointerType === 'touch') touchPoints.delete(e.pointerId)
-  if (e && e.pointerId === fingerPickPointer) clearFingerPick()
+  if (e && e.pointerId === fingerPickPointer) {
+    if (fingerLoupe.value) finishFingerLoupe()
+    else clearFingerPick()
+  }
   // 松手才提交这一笔：中途每一格共用同一个「操作前快照」
   if (painting) endEdit()
   painting = false
@@ -1764,12 +1838,16 @@ function onStageContextMenu(e) {
 /** 指针被系统抢走（来电、通知中心）：这一笔不要留在历史里，免得撤销时画面跳变 */
 function onPointerCancel(e) {
   if (e && e.pointerType === 'touch') touchPoints.delete(e.pointerId)
-  /* iOS 长按经常在计时结束前发 pointercancel。手指没挪开就照样吸色。 */
-  if (fingerPickTimer && (!e || e.pointerId === fingerPickPointer)) {
+  /* 放大镜已经打开时颜色已经吸过，取消只收起镜子。 */
+  if (fingerLoupe.value && (!e || e.pointerId === fingerPickPointer)) {
+    clearFingerPick()
+  } else if (fingerPickTimer && (!e || e.pointerId === fingerPickPointer)) {
     const x = fingerPickDownX
     const y = fingerPickDownY
     stopFingerPickTimer()
     if (!twoFingerGesture && touchPoints.size < 2) runFingerPick(x, y)
+    /* 指针已经没了，放大镜留在屏幕上对不准，颜色则保留。 */
+    clearFingerPick()
   } else {
     clearFingerPick()
   }
@@ -2472,10 +2550,16 @@ defineExpose({
           class="board editing" v-show="!showEmpty"
         >
           <canvas ref="cv" @click="onClick" />
-          <span
-            v-if="fingerPick" class="fingerPick" aria-hidden="true"
+          <div
+            v-if="fingerLoupe" class="fingerLoupe" :class="{ 'fingerLoupe--below': fingerPickY < 190 }" aria-hidden="true"
             :style="{ left: fingerPickX + 'px', top: fingerPickY + 'px' }"
-          ><Icon name="pipette" :size="18" /></span>
+          >
+            <div class="fingerLoupe__lens">
+              <canvas ref="loupeCv"></canvas>
+              <span class="fingerLoupe__cross"></span>
+            </div>
+            <b v-if="fingerLoupeCode">{{ fingerLoupeCode }}</b>
+          </div>
         </div>
 
         <!-- 原图 -->
@@ -2691,7 +2775,7 @@ defineExpose({
               class="tool" :class="{ on: tool === t.key }"
               :title="toolTitle(t)" :aria-label="desk ? t.title : toolTitle(t)" :aria-pressed="tool === t.key"
               :data-tip="desk ? t.label : (t.key === 'pick' ? '吸色' : null)"
-              :data-tip-desc="desk ? (t.desc || '') : (t.key === 'pick' ? '手指长按一格，取这一格的颜色当画笔色' : null)"
+              :data-tip-desc="desk ? (t.desc || '') : (t.key === 'pick' ? '任何工具下，长按一格都能吸色' : null)"
               :data-tip-key="desk ? (t.shortcut || '') : null"
               @click="pickTool(t.key)"
             >
@@ -2998,14 +3082,28 @@ defineExpose({
   .actLong{display:none}
   .actShort{display:inline}
 }
-/* 平板 / 手机长按吸色：吸到颜色的那一瞬间，手指旁边闪一下吸管。
+/* 平板 / 手机长按吸色：手指上方的放大镜，中心就是正在吸的那一格。
    坐标是视口坐标（fixed），不跟画布的缩放平移走。 */
-.fingerPick{
-  position:fixed;z-index:30;pointer-events:none;
-  width:36px;height:36px;margin:-46px 0 0 -6px;border-radius:50%;
-  display:grid;place-items:center;
-  background:var(--ink,#1A2D22);color:#fff;
-  box-shadow:0 6px 16px rgba(24,24,28,.28);
+.fingerLoupe{
+  position:fixed;z-index:40;pointer-events:none;
+  width:128px;margin:-168px 0 0 -64px;
+  display:flex;flex-direction:column;align-items:center;gap:4px;
+}
+.fingerLoupe--below{margin-top:28px}
+.fingerLoupe__lens{
+  width:120px;height:120px;border-radius:50%;overflow:hidden;position:relative;
+  border:3px solid #1A2D22;background:#fff;
+  box-shadow:0 8px 24px rgba(26,45,34,.28);
+}
+.fingerLoupe__lens canvas{width:100%;height:100%;display:block}
+.fingerLoupe__cross{
+  position:absolute;left:50%;top:50%;width:16px;height:16px;margin:-8px 0 0 -8px;
+  border:2px solid #1A2D22;border-radius:2px;box-shadow:0 0 0 1px #fff;
+}
+.fingerLoupe b{
+  font-family:var(--font-numeric);font-size:12px;font-weight:700;line-height:16px;
+  color:#1A2D22;background:#fff;border-radius:999px;padding:1px 8px;
+  box-shadow:0 2px 8px rgba(26,45,34,.16);
 }
 .stage--empty .empty__icon{
   width:58px;height:58px;border-radius:18px;background:var(--primary-soft);color:var(--primary-ink);
