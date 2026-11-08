@@ -892,7 +892,7 @@ const inventoryUpdatedLabel = computed(() => {
 .acSearch input::placeholder{color:var(--ty-muted)}
 .acWorks{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
 .acWork{
-  position:relative;display:flex;flex-direction:column;
+  position:relative;display:flex;flex-direction:column;min-width:0;
   border:1px solid var(--ty-line);border-radius:14px;
   background:var(--ty-surface);transition:var(--t);
 }
@@ -903,8 +903,16 @@ const inventoryUpdatedLabel = computed(() => {
   border-radius:inherit;overflow:hidden;
 }
 .acWork:has(.acWork__open:focus-visible){outline:2px solid var(--ty-ink);outline-offset:2px}
-.acWork__art{position:relative;aspect-ratio:16/11;background:var(--ty-surface-soft);display:grid;place-items:center}
-.acWork__art img{width:100%;height:100%;object-fit:cover;display:block}
+/* 预览框只由宽高比定尺寸。图若留在网格流里，最小尺寸按原图像素算，
+   平板三列被挤窄时会把整张图画到白框外面。 */
+.acWork__art{
+  position:relative;aspect-ratio:16/11;overflow:hidden;
+  background:var(--ty-surface-soft);display:grid;place-items:center;
+}
+.acWork__art img{
+  position:absolute;inset:0;width:100%;height:100%;
+  object-fit:contain;object-position:center;display:block;
+}
 .acWork__art--empty{color:var(--ty-muted)}
 .acWork__tag{
   position:absolute;left:8px;top:8px;padding:2px 8px;border-radius:99px;
