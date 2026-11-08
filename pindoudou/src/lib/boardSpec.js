@@ -77,6 +77,30 @@ export function boardOf(spec) {
 }
 
 /**
+ * 加粗辅助线（每 10 格一根）落在哪些格线上。
+ *
+ * 钉板边长常常不是 10 的倍数。多出来的格子分到这块板的两侧，
+ * 不全部堆在右 / 下：
+ *   52 → 左右各 1 格，78 → 各 4 格，104 → 各 2 格，120 整除、两侧为 0。
+ * 余数是奇数时，起始边用 floor，另一边多 1 格。
+ * 拼了好几块就按板重来：每块板的边角余格还是它自己的，不跟邻板并成一条。
+ * 返回格线序号（0 是左 / 上外框）。外框和板缝本身不加这根线。
+ */
+export function majorGridStops(length, spec) {
+  const L = Math.max(0, Math.round(Number(length) || 0))
+  const S = Math.max(1, Math.round(Number(spec) || 1))
+  const lead = Math.floor((S % 10) / 2)
+  const stops = []
+  for (let origin = 0; origin < L; origin += S) {
+    const end = Math.min(L, origin + S)
+    let i = origin + lead
+    if (i <= origin) i += 10
+    for (; i < end; i += 10) stops.push(i)
+  }
+  return stops
+}
+
+/**
  * 画布档位阶梯（从简单到特别精细，共 7 档）。
  *
  * 每档只定「长边多少格」+「适合做什么」，具体用哪个规格、拼几块，由 tierBox 按图片方向挑

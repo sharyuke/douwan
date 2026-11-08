@@ -1,7 +1,7 @@
 /* =========================================================================
    拼豆图纸绘制（Canvas 2D）
    所有绘制入口共用同一套规范：
-     · 1 格 = 1 颗豆，每 10 格加粗辅助线
+     · 1 格 = 1 颗豆，每 10 格加粗辅助线（板边多出来的格子分到两侧，见 majorGridStops）
      · 四边坐标标尺
      · 格内印完整色号（H1 / A1 / F1 是三颗不同的豆，只印数字会认错）
      · 底板边界用珊瑚色虚线，角标为板号
@@ -10,7 +10,7 @@
 
 import { inkOn, hexToRgb } from './color.js'
 /* 分板规格的归一化 / 推导（52 / 78 / 104 / 120 钉画线板与 29 格老规格）都在 boardSpec.js */
-import { normalizeBoardSize } from './boardSpec.js'
+import { majorGridStops, normalizeBoardSize } from './boardSpec.js'
 
 /**
  * 「空格」的画法（自动抠背景 / 橡皮擦留下的位置）。
@@ -707,19 +707,24 @@ function paintChartOverlay(ctx, g, pattern) {
     ctx.restore()
   }
 
+  /* 分板规格由 boardSpec.js 统一推导（整张画布一种规格；老图纸那里是 29 格老板），
+     {x, y} 两种写法都过 normalizeBoardSize。加粗线要先知道是哪块板，
+     余格才能分到这块板的两侧，而不是堆在右 / 下。 */
+  const BS = normalizeBoardSize(o.boardSize, gw, gh)
+
   // 每 10 格实线。编辑器固定 1px，比原来的 cell/11 细；导出标版仍按格子放大。
   if (o.bold && cell >= 4) {
     const themed = !!(o.theme && o.theme.bold)
     ctx.strokeStyle = themed ? o.theme.bold : GRID_BOLD
     ctx.lineWidth = themed ? Math.max(1, Math.round(cell / 11)) : 1
     ctx.beginPath()
-    for (let i = 10; i < gw; i += 10) {
+    for (const i of majorGridStops(gw, BS.x)) {
       const v = OX + i * cell + 0.5
       if (!hitCol(v)) continue
       ctx.moveTo(v, OY)
       ctx.lineTo(v, OY + gridH)
     }
-    for (let j = 10; j < gh; j += 10) {
+    for (const j of majorGridStops(gh, BS.y)) {
       const h = OY + j * cell + 0.5
       if (!hitRow(h)) continue
       ctx.moveTo(OX, h)
@@ -729,9 +734,6 @@ function paintChartOverlay(ctx, g, pattern) {
   }
 
   // 底板边界
-  /* 分板规格由 boardSpec.js 统一推导（整张画布一种规格；老图纸那里是 29 格老板），
-     {x, y} 两种写法都过 normalizeBoardSize */
-  const BS = normalizeBoardSize(o.boardSize, gw, gh)
   const bCols = Math.ceil(gw / BS.x)
   const bRows = Math.ceil(gh / BS.y)
   if (o.boardLines && (bCols > 1 || bRows > 1)) {

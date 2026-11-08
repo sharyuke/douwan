@@ -17,7 +17,7 @@ import { estimateMatte, matteLevel, matteMaxSide } from './matte.js'
 import { cartoonize } from './cartoon.js'
 import { getColors, getColor, getBrand, DEFAULT_BRAND_ID } from './palettes.js'
 /* 板规格 / 豆径的唯一口径（52 / 78 / 104 / 120 钉画线板、2.6mm 小豆与 5mm 中号豆）都在这里 */
-import { boardProfile, normalizeBoardSize, beadOf, autoBeadKey, BOARD_SPECS, LEGACY_BOARD } from './boardSpec.js'
+import { boardProfile, normalizeBoardSize, beadOf, autoBeadKey, majorGridStops, BOARD_SPECS, LEGACY_BOARD } from './boardSpec.js'
 export { normalizeBoardSize }
 
 export const PATTERN_VERSION = 1
@@ -2100,8 +2100,8 @@ export function estimateSvgBytes(pattern, { cell = 10, withGrid = true, withCode
   if (withGrid && cell >= 4) {
     const line = `<line x1="${pad(xDigits)}" y1="${pad(yDigits)}" x2="${pad(xDigits)}" y2="${pad(yDigits)}"/>`.length
     bytes += (gw + gh + 2) * line
-    bytes += (Math.floor(gw / 10) + Math.floor(gh / 10)) * line
     const bs = normalizeBoardSize(boardSize, gw, gh)
+    bytes += (majorGridStops(gw, bs.x).length + majorGridStops(gh, bs.y).length) * line
     if (Math.ceil(gw / bs.x) > 1 || Math.ceil(gh / bs.y) > 1) {
       bytes += (Math.floor(gw / bs.x) + Math.floor(gh / bs.y)) * line
     }
@@ -2155,7 +2155,8 @@ export function toSVG(pattern, { cell = 10, withGrid = true, withCodes = false, 
     }
   }
 
-  // 网格
+  // 网格。加粗线按板把余格分到两侧（104 是左右各 2 格，不是右边 4 格）。
+  const bs = normalizeBoardSize(boardSize, gw, gh)
   if (withGrid && cell >= 4) {
     const lines = []
     for (let i = 0; i <= gw; i++) lines.push(`<line x1="${OX + i * cell}" y1="${OY}" x2="${OX + i * cell}" y2="${OY + GHpx}"/>`)
@@ -2163,13 +2164,12 @@ export function toSVG(pattern, { cell = 10, withGrid = true, withCodes = false, 
     parts.push(`<g stroke="rgba(28,38,27,.13)" stroke-width="1">${lines.join('')}</g>`)
 
     const bold = []
-    for (let i = 10; i < gw; i += 10) bold.push(`<line x1="${OX + i * cell}" y1="${OY}" x2="${OX + i * cell}" y2="${OY + GHpx}"/>`)
-    for (let j = 10; j < gh; j += 10) bold.push(`<line x1="${OX}" y1="${OY + j * cell}" x2="${OX + GWpx}" y2="${OY + j * cell}"/>`)
+    for (const i of majorGridStops(gw, bs.x)) bold.push(`<line x1="${OX + i * cell}" y1="${OY}" x2="${OX + i * cell}" y2="${OY + GHpx}"/>`)
+    for (const j of majorGridStops(gh, bs.y)) bold.push(`<line x1="${OX}" y1="${OY + j * cell}" x2="${OX + GWpx}" y2="${OY + j * cell}"/>`)
     if (bold.length) parts.push(`<g stroke="rgba(28,38,27,.46)" stroke-width="${Math.max(1, Math.round(cell / 11))}">${bold.join('')}</g>`)
   }
 
   // 底板边界
-  const bs = normalizeBoardSize(boardSize, gw, gh)
   const bCols = Math.ceil(gw / bs.x)
   const bRows = Math.ceil(gh / bs.y)
   if (bCols > 1 || bRows > 1) {
