@@ -304,6 +304,8 @@ async function main() {
     await evalJs(send, `(async () => {
       const d = window.__douzao
       const [A, S] = await Promise.all([d.assets(), d.studio()])
+      /* 画布上已有作品时 useAsset 会等「要不要保存」；脚本里直接继续换图 */
+      S.setReplaceConfirm(() => true)
       const asset = A.ASSETS.find(a => a.featured) || A.ASSETS[0]
       await S.useAsset(asset)
       return 1
@@ -593,58 +595,28 @@ async function main() {
   await evalJs(send, `window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); 1`)
   check('Esc 收起选色面板', await waitFly(false), await evalJs(send, `!!document.querySelector('[data-palette-flyout]')`))
 
-  // 交互：右侧入口 —— 成品尺寸是可就地展开的滑杆卡（设计稿 151:587），默认收起
+  // 交互：成品尺寸在钉板下拉的自定义尺寸下面，面板始终展开
   {
-    const card = await evalJs(send, `(() => {
-      const t = s => { const el = document.querySelector(s); return el ? el.textContent.replace(/\\s+/g, ' ').trim() : '' }
-      const b = s => { const el = document.querySelector(s); if (!el) return null; const r = el.getBoundingClientRect(); return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) } }
-      const panel = document.querySelector('.szq__panel')
-      const range = document.querySelector('.szq__range')
-      const head = document.querySelector('.szq__head')
-      return {
-        has: !!document.querySelector('[data-size-card]'),
-        open: panel ? getComputedStyle(panel).display !== 'none' : false,
-        expanded: head ? head.getAttribute('aria-expanded') : null,
-        head: t('.szq__name'), title: t('.szq__introTop b'), intro: t('.szq__intro'),
-        valueLabel: t('.szq__value span'), nowLabel: t('.szq__now span'),
-        headBox: b('.szq__head'), panelBox: b('.szq__panel'), pillBox: b('.szq__now'),
-        min: range ? range.min : '', max: range ? range.max : '', value: range ? range.value : ''
-      }
-    })()`)
-    console.log('sizeCard:', JSON.stringify(card))
-    check('成品尺寸默认收起（只露标题 + 箭头）', card.has && !card.open && card.expanded === 'false' && card.head === '成品尺寸', card)
-    /* 展开后再量几何 */
-    await evalJs(send, `document.querySelector('.szq__head').click(); 1`)
+    await evalJs(send, `(() => { if (!document.querySelector('[data-board-finish]')) document.querySelector('[data-cmd-board] .csBoard__btn').click(); return 1 })()`)
     await sleep(400)
     const cardOpen = await evalJs(send, `(() => {
       const t = s => { const el = document.querySelector(s); return el ? el.textContent.replace(/\\s+/g, ' ').trim() : '' }
-      const b = s => { const el = document.querySelector(s); if (!el) return null; const r = el.getBoundingClientRect(); return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) } }
-      const range = document.querySelector('.szq__range')
+      const range = document.querySelector('[data-board-finish] .szq__range')
+      const panel = document.querySelector('[data-board-finish] .szq__panel')
       return {
-        open: getComputedStyle(document.querySelector('.szq__panel')).display !== 'none',
-        expanded: document.querySelector('.szq__head').getAttribute('aria-expanded'),
-        title: t('.szq__introTop b'), intro: t('.szq__intro'),
-        valueLabel: t('.szq__value span'), nowLabel: t('.szq__now span'),
-        headBox: b('.szq__head'), panelBox: b('.szq__panel'), pillBox: b('.szq__now'),
+        inBoard: !!document.querySelector('[data-board-finish] [data-size-card]'),
+        head: !!document.querySelector('[data-board-finish] .szq__head'),
+        open: panel ? getComputedStyle(panel).display !== 'none' : false,
+        title: t('[data-board-finish] .szq__introTop b'), intro: t('[data-board-finish] .szq__intro'),
+        valueLabel: t('[data-board-finish] .szq__value span'), nowLabel: t('[data-board-finish] .szq__now span'),
         min: range ? range.min : '', max: range ? range.max : '', value: range ? range.value : ''
       }
     })()`)
     console.log('sizeCardOpen:', JSON.stringify(cardOpen))
-    check('点卡头就地展开滑杆卡（不直接开抽屉）', cardOpen.open && cardOpen.expanded === 'true', cardOpen)
-    check('成品尺寸卡贴设计尺寸（卡头 200×42 / 面板 200×180 / 胶囊 176×34）', cardOpen.headBox.w === 200 && cardOpen.headBox.h === 42 && cardOpen.panelBox.h === 180 && cardOpen.pillBox.w === 176 && cardOpen.pillBox.h === 34, cardOpen)
-    check('成品尺寸卡文案与设计稿一致', cardOpen.intro === '默认锁定宽高比，整体等比例缩放' && cardOpen.valueLabel === '等比例缩放' && cardOpen.nowLabel === '当前尺寸', cardOpen)
+    check('钉板下拉里的成品尺寸始终展开，没有收起卡头', cardOpen.inBoard && cardOpen.open && !cardOpen.head, cardOpen)
+    check('成品尺寸卡文案与设计稿一致', cardOpen.intro === '默认锁定宽高比，整体等比例缩放' && cardOpen.valueLabel === '等比例缩放' && cardOpen.nowLabel === '当前尺寸' && cardOpen.title === '成品尺寸', cardOpen)
     check('滑杆上限 = 底板长边', Number(cardOpen.max) > 0 && Number(cardOpen.max) === Number(cardOpen.value), { min: cardOpen.min, max: cardOpen.max, value: cardOpen.value })
-    await shotEl(send, '[data-size-card]', 'size-card')
-
-    // 点卡头就地收起 / 展开
-    await evalJs(send, `document.querySelector('.szq__head').click(); 1`)
-    await sleep(300)
-    const closed = await evalJs(send, `(() => { const p = document.querySelector('.szq__panel'); return { display: getComputedStyle(p).display, expanded: document.querySelector('.szq__head').getAttribute('aria-expanded') } })()`)
-    check('点卡头收起面板', closed.display === 'none' && closed.expanded === 'false', closed)
-    await evalJs(send, `document.querySelector('.szq__head').click(); 1`)
-    await sleep(300)
-    const reopened = await evalJs(send, `getComputedStyle(document.querySelector('.szq__panel')).display`)
-    check('再点卡头展开面板', reopened !== 'none', reopened)
+    await shotEl(send, '[data-cmd-board] .csPop', 'size-card')
 
     // 滑杆改尺寸：真键盘方向键（Chrome 原生 range 会派发 input + change）
     await evalJs(send, `document.querySelector('.szq__range').focus(); 1`)
