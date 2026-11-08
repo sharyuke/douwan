@@ -22,6 +22,7 @@ import {
 import { packPattern, unpackPattern, packProgress, unpackProgress, encodeCells, decodeCells } from '../lib/archive.js'
 import { packCellColors } from '../lib/render.js'
 import { translateBeads } from '../lib/lassoMove.js'
+import { shapeMask } from '../lib/shapes.js'
 import { estimateComplexity } from '../lib/complexity.js'
 import { matteLevel, MATTE_LEVELS, estimateMatte } from '../lib/matte.js'
 import { cartoonize, CARTOON_STYLES } from '../lib/cartoon.js'
@@ -226,6 +227,8 @@ export const tool = ref('paint')
 export const swapMode = ref('brush')
 /** 画笔落笔形状。free 是涂抹，line 是从按下的格子拉到指针的直线。快捷键仍是 B，Shift 拖动也还在。 */
 export const brushStroke = ref('free')
+/** 图形工具当前这一种。star5 五角星 / heart 心形 / cloud 云 / star4 四角星。 */
+export const shapeKind = ref('star5')
 /** 画笔的笔刷边长（格）。1 = 单格编辑，2~5 用于大面积上色（设计稿 124:84） */
 export const brushSize = ref(1)
 /** 橡皮的笔刷边长（格）。与画笔分开存，切换工具不会把对方的尺寸带走 */
@@ -2722,6 +2725,73 @@ export function paintLine(x0, y0, x1, y1) {
     return replaceCells(activeKey.value, cells, { deferStats: editDepth > 0 })
   }
   return false
+}
+
+/**
+ * 在当前这一笔里盖一个图形。每次都从按下前的格子重画：
+ * 先按 under 把这个图形上次盖住的格子还原成原来的色号，再盖到新位置。
+ * under 记色号 id，空豆是空字符串。收笔时统计会重排色板下标，id 不会跟着变。
+ * 必须先 beginEdit()。没有按下前的快照时不盖。
+ * @returns {{ under: { i: number, id: string }[] } | null}
+ */
+export function paintShapeStamp(kind, box, under) {
+  const p = pattern.value
+  if (!p || !pendingSnap || !pendingSnap.cells || pendingSnap.cells.length !== p.cells.length) return null
+  const w = Math.round(box && box.w)
+  const h = Math.round(box && box.h)
+  const x0 = Math.round(box && box.x)
+  const y0 = Math.round(box && box.y)
+  if (w < 1 || h < 1 || w > p.width || h > p.height) return null
+  const color = getColorByIdSafe(brushColorId.value) || p.palette[p.palette.length - 1]
+  if (!color) return null
+  const brushPi = ensurePaletteIndex(color)
+  if (brushPi < 0) return null
+  const cells = Int32Array.from(pendingSnap.cells)
+  const idIndex = new Map()
+  const indexFor = (id) => {
+    if (idIndex.has(id)) return idIndex.get(id)
+    let pi = EMPTY
+    if (id) {
+      const prev = getColorByIdSafe(id)
+      if (prev) {
+        const found = ensurePaletteIndex(prev)
+        if (found >= 0) pi = found
+      }
+    }
+    idIndex.set(id, pi)
+    return pi
+  }
+  if (under && under.length) {
+    for (let n = 0; n < under.length; n++) {
+      const u = under[n]
+      if (!u || u.i < 0 || u.i >= cells.length) continue
+      cells[u.i] = indexFor(u.id || '')
+    }
+  }
+  const palette = pattern.value.palette
+  const idOf = (idx) => (idx >= 0 && palette[idx] ? palette[idx].id : '')
+  const mask = shapeMask(kind, w, h)
+  const nextUnder = []
+  const gw = p.width
+  const gh = p.height
+  for (let dy = 0; dy < h; dy++) {
+    const gy = y0 + dy
+    if (gy < 0 || gy >= gh) continue
+    const row = gy * gw
+    const mrow = dy * w
+    for (let dx = 0; dx < w; dx++) {
+      if (!mask[mrow + dx]) continue
+      const gx = x0 + dx
+      if (gx < 0 || gx >= gw) continue
+      const i = row + gx
+      nextUnder.push({ i, id: idOf(cells[i]) })
+      cells[i] = brushPi
+    }
+  }
+  let changed = false
+  for (let i = 0; i < cells.length; i++) if (cells[i] !== p.cells[i]) { changed = true; break }
+  if (changed) replaceCells(activeKey.value, cells, { deferStats: editDepth > 0 })
+  return { under: nextUnder }
 }
 
 /** 橡皮的语义在 pattern.js 里由 EMPTY 表达（不放豆），这里不再需要"最浅色"的兜底 */

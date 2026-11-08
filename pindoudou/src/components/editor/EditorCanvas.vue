@@ -5,7 +5,7 @@ import {
   BRUSH_MAX, toolSizeOf, setToolSize, beadKey,
   options, currentView, canvasEl, paintAt, paintLine, fillAt, pickAt, shiftPattern, restorePendingPattern, undo, redo,
   canUndo, canRedo, undoDepth, redoDepth, beginEdit, endEdit, cancelEdit, revertEdit,
-  mirrorPattern, replaceColorEverywhere, clearColorEverywhere, nearestSwapColor, swapMode, brushStroke,
+  mirrorPattern, replaceColorEverywhere, clearColorEverywhere, nearestSwapColor, swapMode, brushStroke, shapeKind, paintShapeStamp,
   stats, sourceUrl, sourceImg, sourceCssFilter, generating, genMs,
   selectedBoard, layout, materials
 } from '../../composables/useStudio.js'
@@ -16,6 +16,7 @@ import { boardBeadCounts } from '../../lib/pattern.js'
 import { beadOf, boardOf, BOARD_SPEC_LIST_TEXT } from '../../lib/boardSpec.js'
 import { getColorById } from '../../lib/palettes.js'
 import { EDIT_TOOLS, EDIT_HISTORY, EDIT_ACTIONS } from '../../data/icons.js'
+import { SHAPES, boxFromCorner, minShapeBox, nudgeBox } from '../../lib/shapes.js'
 import Icon from '../ui/Icon.vue'
 import BaseDialog from '../ui/BaseDialog.vue'
 import PatternPreview from '../ui/PatternPreview.vue'
@@ -648,7 +649,7 @@ function armFingerPick(e) {
   clearFingerPick()
   if (e.pointerType !== 'touch' || e.button !== 0) return
   if (currentView.value !== 'pattern' || showEmpty.value) return
-  if (tool.value === 'pan' || tool.value === 'lasso') return
+  if (tool.value === 'pan' || tool.value === 'lasso' || tool.value === 'shape') return
   fingerPickPointer = e.pointerId
   fingerPickDownX = e.clientX
   fingerPickDownY = e.clientY
@@ -672,6 +673,7 @@ function runFingerPick(clientX, clientY) {
     painting = false
     lineStroke = null
   }
+  if (shapeGesture) finishShapeGesture('revert')
   const hit = hitTest(cv.value, pattern.value, { clientX, clientY }, hitOpts.value)
   if (!hit) { clearFingerPick(); return }
   const c = pickAt(hit.x, hit.y)
@@ -718,6 +720,7 @@ function twoFingerUndoNow() {
   if (painting) revertEdit()
   painting = false
   lineStroke = null
+  if (shapeGesture) finishShapeGesture('revert')
   /* 套索拖到一半来了第二根手指：这一下是撤回，半次平移退回按下前。
      还在拉选框时格子没改过，把框丢掉就行。 */
   if (lassoDrag.value) revertEdit()
@@ -741,6 +744,7 @@ function startTwoFingerGesture(stage) {
   if (painting) revertEdit()
   painting = false
   lineStroke = null
+  if (shapeGesture) finishShapeGesture('revert')
   if (lassoDrag.value) revertEdit()
   lassoDrag.value = false
   lassoTrace.value = null
@@ -1040,6 +1044,7 @@ function tracePoints(points) {
 const lassoScroll = ref(0)
 function bumpLassoScroll() {
   if (lasso.value || lassoTrace.value) lassoScroll.value++
+  if (shapeLive.value || shapeGesture) shapeScroll.value++
   const held = pattern.value && pattern.value.offscreen
   if (held && held.length) syncHeldOverlay()
 }
@@ -1289,6 +1294,221 @@ function finishLassoTrace() {
   lasso.value = sel
 }
 
+/* ---------------------------------------------------------------- 图形
+   选一种轮廓后，在格子上拖出图形。边角等比例缩放，拖框的中间移动。
+   一整次按下到松开是一步撤销。画面始终从按下前的格子重画，不会越拖越叠。 */
+const shapeLive = ref(null)
+const shapeScroll = ref(0)
+const shapeCursor = ref('')
+let shapeGesture = null
+let shapeHistoryAt = -1
+const shapeIcon = computed(() => (SHAPES.find(s => s.key === shapeKind.value) || SHAPES[0]).icon)
+const shapeCursorStyle = computed(() => (
+  tool.value === 'shape' && shapeCursor.value ? { '--shape-cursor': shapeCursor.value } : null
+))
+
+function cloneShape(live) {
+  if (!live) return null
+  return { kind: live.kind, x: live.x, y: live.y, w: live.w, h: live.h, under: live.under }
+}
+function clearShapeLive() {
+  shapeLive.value = null
+  shapeHistoryAt = -1
+  shapeCursor.value = ''
+}
+function cellFromPointer(e) {
+  const el = cv.value
+  const p = pattern.value
+  if (!el || !p) return null
+  const g = chartGeometry(p, hitOpts.value)
+  const rect = el.getBoundingClientRect()
+  if (!rect.width || !rect.height || !g.cell) return null
+  const scaleX = g.width / rect.width
+  const scaleY = g.height / rect.height
+  return {
+    x: Math.floor(((e.clientX - rect.left) * scaleX - g.originX) / g.cell),
+    y: Math.floor(((e.clientY - rect.top) * scaleY - g.originY) / g.cell),
+    rect,
+    g,
+    scaleX,
+    scaleY
+  }
+}
+function boundaryClient(cellX, cellY, geo) {
+  return {
+    x: geo.rect.left + (geo.g.originX + cellX * geo.g.cell) / geo.scaleX,
+    y: geo.rect.top + (geo.g.originY + cellY * geo.g.cell) / geo.scaleY
+  }
+}
+function shapePointerHit(e) {
+  const geo = cellFromPointer(e)
+  const live = shapeLive.value
+  if (!geo || !live) return { geo, handle: null, body: false }
+  const nw = boundaryClient(live.x, live.y, geo)
+  const ne = boundaryClient(live.x + live.w, live.y, geo)
+  const se = boundaryClient(live.x + live.w, live.y + live.h, geo)
+  const sw = boundaryClient(live.x, live.y + live.h, geo)
+  const corners = [
+    { key: 'nw', pt: nw, fx: live.x + live.w - 1, fy: live.y + live.h - 1 },
+    { key: 'ne', pt: ne, fx: live.x, fy: live.y + live.h - 1 },
+    { key: 'se', pt: se, fx: live.x, fy: live.y },
+    { key: 'sw', pt: sw, fx: live.x + live.w - 1, fy: live.y }
+  ]
+  const distCenter = Math.hypot(e.clientX - (nw.x + se.x) / 2, e.clientY - (nw.y + se.y) / 2)
+  const cellScreen = Math.abs(geo.rect.width / geo.g.width * geo.g.cell)
+  const slop = Math.max(e.pointerType === 'touch' ? 22 : 14, cellScreen * 0.85)
+  let handle = null
+  let best = slop
+  for (let i = 0; i < corners.length; i++) {
+    const d = Math.hypot(e.clientX - corners[i].pt.x, e.clientY - corners[i].pt.y)
+    if (d <= best && d < distCenter) { handle = corners[i]; best = d }
+  }
+  const left = Math.min(nw.x, se.x)
+  const right = Math.max(nw.x, se.x)
+  const top = Math.min(nw.y, se.y)
+  const bottom = Math.max(nw.y, se.y)
+  const body = !handle && e.clientX >= left && e.clientX <= right && e.clientY >= top && e.clientY <= bottom
+  return { geo, handle, body }
+}
+function updateShapeCursor(e) {
+  if (tool.value !== 'shape') { shapeCursor.value = ''; return }
+  if (shapeGesture) {
+    shapeCursor.value = shapeGesture.mode === 'move' ? 'move' : 'crosshair'
+    return
+  }
+  const hit = shapePointerHit(e)
+  if (hit.handle) {
+    shapeCursor.value = hit.handle.key === 'nw' || hit.handle.key === 'se' ? 'nwse-resize' : 'nesw-resize'
+  } else if (hit.body) shapeCursor.value = 'move'
+  else shapeCursor.value = 'crosshair'
+}
+function applyShapeGesture(e) {
+  const g = shapeGesture
+  const p = pattern.value
+  if (!g || !p) return
+  const geo = cellFromPointer(e)
+  if (!geo) return
+  let box
+  if (g.mode === 'move') {
+    box = { x: geo.x - g.offX, y: geo.y - g.offY, w: g.w, h: g.h }
+  } else if (g.mode === 'create' && geo.x === g.ax && geo.y === g.ay) {
+    box = g.origin
+  } else {
+    box = boxFromCorner(g.kind, g.fx, g.fy, geo.x, geo.y)
+  }
+  box = nudgeBox(box, p.width, p.height)
+  const stamped = paintShapeStamp(g.kind, box, g.under)
+  if (!stamped) return
+  g.box = box
+  shapeLive.value = { kind: g.kind, x: box.x, y: box.y, w: box.w, h: box.h, under: stamped.under }
+}
+function finishShapeGesture(how) {
+  const g = shapeGesture
+  if (!g) return
+  shapeGesture = null
+  if (how === 'revert') {
+    revertEdit()
+    shapeLive.value = g.prev
+    shapeHistoryAt = g.prevHistory
+    return
+  }
+  if (how === 'cancel') cancelEdit()
+  else endEdit()
+  if (g.box && shapeLive.value) {
+    shapeHistoryAt = undoDepth.value
+    return
+  }
+  shapeLive.value = g.prev
+  shapeHistoryAt = g.prevHistory
+}
+function startShape(e) {
+  if (!cv.value || !pattern.value) return false
+  const hit = shapePointerHit(e)
+  const geo = hit.geo
+  if (!geo) return false
+  const p = pattern.value
+  const inside = geo.x >= 0 && geo.y >= 0 && geo.x < p.width && geo.y < p.height
+  const prev = cloneShape(shapeLive.value)
+  let mode = 'create'
+  let fx = geo.x
+  let fy = geo.y
+  let offX = 0
+  let offY = 0
+  let under = []
+  if (hit.handle && prev) {
+    mode = 'resize'
+    fx = hit.handle.fx
+    fy = hit.handle.fy
+    under = prev.under || []
+  } else if (hit.body && prev) {
+    mode = 'move'
+    offX = geo.x - prev.x
+    offY = geo.y - prev.y
+    under = prev.under || []
+  } else if (!inside) return false
+  beginEdit()
+  shapeGesture = {
+    mode,
+    kind: mode === 'create' ? shapeKind.value : prev.kind,
+    fx,
+    fy,
+    offX,
+    offY,
+    ax: geo.x,
+    ay: geo.y,
+    w: prev ? prev.w : 0,
+    h: prev ? prev.h : 0,
+    under,
+    origin: mode === 'create' ? nudgeBox(minShapeBox(shapeKind.value, geo.x, geo.y), p.width, p.height) : null,
+    prev,
+    prevHistory: shapeHistoryAt,
+    box: null
+  }
+  applyShapeGesture(e)
+  updateShapeCursor(e)
+  return true
+}
+const shapeFrame = computed(() => {
+  void shapeScroll.value
+  const live = shapeLive.value
+  const el = cv.value
+  const wrap = wrapEl.value
+  const p = pattern.value
+  if (!live || !el || !wrap || !p || tool.value !== 'shape' || currentView.value !== 'pattern') return null
+  const g = chartGeometry(p, hitOpts.value)
+  const rect = el.getBoundingClientRect()
+  const wr = wrap.getBoundingClientRect()
+  if (!rect.width || !rect.height) return null
+  const sx = rect.width / g.width
+  const sy = rect.height / g.height
+  const to = (cx, cy) => ({
+    x: rect.left - wr.left + (g.originX + cx * g.cell) * sx,
+    y: rect.top - wr.top + (g.originY + cy * g.cell) * sy
+  })
+  const nw = to(live.x, live.y)
+  const se = to(live.x + live.w, live.y + live.h)
+  return {
+    x: nw.x,
+    y: nw.y,
+    w: Math.max(1, se.x - nw.x),
+    h: Math.max(1, se.y - nw.y),
+    handles: [
+      { key: 'nw', ...nw },
+      { key: 'ne', ...to(live.x + live.w, live.y) },
+      { key: 'se', ...se },
+      { key: 'sw', ...to(live.x, live.y + live.h) }
+    ]
+  }
+})
+watch(hitCell, () => { shapeScroll.value++ })
+watch(shapeKind, () => { if (!shapeGesture) clearShapeLive() })
+watch([width, height, sourceUrl], () => { if (!shapeGesture) clearShapeLive() })
+watch([undoDepth, redoDepth], () => {
+  if (shapeGesture || !shapeLive.value) return
+  if (undoDepth.value === shapeHistoryAt) return
+  clearShapeLive()
+})
+
 function capturePointer(el, id) {
   try { el.setPointerCapture?.(id) } catch { /* 指针已失效：这一笔照样画，只是不捕获 */ }
 }
@@ -1344,6 +1564,14 @@ function onPointerDown(e) {
     lineStroke = null
     applyPaint(e)
     return
+  }
+  /* 图形：点格子拖出轮廓。落在已有图形上时，边角等比例缩放，中间拖动。
+     触屏单指也走这里，不落到下面「非画笔工具 = 拖视野」。 */
+  if (currentView.value === 'pattern' && e.button === 0 && tool.value === 'shape') {
+    if (startShape(e)) {
+      capturePointer(stage, e.pointerId)
+      return
+    }
   }
   /* 中键拖动 = 直接平移画布：与当前工具无关，画笔状态下也能拖走视野。
      浏览器默认把中键当「自动滚动」（按下后光标变滚动十字、页面自己滚），
@@ -1428,6 +1656,12 @@ function onPointerMove(e) {
     else applyPaint(e)
     return
   }
+  if (shapeGesture) {
+    applyShapeGesture(e)
+    updateShapeCursor(e)
+    return
+  }
+  if (tool.value === 'shape') updateShapeCursor(e)
   if (lassoDrag.value || (lassoAnchor && lassoAnchor.mode === 'draw')) {
     moveLasso(e)
     return
@@ -1447,6 +1681,10 @@ function onPointerUp(e) {
   if (painting) endEdit()
   painting = false
   lineStroke = null
+  if (shapeGesture) {
+    finishShapeGesture('commit')
+    moved = true
+  }
   /* 拖豆子：松手才入历史。没挪动时 endEdit 发现格子没变，不会入栈，
      这次记下的平移也要丢掉。拉选框：格子没改，只把框收成选区。 */
   if (lassoDrag.value) {
@@ -1506,6 +1744,7 @@ function onPointerCancel(e) {
   if (painting) cancelEdit()
   painting = false
   lineStroke = null
+  if (shapeGesture) finishShapeGesture('cancel')
   /* 指针被抢走时保留已经挪过的格子（和画笔同一口径），只是不再继续拖。
      轨迹还没松手就丢掉，不当成一次选区。 */
   if (lassoDrag.value) endEdit()
@@ -1890,6 +2129,14 @@ function onStageTouchMove(e) {
 
 /** Esc 取消套索选区，方便接着框另一块。别的浮层仍由工作台自己的 Esc 收。 */
 function onLassoKey(e) {
+  if (e.key === 'Escape' && tool.value === 'shape') {
+    if (document.querySelector('[data-shape-menu]')) return
+    if (!shapeGesture && !shapeLive.value) return
+    if (shapeGesture) finishShapeGesture('revert')
+    else clearShapeLive()
+    e.preventDefault()
+    return
+  }
   if (e.key !== 'Escape' || tool.value !== 'lasso') return
   if (!lasso.value && !lassoTrace.value && !lassoDrag.value) return
   if (lassoDrag.value) {
@@ -1953,6 +2200,7 @@ onBeforeUnmount(() => {
   if (painting) cancelEdit()
   painting = false
   lineStroke = null
+  if (shapeGesture) finishShapeGesture('commit')
   if (lassoDrag.value) endEdit()
   lassoDrag.value = false
   lassoTrace.value = null
@@ -2115,6 +2363,10 @@ defineExpose({
         <polygon v-if="lassoShape" class="lassoShape" :class="{ 'is-drag': lassoDrag }" :points="lassoShape" />
         <polyline v-if="lassoTraceShape" class="lassoTrace" :points="lassoTraceShape" />
       </svg>
+      <svg v-if="shapeFrame" class="shapeSvg" aria-hidden="true">
+        <rect class="shapeBox" :x="shapeFrame.x" :y="shapeFrame.y" :width="shapeFrame.w" :height="shapeFrame.h" />
+        <circle v-for="h in shapeFrame.handles" :key="h.key" class="shapeHandle" :cx="h.x" :cy="h.y" r="5.5" />
+      </svg>
 
       <canvas
         v-if="heldCanvas && heldStyle" ref="heldEl" class="heldBeads"
@@ -2124,7 +2376,8 @@ defineExpose({
 
       <div
         ref="stageEl" class="stage"
-        :class="{ 'stage--edit': currentView === 'pattern' && !showEmpty, pannable: currentView === 'pattern' && !showEmpty && (dragging || tool === 'pan'), panning: dragging, 'mid-pan': midPan, 'stage--lasso': tool === 'lasso', 'stage--empty': showEmpty, 'stage--locked': locked }"
+        :class="{ 'stage--edit': currentView === 'pattern' && !showEmpty, pannable: currentView === 'pattern' && !showEmpty && (dragging || tool === 'pan'), panning: dragging, 'mid-pan': midPan, 'stage--lasso': tool === 'lasso', 'stage--shape': tool === 'shape', 'stage--empty': showEmpty, 'stage--locked': locked }"
+        :style="shapeCursorStyle"
         @pointerdown="onPointerDown"
         @pointermove="onPointerMove"
         @pointerup="onPointerUp"
@@ -2310,7 +2563,7 @@ defineExpose({
       <div v-if="!showEmpty && currentView === 'pattern'" class="chartNote">
         <span class="hintWheel">滚轮缩放 · 按住鼠标中键拖动平移</span>
         <span class="hintTouch">双指同时点一下撤回 · 单指编辑 · 长按一格吸色</span>
-        <span v-if="tool !== 'pan'" class="only-lg">· {{ tool === 'lasso' ? '点住豆子拖动整张图案，从空格画出一圈只选圈里的豆子，Esc 取消选区（当前工具：套索）' : tool === 'paint' ? paintNote : '直接点格子改色（当前工具：' + (tool === 'erase' ? '橡皮' : tool === 'pick' ? '吸色' : '填充') + '）' }}</span>
+        <span v-if="tool !== 'pan'" class="only-lg">· {{ tool === 'lasso' ? '点住豆子拖动整张图案，从空格画出一圈只选圈里的豆子，Esc 取消选区（当前工具：套索）' : tool === 'paint' ? paintNote : tool === 'shape' ? '拖出图形，拖边角等比例缩放，拖中间移动（当前工具：图形）' : '直接点格子改色（当前工具：' + (tool === 'erase' ? '橡皮' : tool === 'pick' ? '吸色' : '填充') + '）' }}</span>
       </div>
 
       <!-- 画布太大就不逐格印色号了（见 CODES_CELL_LIMIT）。必须说清楚去哪儿看：
@@ -2413,6 +2666,16 @@ defineExpose({
               <Icon :name="t.icon" :size="16" />
               <span class="toolLabel">{{ t.label }}</span>
             </button>
+            <button
+              type="button" class="tool" :class="{ on: tool === 'shape' }"
+              data-tool-key="shape"
+              aria-label="图形：拖出图形，拖边角等比例缩放，拖中间移动"
+              :aria-pressed="tool === 'shape'"
+              @click="pickTool('shape')"
+            >
+              <Icon :name="shapeIcon" :size="16" />
+              <span class="toolLabel">图形</span>
+            </button>
             <span class="toolSep" aria-hidden="true"></span>
             <!-- 撤销/重做：外面套一层 span 专门放 title —— 原生 disabled 按钮在
                  Chrome 里不弹 tooltip，用户只能看到按钮变灰、不知道为什么变灰 -->
@@ -2490,6 +2753,17 @@ defineExpose({
             >
               <Icon name="line" :size="16" /><span>直线</span>
               <Icon v-if="brushStroke === 'line'" name="check" :size="16" />
+            </button>
+          </template>
+          <template v-if="tool === 'shape'">
+            <span class="brushDivider" aria-hidden="true"></span>
+            <button
+              v-for="s in SHAPES" :key="s.key"
+              type="button" class="brushLine" :data-shape-kind="s.key"
+              :aria-pressed="shapeKind === s.key"
+              @click="shapeKind = s.key"
+            >
+              <Icon :name="s.icon" :size="16" /><span>{{ s.label }}</span>
             </button>
           </template>
         </div>

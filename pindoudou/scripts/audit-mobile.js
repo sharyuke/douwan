@@ -128,14 +128,16 @@
         title: txt(document.querySelector('.msSheet__head b')),
         groups: [...document.querySelectorAll('.msGroupTitle')].map(txt),
         rows: [...document.querySelectorAll('.msRowBtn')].map(txt),
+        shapes: document.querySelectorAll('.msShapeGrid [data-shape-kind]').length,
         triple: document.querySelectorAll('.msTriple__btn').length
       }
       document.querySelector('.msSheet__head button')?.click(); await sleep(300)
       out.moreSheet.closed = !document.querySelector('.msSheet--more')
       out.moreSheet.ok = out.moreSheet.open && out.moreSheet.title === '更多工具' &&
-        out.moreSheet.groups.join(',') === '辅助绘制,图纸处理' &&
+        out.moreSheet.groups.join(',') === '图形,辅助绘制,图纸处理' &&
         out.moreSheet.rows.some(t => t.startsWith('套索')) &&
-        out.moreSheet.triple === 3 && out.moreSheet.closed
+        out.moreSheet.shapes === 4 &&
+        out.moreSheet.triple === 7 && out.moreSheet.closed
     }
 
     /* ⋯ 菜单抽屉：点遮罩收起 */
@@ -212,7 +214,7 @@
       out.zoom.shown && out.zoom.undo && out.zoom.redo && out.zoom.fit &&
       out.tools.count === 5 && out.tools.labels.join(',') === '画笔,橡皮,换色,颜色,更多工具' && out.tools.sameRow &&
       out.noPageScroll && out.toolsAtBottom && out.legacyGone && !!out.menuSheet.ok &&
-      !!out.adjustSheet?.ok &&
+      !!out.matteSheet?.ok && !!out.boardSheet?.ok &&
       (hasCanvas
         ? (!!out.colorSheet?.ok && !!out.moreSheet?.ok && !!out.exportDialog?.ok)
         : out.exportDisabledWhenEmpty === true)
