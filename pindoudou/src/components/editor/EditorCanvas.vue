@@ -1295,7 +1295,7 @@ function finishLassoTrace() {
 }
 
 /* ---------------------------------------------------------------- 图形
-   选一种轮廓后，在格子上拖出图形。边角等比例缩放，拖框的中间移动。
+   选一种轮廓后，在格子上拖出一圈描边，内部留空。边角等比例缩放，拖框的中间移动。
    一整次按下到松开是一步撤销。画面始终从按下前的格子重画，不会越拖越叠。 */
 const shapeLive = ref(null)
 const shapeScroll = ref(0)
@@ -2563,7 +2563,7 @@ defineExpose({
       <div v-if="!showEmpty && currentView === 'pattern'" class="chartNote">
         <span class="hintWheel">滚轮缩放 · 按住鼠标中键拖动平移</span>
         <span class="hintTouch">双指同时点一下撤回 · 单指编辑 · 长按一格吸色</span>
-        <span v-if="tool !== 'pan'" class="only-lg">· {{ tool === 'lasso' ? '点住豆子拖动整张图案，从空格画出一圈只选圈里的豆子，Esc 取消选区（当前工具：套索）' : tool === 'paint' ? paintNote : tool === 'shape' ? '拖出图形，拖边角等比例缩放，拖中间移动（当前工具：图形）' : '直接点格子改色（当前工具：' + (tool === 'erase' ? '橡皮' : tool === 'pick' ? '吸色' : '填充') + '）' }}</span>
+        <span v-if="tool !== 'pan'" class="only-lg">· {{ tool === 'lasso' ? '点住豆子拖动整张图案，从空格画出一圈只选圈里的豆子，Esc 取消选区（当前工具：套索）' : tool === 'paint' ? paintNote : tool === 'shape' ? '拖出轮廓，拖边角等比例缩放，拖中间移动，里面自己填（当前工具：图形）' : '直接点格子改色（当前工具：' + (tool === 'erase' ? '橡皮' : tool === 'pick' ? '吸色' : '填充') + '）' }}</span>
       </div>
 
       <!-- 画布太大就不逐格印色号了（见 CODES_CELL_LIMIT）。必须说清楚去哪儿看：
@@ -2669,7 +2669,7 @@ defineExpose({
             <button
               type="button" class="tool" :class="{ on: tool === 'shape' }"
               data-tool-key="shape"
-              aria-label="图形：拖出图形，拖边角等比例缩放，拖中间移动"
+              aria-label="图形：拖出轮廓，拖边角等比例缩放，拖中间移动，里面自己填"
               :aria-pressed="tool === 'shape'"
               @click="pickTool('shape')"
             >

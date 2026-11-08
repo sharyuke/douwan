@@ -1,5 +1,6 @@
-/* 图形工具的四种轮廓。只负责「这一格在不在图形里」和等比例外框，
-   不碰图纸。盖到格子上由 useStudio.paintShapeStamp 做。 */
+/* 图形工具的四种轮廓。只负责「这一格在不在描边上」和等比例外框，
+   不碰图纸。盖到格子上由 useStudio.paintShapeStamp 做。
+   掩膜是一圈豆宽的边，内部留空，方便之后自己填充。 */
 
 export const SHAPES = [
   { key: 'star5', label: '五角星', icon: 'star', aw: 1, ah: 1, min: 5 },
@@ -132,7 +133,7 @@ function inCloud(col, row, w, h) {
   return nx >= 0.14 && nx <= 0.88 && ny >= 0.46 && ny <= 0.92
 }
 
-function buildMask(kind, w, h) {
+function filledMask(kind, w, h) {
   const mask = new Uint8Array(w * h)
   for (let row = 0; row < h; row++) {
     for (let col = 0; col < w; col++) {
@@ -147,7 +148,26 @@ function buildMask(kind, w, h) {
   return mask
 }
 
-/** 返回 w×h 的 0/1 掩膜，行优先。同尺寸会复用上一次的结果。 */
+/** 实心图形只留下贴着外侧的那一圈。四邻接的填充过不了这条边。 */
+function outlineMask(filled, w, h) {
+  const out = new Uint8Array(w * h)
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x
+      if (!filled[i]) continue
+      const edge = x === 0 || y === 0 || x === w - 1 || y === h - 1
+        || !filled[i - 1] || !filled[i + 1] || !filled[i - w] || !filled[i + w]
+      if (edge) out[i] = 1
+    }
+  }
+  return out
+}
+
+function buildMask(kind, w, h) {
+  return outlineMask(filledMask(kind, w, h), w, h)
+}
+
+/** 返回 w×h 的 0/1 描边掩膜，行优先。同尺寸会复用上一次的结果。 */
 export function shapeMask(kind, w, h) {
   w = Math.round(w)
   h = Math.round(h)

@@ -1707,10 +1707,10 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
           <div class="csToolWrap has-size">
             <button
               type="button" class="tool csTool" :class="{ on: tool === 'shape' }"
-              :aria-label="coarsePointer ? '图形' : '图形：拖出图形，拖边角等比例缩放，拖中间移动'"
+              :aria-label="coarsePointer ? '图形' : '图形：拖出轮廓，拖边角等比例缩放，拖中间移动，里面自己填'"
               :aria-pressed="tool === 'shape'"
               data-tip="图形"
-              data-tip-desc="拖出图形，拖边角等比例缩放，拖中间移动"
+              data-tip-desc="拖出轮廓，拖边角等比例缩放，拖中间移动，里面自己填"
               data-tool-key="shape"
               @click="onShapeTool"
             >

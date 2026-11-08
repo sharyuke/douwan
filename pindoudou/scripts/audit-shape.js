@@ -113,7 +113,9 @@
     await drag({ x: 12, y: 12 }, { x: 26, y: 20 })
     const stamped = snap()
     const box = changedBox(before, stamped)
+    const mid = Math.round((box.x0 + box.x1) / 2) + Math.round((box.y0 + box.y1) / 2) * w
     if (box.n < 8) fail('painted', box)
+    else if (stamped[mid] !== before[mid]) fail('hollow', { mid, box })
     else if (box.x1 - box.x0 !== box.y1 - box.y0) fail('square', box)
     else {
       let skew = 0

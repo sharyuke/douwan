@@ -44,22 +44,46 @@ assert(symmetric('star5', 15), '五角星不左右对称')
 assert(symmetric('star4', 15), '四角星不左右对称')
 assert(symmetric('heart', 15), '心形不左右对称')
 
+/** 从实心内部出发，四向走空格。描边闭合时走不到外框。 */
+function interiorEnclosed(kind, w, h, sx, sy) {
+  const m = shapeMask(kind, w, h)
+  if (m[sy * w + sx] !== 0) return false
+  const seen = new Uint8Array(w * h)
+  const stack = [sy * w + sx]
+  while (stack.length) {
+    const i = stack.pop()
+    if (seen[i] || m[i]) continue
+    seen[i] = 1
+    const x = i % w
+    const y = (i - x) / w
+    if (x === 0 || y === 0 || x === w - 1 || y === h - 1) return false
+    if (x > 0) stack.push(i - 1)
+    if (x < w - 1) stack.push(i + 1)
+    if (y > 0) stack.push(i - w)
+    if (y < h - 1) stack.push(i + w)
+  }
+  return true
+}
+
 const star = shapeMask('star5', 15, 15)
 assert(star[0 * 15 + 7] === 1, '五角星顶部尖角没有豆')
-assert(star[7 * 15 + 7] === 1, '五角星中心是空的')
+assert(star[7 * 15 + 7] === 0, '五角星中心应留空')
 assert(star[0] === 0 && star[14] === 0, '五角星四个角不该铺满')
+assert(interiorEnclosed('star5', 15, 15, 7, 7), '五角星描边没封住，填充会漏出去')
 
 const heart = shapeMask('heart', 15, 15)
 assert(heart[1 * 15 + 7] === 0, '心形顶部中间应是缺口')
-assert(heart[2 * 15 + 3] === 1 && heart[2 * 15 + 11] === 1, '心形上方左右应各有一团')
-assert(heart[12 * 15 + 7] === 1, '心形底部应有豆')
+assert(heart[13 * 15 + 7] === 1, '心形底部应有豆')
+assert(interiorEnclosed('heart', 15, 15, 7, 8), '心形描边没封住，填充会漏出去')
 
 const cloud = shapeMask('cloud', 18, 14)
 let cloudN = 0
 for (let i = 0; i < cloud.length; i++) cloudN += cloud[i]
-assert(cloudN > 20 && cloudN < cloud.length * 0.8, `云的豆数不对 ${cloudN}`)
+assert(cloudN > 20 && cloudN < cloud.length * 0.55, `云的描边豆数不对 ${cloudN}`)
 assert(cloud[0] === 0, '云的左上角应是空的')
-assert(cloud[6 * 18 + 9] === 1, '云的中间应有豆')
+assert(cloud[6 * 18 + 9] === 0, '云的中间应留空')
+assert(interiorEnclosed('cloud', 18, 14, 9, 6), '云的描边没封住，填充会漏出去')
+assert(interiorEnclosed('star4', 15, 15, 7, 7), '四角星描边没封住，填充会漏出去')
 
 const grown = boxFromCorner('star5', 2, 3, 10, 6)
 assert(grown.w === grown.h, '拉动边角后五角星不再是正方形')
