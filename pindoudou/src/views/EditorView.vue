@@ -10,6 +10,7 @@ import ExportDialog from '../components/editor/ExportDialog.vue'
 import AnalysisDialog from '../components/editor/AnalysisDialog.vue'
 import StockDialog from '../components/editor/StockDialog.vue'
 import ImageAdjustPanel from '../components/editor/ImageAdjustPanel.vue'
+import SizeQuickCard from '../components/editor/SizeQuickCard.vue'
 import PaletteCard from '../components/editor/PaletteCard.vue'
 import ColorReplaceDialog from '../components/editor/ColorReplaceDialog.vue'
 import ShortcutTip from '../components/editor/ShortcutTip.vue'
@@ -154,7 +155,7 @@ watch([consoleMode, mobileConsole, currentView], () => {
   if (currentView.value !== 'pattern') currentView.value = 'pattern'
 }, { immediate: true })
 const msSheet = ref('')
-const MS_SHEET_TITLES = { color: '颜色', more: '更多工具', menu: '更多', adjust: '图纸调整' }
+const MS_SHEET_TITLES = { color: '颜色', more: '更多工具', menu: '更多', matte: '智能抠图', board: '钉板' }
 const msSheetTitle = computed(() => MS_SHEET_TITLES[msSheet.value] || '')
 function openMsSheet(key) {
   closeMsToolMenu()
@@ -172,8 +173,7 @@ const DRAWER_TITLES = {
   analysis: '作品分析',
   colors: '颜色用量',
   split: '分板',
-  stock: '我的库存',
-  adjust: '图纸调整'
+  stock: '我的库存'
 }
 const drawerKey = ref('')
 const drawerTitle = computed(() => DRAWER_TITLES[drawerKey.value] || '')
@@ -182,7 +182,7 @@ function openDrawer(key) {
   drawerKey.value = drawerKey.value === key ? '' : key
   boardOpen.value = false
   brandOpen.value = false
-  adjustOpen.value = false
+  matteOpen.value = false
 }
 function closeDrawer() { drawerKey.value = '' }
 
@@ -194,9 +194,9 @@ function showSplit() {
   insightsRef.value?.revealSplit()
 }
 
-/* 命令栏的两个小浮层：钉板 / 图纸调整 */
+/* 命令栏的两个小浮层：钉板（含成品尺寸）/ 智能抠图 */
 const boardOpen = ref(false)
-const adjustOpen = ref(false)
+const matteOpen = ref(false)
 const boardSpec = computed(() => boardSpecFor(options.canvasW, options.canvasH))
 const boardOptions = computed(() => BOARD_SPECS.map(s => ({
   spec: s,
@@ -249,7 +249,7 @@ function applyBoardCustom() {
 function closeCmdPops() {
   boardOpen.value = false
   brandOpen.value = false
-  adjustOpen.value = false
+  matteOpen.value = false
 }
 function toggleBoard() {
   const next = !boardOpen.value
@@ -262,11 +262,11 @@ function toggleBrand() {
   closeCmdPops()
   brandOpen.value = next
 }
-function toggleAdjust() {
+function toggleMatte() {
   if (!sourceUrl.value) return
-  const next = !adjustOpen.value
+  const next = !matteOpen.value
   closeCmdPops()
-  adjustOpen.value = next
+  matteOpen.value = next
   if (next) closeDrawer()
 }
 
@@ -547,7 +547,7 @@ function onDocPointerDown(e) {
   }
   if (boardOpen.value && !inside('[data-cmd-board]')) boardOpen.value = false
   if (brandOpen.value && !inside('[data-cmd-brand]')) brandOpen.value = false
-  if (adjustOpen.value && !inside('[data-cmd-adjust]')) adjustOpen.value = false
+  if (matteOpen.value && !inside('[data-cmd-matte]')) matteOpen.value = false
   if (paletteOpen.value) {
     if (inside('[data-palette-flyout]') || inside('.csRail__swatch')) return
     closePaletteFly()
@@ -873,7 +873,7 @@ function onKeydown(e) {
     if (paletteOpen.value) { closePaletteFly(); return }
     if (boardOpen.value) { boardOpen.value = false; return }
     if (brandOpen.value) { brandOpen.value = false; return }
-    if (adjustOpen.value) { adjustOpen.value = false; return }
+    if (matteOpen.value) { matteOpen.value = false; return }
     if (drawerKey.value) { closeDrawer(); return }
     return
   }
@@ -1199,8 +1199,8 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
   <div class="studio studio--console" :class="{ 'studio--mobile': mobileConsole, 'studio--tablet-fixed': tabletMode }">
     <!-- ============================ 全局命令栏（全屏工作台） ============================
          第一行：品牌 · 作品名（可改名）· 保存状态 ‖ 保存 / 导出 / 反馈 / 个人中心
-         第二行：功能组（更换图片 / 素材库 | 卡通 · 钉板 · 图纸调整 · 色板）整体居中，
-                网格开关贴右缘；图纸调整点开是下拉，面板样式与原先一致。
+         第二行：功能组（更换图片 / 素材库 | 卡通 · 钉板 · 智能抠图 · 色板）整体居中，
+                网格开关贴右缘。钉板下拉在自定义尺寸下面放成品尺寸；智能抠图点开是下拉。
          版面与文字层级按 Figma「豆玩操作台优化」1:593；字号字重按 1:2「豆玩 · 文字与字体规范」。
          手机 / 平板没有对应设计，这两行不渲染（见 consoleMode）。 -->
     <header v-if="consoleMode" class="csTop">
@@ -1299,22 +1299,25 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
               <input v-model="boardCustomH" type="number" min="8" :max="maxCells" aria-label="钉板高（格）">
               <button type="button" class="csBoard__customOk" @click="applyBoardCustom">确定</button>
             </div>
+            <div class="csBoard__size" data-board-finish>
+              <SizeQuickCard embedded />
+            </div>
           </div>
         </div>
 
-        <div class="csBoard" data-cmd-adjust>
+        <div class="csBoard" data-cmd-matte>
           <button
-            class="csBoard__btn" type="button" data-side-adjust
-            :aria-expanded="adjustOpen" :disabled="!sourceUrl"
+            class="csBoard__btn" type="button" data-side-matte
+            :aria-expanded="matteOpen" :disabled="!sourceUrl"
             :class="{ 'is-off': !sourceUrl }"
-            @click="toggleAdjust"
+            @click="toggleMatte"
           >
-            <Icon name="sliders-horizontal" :size="16" />
-            <span>图纸调整</span>
+            <Icon name="scissors" :size="16" />
+            <span>智能抠图</span>
             <Icon name="chevron-down" :size="16" />
           </button>
-          <div v-if="adjustOpen" class="csPop csAdjustPop" role="dialog" aria-label="图纸调整">
-            <ImageAdjustPanel class="csAdjust" />
+          <div v-if="matteOpen" class="csPop csMattePop" role="dialog" aria-label="智能抠图">
+            <ImageAdjustPanel matte class="csAdjust" />
           </div>
         </div>
 
@@ -1365,7 +1368,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
       </button>
     </header>
 
-    <!-- 手机端只保留图纸转换：换图 / 图纸调整 / 素材库 -->
+    <!-- 手机端：换图 / 智能抠图 / 钉板 / 素材库。成品尺寸在钉板抽屉的自定义尺寸下面。 -->
     <div v-if="mobileConsole" class="msCmd no-print">
       <button
         type="button" class="msCmd__upload"
@@ -1373,8 +1376,11 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
       >
         <Icon name="image-up" :size="16" />换图
       </button>
-      <button type="button" @click="openMsSheet('adjust')">
-        <Icon name="sliders-horizontal" :size="16" />图纸调整
+      <button type="button" data-ms-matte @click="openMsSheet('matte')">
+        <Icon name="scissors" :size="16" />智能抠图
+      </button>
+      <button type="button" data-ms-board @click="openMsSheet('board')">
+        <Icon name="grid-3x3" :size="16" />钉板
       </button>
       <span class="msSpacer"></span>
       <button type="button" class="msCmd__materials" @click="materialsOpen = true">
@@ -1803,7 +1809,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
       <!-- 底部横向色板条撤掉了：主选色方式改成右栏的「色板」卡
            （系列 → 色系 → 搜索 → 多行网格），画布底部留给图纸。 -->
 
-      <!-- 右侧入口：图纸调整在命令栏钉板旁边点开。 -->
+      <!-- 右侧入口：钉板和智能抠图在命令栏点开。 -->
       <aside v-if="consoleMode && !drawerKey" class="csSide no-print">
         <button type="button" class="csSide__row" :class="{ 'is-off': !hasPattern }" @click="analysisOpen = true">
           <span class="csSide__ico csSide__ico--pink"><Icon name="chart-no-axes-combined" :size="16" /></span>
@@ -2167,8 +2173,13 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
         </div>
       </div>
 
-      <!-- 图纸调整 -->
-      <div v-else-if="msSheet === 'adjust'" class="msSheet__body msSheet__body--adjust">
+      <!-- 智能抠图 -->
+      <div v-else-if="msSheet === 'matte'" class="msSheet__body msSheet__body--adjust">
+        <ImageAdjustPanel matte />
+      </div>
+
+      <!-- 钉板：自定义尺寸下面是成品尺寸，再是品牌色系 -->
+      <div v-else-if="msSheet === 'board'" class="msSheet__body msSheet__body--adjust">
         <ImageAdjustPanel mobile @need-pro="needPro" />
       </div>
     </section>
@@ -2457,9 +2468,9 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
   .csBoard__btn:hover:not(:disabled){background:var(--cs-fill)}
   .csBoard__btn:disabled,.csBoard__btn.is-off{opacity:.42;cursor:not-allowed}
   .csBrand__pop{width:236px}
-  /* 图纸调整：钉板旁边同一套按钮，点开是成品尺寸 + 智能抠图（面板本身样式不动） */
-  .csAdjustPop{
-    right:0;top:calc(100% + 6px);z-index:45;width:380px;padding:12px;
+  /* 智能抠图：钉板旁边同一套按钮，点开只有抠图开关和三档力度 */
+  .csMattePop{
+    right:0;top:calc(100% + 6px);z-index:45;width:320px;padding:12px;
     max-height:min(520px,calc(100dvh - 180px));overflow-y:auto;overscroll-behavior:contain;
   }
   /* ---------------- 网格开关（命令栏右缘） ---------------- */
@@ -2748,7 +2759,10 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
     margin:2px 6px 6px;
     font-family:var(--font-sans);font-size:12px;font-weight:700;line-height:var(--ty-caption-lh);letter-spacing:0;color:var(--cs-muted);
   }
-  .csBoard__pop{right:0;top:calc(100% + 6px);width:248px}
+  .csBoard__pop{
+    right:0;top:calc(100% + 6px);width:280px;
+    max-height:min(560px,calc(100dvh - 140px));overflow-y:auto;overscroll-behavior:contain;
+  }
   .csBoard__item{
     display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:8px;
     width:100%;padding:7px 8px;border-radius:8px;text-align:left;
@@ -2774,6 +2788,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
     font-size:13px;line-height:var(--ty-label-lh);text-align:center;
   }
   .csBoard__custom span{color:var(--cs-muted)}
+  .csBoard__size{margin-top:8px;padding-top:8px;border-top:1px solid var(--cs-line)}
   .csBoard__customOk{
     flex:0 0 auto;height:32px;padding:0 12px;border-radius:8px;background:var(--cs-accent);color:var(--cs-ink);
     font-size:13px;font-weight:700;line-height:32px;white-space:nowrap;
@@ -2904,11 +2919,11 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
 
   /* ---------------- 第二行：模式栏 ---------------- */
   .msCmd{
-    display:flex;align-items:center;gap:6px;flex:0 0 auto;
-    height:46px;padding:0 16px;background:#fff;border-bottom:1px solid var(--ms-line);
+    display:flex;align-items:center;gap:4px;flex:0 0 auto;
+    height:46px;padding:0 10px;background:#fff;border-bottom:1px solid var(--ms-line);
   }
   .msCmd button{
-    display:inline-flex;align-items:center;gap:5px;height:32px;padding:0 12px;
+    display:inline-flex;align-items:center;gap:4px;height:32px;padding:0 8px;
     border-radius:999px;background:transparent;
     font-family:var(--font-sans);font-size:13px;font-weight:500;line-height:var(--ty-label-lh);letter-spacing:0;
     color:var(--ms-ink-2);white-space:nowrap;
@@ -3113,7 +3128,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
   .msMenu button:disabled{opacity:.4}
 
   /* 滑杆：浅灰轨道 + 青柠圆钮（原生外观在手机上轨道是深灰，和设计稿差得远）。
-     子组件（图纸调整）里的滑杆也要吃到，所以走 :deep。 */
+     子组件（钉板抽屉里的成品尺寸）里的滑杆也要吃到，所以走 :deep。 */
   .studio--mobile :deep(input[type="range"]){
     -webkit-appearance:none;appearance:none;height:16px;background:transparent;
   }

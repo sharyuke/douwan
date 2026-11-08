@@ -286,14 +286,15 @@ async function main() {
     return file
   }
 
-  /* 全屏创作工作台把成品尺寸收进命令栏「图纸调整」下拉；
-     滑杆才在 DOM 里（平板左栏 / 手机抽屉已经可见时直接返回） */
+  /* 成品尺寸在钉板下拉（桌面）或钉板抽屉（手机）里；
+     滑杆才在 DOM 里（平板左栏已经可见时直接返回） */
   const ensureSize = await evaluate(`(async () => {
     const sleep = ms => new Promise(r => setTimeout(r, ms))
     if (document.querySelector('[data-size-card-range]') || document.querySelector('[data-size-range]')) return { ok: true, already: true }
-    const entry = document.querySelector('[data-side-adjust]')
-      || [...document.querySelectorAll('.csSide__row, .msCmd button')].find(b => /成品尺寸|图纸调整/.test(b.textContent))
-    if (!entry) return { ok: false, err: '没有「图纸调整」入口' }
+    const entry = document.querySelector('[data-cmd-board] .csBoard__btn')
+      || document.querySelector('[data-ms-board]')
+      || [...document.querySelectorAll('.msCmd button')].find(b => /钉板/.test(b.textContent))
+    if (!entry) return { ok: false, err: '没有「钉板」入口' }
     entry.click()
     await sleep(700)
     return { ok: !!(document.querySelector('[data-size-card-range]') || document.querySelector('[data-size-range]')) }

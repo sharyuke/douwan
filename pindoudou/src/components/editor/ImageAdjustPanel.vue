@@ -1,13 +1,10 @@
 <script setup>
-/* 图纸调整（设计稿「豆玩 · 图纸调整展开」）
-   桌面面板只有「成品尺寸 → 智能抠图」两块；手机端顺序是
-   「图纸设置（钉板 / 品牌色系）→ 成品尺寸 → 智能抠图」。
-   图纸尺寸、品牌色板、用色上限按 2026-11-05 的要求先后去掉（命令行有钉板 / 色号下拉，
-   用色上限在左栏「色板选择」里）；「应用 / 取消」按钮同日去掉，设置选中即落到画布。
-   左栏卡片版面与这里共用同一份 options，在哪儿改都一样。
-   原图调整（亮度 / 对比度 / 饱和度）已按 2026-11-05 的要求去掉；
-   智能抠图原先在命令行有一颗独立按钮，2026-11-05 也并进这块面板。
-   手机端没有命令行那两行，钉板与品牌色系在这里补回来（mobile 时才渲染）。 */
+/* 智能抠图，以及手机端的钉板抽屉。
+   桌面命令栏「智能抠图」只渲染抠图开关和三档力度（matte）。
+   手机没有命令栏钉板下拉，钉板抽屉（mobile）里是：
+   钉板规格、自定义尺寸，下面是成品尺寸，再是品牌色系。
+   成品尺寸与桌面钉板下拉共用 SizeQuickCard。
+   左栏卡片版面与这里共用同一份 options，在哪儿改都一样。 */
 import { computed, ref } from 'vue'
 import SizeQuickCard from './SizeQuickCard.vue'
 import { BOARD_SPECS, boardOf } from '../../lib/boardSpec.js'
@@ -19,8 +16,10 @@ import {
 } from '../../composables/useStudio.js'
 
 defineProps({
-  /* 手机端底部抽屉：补上钉板与品牌色系（桌面命令行已有这两项） */
-  mobile: { type: Boolean, default: false }
+  /* 手机钉板抽屉：钉板、自定义尺寸、成品尺寸、品牌色系 */
+  mobile: { type: Boolean, default: false },
+  /* 智能抠图：开关和三档力度 */
+  matte: { type: Boolean, default: false }
 })
 const emit = defineEmits(['need-pro'])
 
@@ -93,13 +92,8 @@ function pickBrand(e) {
 
 <template>
   <div class="iap">
-    <!-- 手机端补上命令行里的两项：钉板（画布上限）与品牌色系，放在成品尺寸上面 -->
+    <!-- 手机钉板抽屉：规格、自定义尺寸，下面是成品尺寸，再是品牌色系 -->
     <section v-if="mobile" class="iap__sec" data-adjust-board-brand>
-      <header class="iap__secHead">
-        <b>图纸设置</b>
-        <span>钉板与品牌色系</span>
-      </header>
-
       <div class="iap__field">
         <div class="iap__label">
           <span>钉板</span>
@@ -132,6 +126,7 @@ function pickBrand(e) {
           <button type="button" class="btn sm" @click="applyCustom">确定</button>
         </div>
         <p class="iap__hint">钉板是画布上限，成品尺寸在下面调。</p>
+        <SizeQuickCard embedded />
       </div>
 
       <div class="iap__field">
@@ -150,11 +145,8 @@ function pickBrand(e) {
       </div>
     </section>
 
-    <!-- 成品尺寸沿用右侧那张滑杆卡的内容 -->
-    <SizeQuickCard embedded />
-
-    <!-- 智能抠图：原命令行那颗独立按钮并到这里，开关 + 三档力度 + 生效说明 -->
-    <section class="iap__sec" data-adjust-matte>
+    <!-- 智能抠图：命令栏原来「图纸调整」的位置，开关 + 三档力度 + 生效说明 -->
+    <section v-if="matte" class="iap__sec" data-adjust-matte>
       <header class="iap__secHead iap__secHead--switch">
         <div>
           <b>智能抠图</b>

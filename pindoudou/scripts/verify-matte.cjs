@@ -141,7 +141,7 @@ const RESET = `(async () => {
   return { ok: true, removeBg: S.options.removeBg }
 })()`
 
-/** 真点「智能抠图」：平板点左栏页签；桌面 / 手机先打开「图纸调整」面板再拨开关 */
+/** 真点「智能抠图」：平板点左栏页签；桌面 / 手机先打开命令栏「智能抠图」再拨开关 */
 const PICK_CUTOUT = `(async () => {
   const sleep = ms => new Promise(r => setTimeout(r, ms))
   const visible = el => !!(el && el.offsetParent !== null)
@@ -149,7 +149,7 @@ const PICK_CUTOUT = `(async () => {
   const findCtl = () => {
     const tab = [...document.querySelectorAll('.procTab')].find(b => txt(b).includes('智能抠图') && visible(b))
     if (tab) return { el: tab, kind: 'tab' }
-    /* 桌面全屏工作台 / 手机：智能抠图并进了「图纸调整」面板 */
+    /* 桌面全屏工作台 / 手机：智能抠图在命令栏下拉或底部抽屉里 */
     const sw = [...document.querySelectorAll('[data-adjust-matte] [role="switch"]')].find(visible)
     if (sw) return { el: sw, kind: 'adjust' }
     const sel = [...document.querySelectorAll('select[aria-label="图片处理方式"]')].find(visible)
@@ -158,13 +158,13 @@ const PICK_CUTOUT = `(async () => {
   }
   let ctl = findCtl()
   if (!ctl) {
-    const entry = [...document.querySelectorAll('[data-side-adjust], .msCmd button, .msEditBar__pills button')]
-      .find(b => (b.hasAttribute('data-side-adjust') || txt(b).includes('图纸调整')) && visible(b))
-    if (!entry) return { ok: false, err: '找不到「图纸调整」入口' }
+    const entry = [...document.querySelectorAll('[data-side-matte], .msCmd button, .msEditBar__pills button')]
+      .find(b => (b.hasAttribute('data-side-matte') || txt(b).includes('智能抠图')) && visible(b))
+    if (!entry) return { ok: false, err: '找不到「智能抠图」入口' }
     entry.click()
     await sleep(500)
     ctl = findCtl()
-    if (!ctl) return { ok: false, err: '「图纸调整」面板里没有智能抠图开关' }
+    if (!ctl) return { ok: false, err: '「智能抠图」面板里没有开关' }
   }
   if (ctl.kind === 'select') {
     ctl.el.value = 'cutout'

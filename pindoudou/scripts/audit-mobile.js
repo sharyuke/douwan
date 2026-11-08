@@ -64,18 +64,20 @@
       export: txt(document.querySelector('.msPill--dark')),
       more: !!document.querySelector('.msTop .msIcon')
     }
-    /* 命令栏：只剩换图 / 图纸调整 / 素材库（自由画布与视图页签都去掉了） */
+    /* 命令栏：换图 / 智能抠图 / 钉板 / 素材库（图纸调整已去掉） */
     const cmdBtns = [...document.querySelectorAll('.msCmd > button')]
     out.cmd = {
       labels: cmdBtns.map(txt),
       upload: txt(document.querySelector('.msCmd__upload')),
-      adjust: txt(cmdBtns.find(b => /图纸调整/.test(txt(b)))),
+      matte: txt(cmdBtns.find(b => /智能抠图/.test(txt(b)))),
+      board: txt(cmdBtns.find(b => /钉板/.test(txt(b)))),
       materials: txt(document.querySelector('.msCmd__materials')),
+      adjustGone: !cmdBtns.some(b => /图纸调整/.test(txt(b))),
       modeButtonsGone: !cmdBtns.some(b => /自由画布|图纸转换/.test(txt(b))),
       viewTabsGone: !document.querySelector('.msViews')
     }
-    out.cmd.ok = out.cmd.modeButtonsGone && out.cmd.viewTabsGone &&
-      out.cmd.labels.join(',') === '换图,图纸调整,素材库' && out.cmd.materials === '素材库'
+    out.cmd.ok = out.cmd.modeButtonsGone && out.cmd.viewTabsGone && out.cmd.adjustGone &&
+      out.cmd.labels.join(',') === '换图,智能抠图,钉板,素材库' && out.cmd.materials === '素材库'
     /* 画布 + 缩放栏 + 工具轨 */
     out.zoom = {
       shown: visible(document.querySelector('.msZoom')),
@@ -143,36 +145,54 @@
     out.menuSheet.closed = !document.querySelector('.msSheet--menu')
     out.menuSheet.ok = out.menuSheet.open && out.menuSheet.title === '更多' && out.menuSheet.closed
 
-    /* 图纸调整抽屉：图纸设置（钉板 / 品牌色系）在成品尺寸上面，再是智能抠图 */
-    const adjustBtn = cmdBtns.find(b => /图纸调整/.test(txt(b)))
-    if (adjustBtn) {
-      adjustBtn.click(); await sleep(450)
-      const iap = document.querySelector('.iap')
+    /* 智能抠图抽屉：只有抠图开关，没有成品尺寸 */
+    const matteBtn = cmdBtns.find(b => /智能抠图/.test(txt(b)))
+    if (matteBtn) {
+      matteBtn.click(); await sleep(450)
+      const matteBox = document.querySelector('[data-adjust-matte]')
+      out.matteSheet = {
+        open: !!document.querySelector('.msSheet--matte'),
+        title: txt(document.querySelector('.msSheet__head b')),
+        switch: !!(matteBox && matteBox.querySelector('[role="switch"]')),
+        size: !!document.querySelector('.msSheet [data-size-card]'),
+        board: !!document.querySelector('.msSheet [data-adjust-board-brand]')
+      }
+      document.querySelector('.msSheet__head button')?.click(); await sleep(300)
+      out.matteSheet.closed = !document.querySelector('.msSheet')
+      out.matteSheet.ok = out.matteSheet.open && out.matteSheet.title === '智能抠图' &&
+        out.matteSheet.switch && !out.matteSheet.size && !out.matteSheet.board &&
+        out.matteSheet.closed
+    }
+
+    /* 钉板抽屉：自定义尺寸下面是成品尺寸，再是品牌色系；没有智能抠图 */
+    const boardBtn = cmdBtns.find(b => /钉板/.test(txt(b)))
+    if (boardBtn) {
+      boardBtn.click(); await sleep(450)
       const sec = document.querySelector('[data-adjust-board-brand]')
-      const kids = iap ? [...iap.children] : []
-      out.adjustSheet = {
-        open: !!document.querySelector('.msSheet'),
+      const customBtn = sec && [...sec.querySelectorAll('.iap__board')].find(b => /自定义/.test(txt(b)))
+      const size = sec && sec.querySelector('[data-size-card]')
+      const sizeAfterCustom = !!(customBtn && size && (customBtn.compareDocumentPosition(size) & Node.DOCUMENT_POSITION_FOLLOWING))
+      out.boardSheet = {
+        open: !!document.querySelector('.msSheet--board'),
         title: txt(document.querySelector('.msSheet__head b')),
         boards: sec ? [...sec.querySelectorAll('.iap__board')].map(txt) : [],
         brandOptions: sec ? sec.querySelectorAll('select option').length : 0,
         hint: txt(sec && [...sec.querySelectorAll('.iap__hint')].find(p => !p.hasAttribute('data-board-multiple-hint'))),
         multiple: txt(sec && sec.querySelector('[data-board-multiple-hint]')),
-        matte: !!document.querySelector('[data-adjust-matte]'),
-        order: kids.map(el => el.hasAttribute('data-adjust-board-brand') ? 'board'
-          : el.hasAttribute('data-size-card') ? 'size'
-          : el.hasAttribute('data-adjust-matte') ? 'matte'
-          : (el.className || '').toString())
+        size: !!size,
+        sizeAfterCustom,
+        matte: !!document.querySelector('.msSheet [data-adjust-matte]')
       }
       document.querySelector('.msSheet__head button')?.click(); await sleep(300)
-      out.adjustSheet.closed = !document.querySelector('.msSheet')
-      out.adjustSheet.ok = out.adjustSheet.open && out.adjustSheet.title === '图纸调整' &&
-        out.adjustSheet.boards.length === 5 &&
-        out.adjustSheet.boards[0].startsWith('52') &&
-        out.adjustSheet.brandOptions > 1 && out.adjustSheet.matte &&
-        out.adjustSheet.order.join(',') === 'board,size,matte' &&
-        /成品尺寸在下面调/.test(out.adjustSheet.hint) &&
-        /多拼几块板/.test(out.adjustSheet.multiple) &&
-        out.adjustSheet.closed
+      out.boardSheet.closed = !document.querySelector('.msSheet')
+      out.boardSheet.ok = out.boardSheet.open && out.boardSheet.title === '钉板' &&
+        out.boardSheet.boards.length === 5 &&
+        out.boardSheet.boards[0].startsWith('52') &&
+        out.boardSheet.brandOptions > 1 && out.boardSheet.size && out.boardSheet.sizeAfterCustom &&
+        !out.boardSheet.matte &&
+        /成品尺寸在下面调/.test(out.boardSheet.hint) &&
+        /多拼几块板/.test(out.boardSheet.multiple) &&
+        out.boardSheet.closed
     }
 
     /* 导出：有图纸时打开「导出」弹窗；空画布时按钮禁用 */

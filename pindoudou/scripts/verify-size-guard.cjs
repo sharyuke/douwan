@@ -386,15 +386,13 @@ async function main() {
     const s = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
     fs.writeFileSync(path.join(OUT, name), Buffer.from(s.data, 'base64'))
   }
-  /* 全屏创作工作台把尺寸滑杆收进了右侧抽屉：桌面 / 窄三栏先点「成品尺寸」把抽屉打开，
-     滑杆与说明行才在 DOM 里；手机端尺寸在「图纸调整」底部弹层里。 */
+  /* 成品尺寸滑杆在钉板下拉（桌面）或钉板抽屉（手机）里，点开才进 DOM。 */
   const openSizePanel = async () => {
     if (isMobile) {
       await evaluate(`(() => {
         if (document.querySelector('[data-size-card-range]')) return 'already'
-        /* 手机没有右栏，也没有 .quickItem 快捷栏：图纸调整在画布下方的 msEditBar 里 */
-        const b = [...document.querySelectorAll('.msEditBar__pills button')]
-          .find(el => /图纸调整|成品尺寸/.test(el.textContent))
+        const b = document.querySelector('[data-ms-board]')
+          || [...document.querySelectorAll('.msCmd button')].find(el => /钉板/.test(el.textContent))
         if (b) b.click()
         return !!b
       })()`)
@@ -403,9 +401,8 @@ async function main() {
     }
     await evaluate(`(() => {
       if (document.querySelector('[data-size-card-range]') || document.querySelector('[data-size-range]')) return 'already'
-      /* 成品尺寸滑杆在「图纸调整」抽屉里（右栏那排入口已经改成 图纸调整 / 分析 / 库存 / 颜色 / 分板） */
-      const b = document.querySelector('[data-side-adjust]')
-        || [...document.querySelectorAll('.csBoard__btn, .csSide__row, .msCmd button')].find(el => /成品尺寸|图纸调整/.test(el.textContent))
+      const b = document.querySelector('[data-cmd-board] .csBoard__btn')
+        || [...document.querySelectorAll('.csBoard__btn, .msCmd button')].find(el => /钉板/.test(el.textContent))
       if (b) b.click()
       return !!b
     })()`)
