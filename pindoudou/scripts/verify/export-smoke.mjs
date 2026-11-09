@@ -66,7 +66,7 @@ globalThis.URL = { createObjectURL(blob) { lastBlob = blob; return 'blob:verify'
 
 const {
   exportPatternPNG, exportCleanPNG, exportSVG, exportShareCard, exportComparePNG,
-  printPattern, printPlan, pngExportPlan, buildPrintHTML, PRINT_MAX_BOARDS
+  printPattern, printPlan, pngExportPlan, buildPrintHTML, PRINT_MAX_BOARDS, CODE_CELL_MIN
 } = await import('../../src/lib/exporters.js')
 
 let failed = 0
@@ -101,18 +101,33 @@ console.log('\n1:1 画布外壳：导出的像素尺寸必须和 devicePixelRati
 /* 导出的是**标版整页**（页眉 + 图纸 + 底部双卡），所以比对的是标版页面的尺寸，
    不是图纸主体的尺寸 —— 两者不是一回事：标版页更宽、也更高。
    pngExportPlan 传 includeLegend/includeStats 时返回的就是整页尺寸（pageW / pageH）。 */
+const dprPages = {}
 for (const dpr of [1, 1.25, 1.5, 2, 3]) {
   globalThis.window.devicePixelRatio = dpr
   for (const n of [116, 450]) {
     const p = mkPattern(n, n)
-    const res = exportPatternPNG(p, { projectName: 'verify' })
-    const plan = pngExportPlan(p, 24, { includeLegend: true, includeStats: true })
-    const want = { width: Math.ceil(plan.pageW), height: Math.ceil(plan.pageH) }
-    check(
-      res.ok === true && res.width === want.width && res.height === want.height,
-      `DPR=${dpr} ${n}×${n} → ${want.width}×${want.height}`,
-      `实际 ${res.width}×${res.height}`
-    )
+    const res = await exportPatternPNG(p, { projectName: 'verify' })
+    if (n <= 116) {
+      const plan = pngExportPlan(p, 24, { includeLegend: true, includeStats: true })
+      const want = { width: Math.ceil(plan.pageW), height: Math.ceil(plan.pageH) }
+      check(
+        res.ok === true && !res.paged && res.width === want.width && res.height === want.height,
+        `DPR=${dpr} ${n}×${n} → ${want.width}×${want.height}`,
+        `实际 ${res.width}×${res.height}`
+      )
+    } else {
+      check(
+        res.ok === true && res.paged && res.cell >= CODE_CELL_MIN && res.width <= 4096 && res.height <= 4096,
+        `DPR=${dpr} ${n}×${n} 分页导出 cell=${res.cell}，首页 ${res.width}×${res.height}`,
+        res.message
+      )
+      const key = `${n}`
+      if (!dprPages[key]) dprPages[key] = { width: res.width, height: res.height, cell: res.cell, count: res.count }
+      else check(
+        res.width === dprPages[key].width && res.height === dprPages[key].height && res.cell === dprPages[key].cell && res.count === dprPages[key].count,
+        `DPR=${dpr} ${n}×${n} 分页尺寸与 DPR=1 一致`
+      )
+    }
   }
 }
 
@@ -127,10 +142,15 @@ globalThis.window.devicePixelRatio = 2
 const expectCell = { 116: 22, 300: 9, 450: 6, 464: 5 }
 for (const n of [116, 300, 450, 464]) {
   const p = mkPattern(n, n)
-  const png = exportPatternPNG(p, { projectName: 'verify', cell: 24, codes: true })
-  check(png.ok && png.cell === expectCell[n], `${n}×${n} PNG cell=${png.cell}`, png.message)
-  check(!png.ok || new RegExp(`${png.width}×${png.height} 像素`).test(png.message), `${n}×${n} PNG 文案带实际像素`)
-  if (n > 116) check(/PDF 分板/.test(png.message), `${n}×${n} PNG 降档时导流到 PDF 分板`)
+  const png = await exportPatternPNG(p, { projectName: 'verify', cell: 24, codes: true })
+  if (n <= 116) {
+    check(png.ok && !png.paged && png.cell === expectCell[n], `${n}×${n} PNG cell=${png.cell}`, png.message)
+    check(new RegExp(`${png.width}×${png.height} 像素`).test(png.message), `${n}×${n} PNG 文案带实际像素`)
+  } else {
+    check(png.ok && png.paged && png.tiled && png.cell >= CODE_CELL_MIN, `${n}×${n} 大图分成 ${png.count} 张，每格 ${png.cell} px`, png.message)
+    check(/色号/.test(png.message) && /分成/.test(png.message), `${n}×${n} 文案说明分页并且每张都有色号`)
+    check(!/画不下色号/.test(png.message), `${n}×${n} 不再告诉用户这个尺度画不下色号`)
+  }
 
   const clean = exportCleanPNG(p, { projectName: 'verify' })
   check(clean.ok && clean.width > 0, `${n}×${n} 纯图案 PNG ${clean.width}×${clean.height}`, clean.message)

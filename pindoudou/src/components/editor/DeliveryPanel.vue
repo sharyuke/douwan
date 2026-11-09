@@ -25,7 +25,7 @@ import { check } from '../../composables/useMembership.js'
 import { toastOk, toastWarn, toastResult } from '../../composables/useToast.js'
 import { trackEvent } from '../../lib/telemetry.js'
 import {
-  DPI_OPTIONS, dpiExportPlan, exportPatternPNGAtDpi, exportPatternJPGAtDpi,
+  DPI_OPTIONS, dpiExportPlan, patternSheetPlan, exportPatternPNGAtDpi, exportPatternJPGAtDpi,
   buildPatternImageCanvas, exportCleanPNG, exportSVG, exportMaterialsCSV,
   exportPatternJSON, printPattern, exportShareCard, exportComparePNG,
   copyShoppingList, exportBoardImagesZip, exportBoardPdf
@@ -208,6 +208,18 @@ const fullPlan = computed(() => (hasPattern.value
       includeStats: settings.value.stats
     })
   : null))
+/* 色号开着时，大图不会再缩到画不出字：装不下一张就分成多张，每张格子都够认色号。 */
+const sheetPlan = computed(() => {
+  if (!hasPattern.value || !pattern.value) return null
+  const mm = bead.value && bead.value.mm ? bead.value.mm : 2.6
+  const want = Math.max(1, Math.round((mm / 25.4) * settings.value.dpi))
+  return patternSheetPlan(pattern.value, want, {
+    ruler: settings.value.ruler,
+    includeLegend: settings.value.legend,
+    includeStats: settings.value.stats,
+    codes: settings.value.codes
+  })
+})
 const exportBoardSize = computed(() => {
   const spec = settings.value.splitSpec
   if (spec === -1) {
@@ -279,10 +291,15 @@ const checks = computed(() => {
       list.push({ level: 'warn', text: '每格像素偏低，色号可能看不清；建议 150 DPI 以上或减少画布尺寸。' })
     }
   }
-  if (settings.value.codes && fullPlan.value && fullPlan.value.cell < 11) {
-    list.push({ level: 'warn', text: '整张图纸的每格像素不足以画清色号；要看色号请用「分板交付」。' })
+  if (settings.value.codes && sheetPlan.value && sheetPlan.value.tiled) {
+    list.push({
+      level: 'ok',
+      text: `图纸较大，将分成 ${sheetPlan.value.count} 张导出，每格 ${sheetPlan.value.cell} px，每张图案都有色号。`
+    })
   }
-  if (fullPlan.value && fullPlan.value.capped) list.push({ level: 'warn', text: fullPlan.value.message })
+  if (fullPlan.value && fullPlan.value.capped && !(sheetPlan.value && sheetPlan.value.paged)) {
+    list.push({ level: 'warn', text: fullPlan.value.message })
+  }
   if (tab.value === 'split' && splitPlan.value && splitPlan.value.capped) list.push({ level: 'warn', text: splitPlan.value.message })
   if (!list.length) list.push({ level: 'ok', text: '检查通过，可以导出。' })
   return list
@@ -359,13 +376,27 @@ const fullItems = computed(() => {
   return [
     {
       key: 'png', label: '图纸 PNG（高清）', feature: 'export.png',
-      desc: `按 ${settings.value.dpi} DPI 重新渲染${fullPlan.value ? `，实际 ${fullPlan.value.dpi} DPI · ${fullPlan.value.width}×${fullPlan.value.height} px` : ''}，带豆玩统一标版`,
-      run: () => exportPatternPNGAtDpi(p, { dpi: settings.value.dpi, projectName: projectName.value, ...opts })
+      desc: sheetPlan.value && sheetPlan.value.tiled
+        ? `分成 ${sheetPlan.value.count} 张，每格 ${sheetPlan.value.cell} px，每张图案都标色号`
+        : `按 ${settings.value.dpi} DPI 重新渲染${fullPlan.value ? `，实际 ${fullPlan.value.dpi} DPI · ${fullPlan.value.width}×${fullPlan.value.height} px` : ''}，带豆玩统一标版`,
+      run: () => exportPatternPNGAtDpi(p, {
+        dpi: settings.value.dpi,
+        projectName: projectName.value,
+        ...opts,
+        onProgress: ({ index, total }) => setStatus('generating', `正在绘制第 ${index} / ${total} 张…`)
+      })
     },
     {
       key: 'jpg', label: '图纸 JPG（高清）', feature: 'export.png',
-      desc: '白底、适合手机查看与普通打印；同一套豆玩统一标版，透明区域铺白',
-      run: () => exportPatternJPGAtDpi(p, { dpi: settings.value.dpi, projectName: projectName.value, ...opts })
+      desc: sheetPlan.value && sheetPlan.value.tiled
+        ? `分成 ${sheetPlan.value.count} 张白底 JPG，每格 ${sheetPlan.value.cell} px，每张图案都标色号`
+        : '白底、适合手机查看与普通打印；同一套豆玩统一标版，透明区域铺白',
+      run: () => exportPatternJPGAtDpi(p, {
+        dpi: settings.value.dpi,
+        projectName: projectName.value,
+        ...opts,
+        onProgress: ({ index, total }) => setStatus('generating', `正在绘制第 ${index} / ${total} 张…`)
+      })
     },
     {
       key: 'pdf', label: '分板 PDF（打印 / 另存）', feature: 'export.pdf',
@@ -489,6 +520,10 @@ watch(tab, () => {
 })
 const selectedItem = computed(() => currentItems.value.find(i => i.key === selectedKey.value) || currentItems.value[0] || null)
 const qualitySummary = computed(() => {
+  const sheet = sheetPlan.value
+  if (tab.value !== 'split' && settings.value.codes && sheet && sheet.paged) {
+    return `${settings.value.dpi} DPI · 每格 ${sheet.cell} px · ${sheet.count} 张`
+  }
   const p = plan.value
   return p ? `${settings.value.dpi} DPI · 每格 ${p.cell} px` : `${settings.value.dpi} DPI`
 })
@@ -547,10 +582,17 @@ async function renderPreview() {
     ctx.clearRect(0, 0, el.width, el.height)
     ctx.drawImage(src, 0, 0, el.width, el.height)
 
-    const planNow = tab.value === 'build' ? null : plan.value
-    previewMsg.value = planNow
-      ? `预览 ${Math.round(scale * 100)}% · 实际导出 ${planNow.width}×${planNow.height} px（${planNow.dpi} DPI${planNow.capped ? '，已按上限调整' : ''}）`
-      : `预览 ${Math.round(scale * 100)}%`
+    const sheet = sheetPlan.value
+    if (tab.value !== 'build' && settings.value.codes && sheet && sheet.paged) {
+      previewMsg.value = sheet.tiled
+        ? `预览是整图缩略，看不清色号。实际导出 ${sheet.count} 张，每格 ${sheet.cell} px，每张图案都有色号。`
+        : `预览 ${Math.round(scale * 100)}% · 实际导出每格 ${sheet.cell} px，图案上有色号。`
+    } else {
+      const planNow = tab.value === 'build' ? null : plan.value
+      previewMsg.value = planNow
+        ? `预览 ${Math.round(scale * 100)}% · 实际导出 ${planNow.width}×${planNow.height} px（${planNow.dpi} DPI${planNow.capped ? '，已按上限调整' : ''}）`
+        : `预览 ${Math.round(scale * 100)}%`
+    }
   } catch (e) {
     previewMsg.value = `预览生成失败：${e && e.message ? e.message : '浏览器不支持'}`
   } finally {
@@ -660,7 +702,10 @@ function close() {
                     <span>{{ d === 150 ? '预览够用' : d === 300 ? '推荐高清' : '超高精度' }} · 每格 {{ Math.round(bead.mm / 25.4 * d) }} px</span>
                   </button>
                 </div>
-                <p v-if="plan" class="hint" :class="{ warnText: plan.capped }">{{ plan.message }}</p>
+                <p v-if="tab !== 'split' && settings.codes && sheetPlan && sheetPlan.paged" class="hint">
+                  整张图画不下清晰色号，图纸会分成 {{ sheetPlan.count }} 张，每格 {{ sheetPlan.cell }} px，每张图案都有色号。标尺数字是全图的列号和行号。
+                </p>
+                <p v-else-if="plan" class="hint" :class="{ warnText: plan.capped }">{{ plan.message }}</p>
               </div>
             </section>
 

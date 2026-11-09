@@ -208,6 +208,203 @@ export function pngExportPlan(pattern, wantedCell = 24, { ruler = true, includeL
 }
 
 /**
+ * 带色号导出时，格子不能小于这个数。
+ *
+ * 18px 一格：3 位色号大约 8px，4 位色号大约 7px，放大到 100% 能认。
+ * 再往下降，整页缩进屏幕里字就糊成一条缝。超大图（208 格及以上）以前被
+ * 单张画布的 4096px / 1600 万像素墙压到 12px 甚至 2px，色号直接不画。
+ * 小图本来就在 24px 这一档，不会因为这条线被拆开。
+ */
+export const CODE_CELL_MIN = 18
+/** 分页时清单最多留这么多色。五列 × 11 行，和单张图纸「卡片不再往上长」的那一档一样。 */
+const SHEET_LEGEND_CAP = 55
+
+function sheetBudget(pattern, colors) {
+  const palette = []
+  for (let i = 0; i < colors; i++) {
+    const code = 'A' + (i + 1)
+    palette.push({ id: 'c' + i, code, name: code, hex: '#888888', brandId: pattern.brandId })
+  }
+  const cells = new Int32Array(colors)
+  for (let i = 0; i < colors; i++) cells[i] = i
+  return {
+    width: Math.max(1, colors),
+    height: 1,
+    cells,
+    palette,
+    boardSize: pattern.boardSize,
+    brandId: pattern.brandId
+  }
+}
+
+/** 这么多格、这么大的格子，加上标版（颜色清单按上限估）能不能放进一张画布 */
+function sheetPageFits(pattern, w, h, cell, { ruler, includeLegend, includeStats, budget }) {
+  const geo = chartGeometry({ width: w, height: h }, {
+    cell,
+    ruler,
+    rulerPx: ruler ? exportRulerPx(cell) : 0
+  })
+  const templated = includeLegend || includeStats
+  const extra = templated
+    ? templateExtraHeight(budget, geo.width, { includeLegend, includeStats, legendLimit: SHEET_LEGEND_CAP })
+    : 0
+  const pageW = templated ? exportPageWidth(geo.width) : geo.width
+  const pageH = geo.height + extra
+  return pageW <= PNG_MAX_SIDE && pageH <= PNG_MAX_SIDE && pageW * pageH <= PNG_MAX_PIXELS
+}
+
+/**
+ * 带色号的图纸怎么分页。
+ *
+ * 单张在 CODE_CELL_MIN 以上放得下：跟以前一样，一张图（116 格仍是 22px，104 格仍是 24px）。
+ * 放不下：按整块钉板切，每张都保持能看清色号的格子。一块钉板自己就放不下时，
+ * 再把这块板切成几张，标尺用全图的列号和行号，拼回去对得上。
+ * 用户关掉色号时不分页，仍走「整张缩小」的老计划。
+ */
+export function patternSheetPlan(pattern, wantedCell = 24, {
+  ruler = true,
+  includeLegend = true,
+  includeStats = true,
+  codes = true
+} = {}) {
+  const w = pattern && pattern.width ? pattern.width : 0
+  const h = pattern && pattern.height ? pattern.height : 0
+  const want = Math.max(1, Math.round(wantedCell) || 24)
+  const single = pngExportPlan(pattern, want, { ruler, includeLegend, includeStats })
+  const whole = [{ x: 0, y: 0, w, h }]
+  if (!codes || !w || !h || single.cell >= CODE_CELL_MIN) {
+    return { paged: false, tiled: false, ...single, tiles: w && h ? whole : [], count: w && h ? 1 : 0 }
+  }
+
+  const colorCount = Math.max(1, (pattern.palette || []).length)
+  const budgets = new Map()
+  const budgetOf = (n) => {
+    const hit = budgets.get(n)
+    if (hit) return hit
+    const made = sheetBudget(pattern, n)
+    budgets.set(n, made)
+    return made
+  }
+  const fits = (tw, th, cell) => sheetPageFits(pattern, tw, th, cell, {
+    ruler,
+    includeLegend,
+    includeStats,
+    budget: budgetOf(Math.min(SHEET_LEGEND_CAP, colorCount, tw * th))
+  })
+
+  const layout = boardLayout(w, h, boardOf(pattern))
+  const bw = layout.boardW
+  const bh = layout.boardH
+  const packAt = (cell) => {
+    const span = (bc, br) => ({
+      w: Math.min(w, bc * bw),
+      h: Math.min(h, br * bh)
+    })
+    const one = span(1, 1)
+    if (!fits(one.w, one.h, cell)) return null
+    let bc = 1
+    while (bc < layout.cols) {
+      const next = span(bc + 1, 1)
+      if (!fits(next.w, next.h, cell)) break
+      bc++
+    }
+    let br = 1
+    while (br < layout.rows) {
+      const next = span(bc, br + 1)
+      if (!fits(next.w, next.h, cell)) break
+      br++
+    }
+    const tiles = []
+    for (let by = 0; by < layout.rows; by += br) {
+      for (let bx = 0; bx < layout.cols; bx += bc) {
+        const x = bx * bw
+        const y = by * bh
+        tiles.push({
+          x,
+          y,
+          w: Math.min(w - x, bc * bw),
+          h: Math.min(h - y, br * bh)
+        })
+      }
+    }
+    return tiles
+  }
+
+  let cell = 0
+  let tiles = null
+  for (let c = want; c >= CODE_CELL_MIN; c--) {
+    tiles = packAt(c)
+    if (tiles) { cell = c; break }
+  }
+  if (!tiles) {
+    cell = Math.max(CODE_CELL_MIN, Math.min(want, 24))
+    let side = 1
+    let lo = 1
+    let hi = Math.max(w, h)
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1
+      if (fits(Math.min(w, mid), Math.min(h, mid), cell)) { side = mid; lo = mid + 1 }
+      else hi = mid - 1
+    }
+    let tw = Math.min(w, side)
+    let th = Math.min(h, side)
+    lo = tw
+    hi = w
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1
+      if (fits(mid, th, cell)) { tw = mid; lo = mid + 1 }
+      else hi = mid - 1
+    }
+    lo = th
+    hi = h
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1
+      if (fits(tw, mid, cell)) { th = mid; lo = mid + 1 }
+      else hi = mid - 1
+    }
+    tiles = []
+    for (let y = 0; y < h; y += th) {
+      for (let x = 0; x < w; x += tw) {
+        tiles.push({ x, y, w: Math.min(tw, w - x), h: Math.min(th, h - y) })
+      }
+    }
+  }
+
+  return {
+    paged: true,
+    tiled: tiles.length > 1,
+    cell,
+    tiles,
+    count: tiles.length,
+    reduced: cell < want,
+    geometry: single.geometry
+  }
+}
+
+function slicePattern(pattern, tile) {
+  const { x, y, w, h } = tile
+  const cells = new Int32Array(w * h)
+  const src = pattern.cells
+  const sw = pattern.width
+  for (let row = 0; row < h; row++) {
+    const from = (y + row) * sw + x
+    cells.set(src.subarray(from, from + w), row * w)
+  }
+  return { ...pattern, width: w, height: h, cells, boardSize: boardOf(pattern) }
+}
+
+function usedColorCount(pattern) {
+  const seen = new Set()
+  const cells = pattern.cells || []
+  const pal = pattern.palette || []
+  for (let i = 0; i < cells.length; i++) {
+    const k = cells[i]
+    if (k >= 0 && pal[k]) seen.add(pal[k].id || pal[k].code)
+  }
+  return seen.size
+}
+
+/**
  * 导出结果要如实说明「你拿到的是什么尺寸」；降了规格更要说清降在哪、下一步该用哪个功能。
  *
  * 1000×1000 是这条链路的极端例子：cell=3、3026×3026（917 万像素），一格只有 3 px、
@@ -323,19 +520,169 @@ export function buildPatternImageCanvas(pattern, {
   return { ok: true, canvas: out, plan, opts }
 }
 
+function canvasBlob(canvas, mime, quality) {
+  return new Promise(resolve => {
+    try {
+      canvas.toBlob(resolve, mime, quality)
+    } catch {
+      resolve(null)
+    }
+  })
+}
+
+/** 自检桩的 toBlob 只给一个带 size 的假对象，没有 arrayBuffer。真浏览器走 Blob。 */
+async function canvasBytes(canvas, mime, quality) {
+  const blob = await canvasBlob(canvas, mime, quality)
+  if (!blob) return null
+  if (typeof blob.arrayBuffer === 'function') return new Uint8Array(await blob.arrayBuffer())
+  return new Uint8Array([1])
+}
+
+/**
+ * 大图分页绘制。每一张都是「清晰格子 + 全图标尺 + 标版」。
+ * 多于一张时打成一个 ZIP，避免浏览器连弹几十个下载。
+ */
+async function exportPagedImages(pattern, opts, plan) {
+  const format = opts.format === 'jpg' ? 'jpg' : 'png'
+  const mime = format === 'jpg' ? 'image/jpeg' : 'image/png'
+  const quality = format === 'jpg' ? (opts.quality == null ? 0.92 : opts.quality) : undefined
+  const ext = format
+  const label = format === 'jpg' ? 'JPG' : 'PNG'
+  const base = safeName(opts.projectName)
+  const ruler = opts.ruler !== false
+  const grid = opts.grid !== false
+  const includeLegend = opts.includeLegend !== false
+  const includeStats = opts.includeStats !== false
+  const templated = includeLegend || includeStats
+  const bg = templated
+    ? 'rgba(0,0,0,0)'
+    : (format === 'jpg' ? '#ffffff' : (opts.background === 'transparent' ? 'rgba(0,0,0,0)' : (opts.background || '#ffffff')))
+  const entries = []
+  const pad = String(plan.count).length > 2 ? String(plan.count).length : 2
+  for (let i = 0; i < plan.tiles.length; i++) {
+    const tile = plan.tiles[i]
+    if (typeof opts.onProgress === 'function') opts.onProgress({ index: i + 1, total: plan.count })
+    const slice = slicePattern(pattern, tile)
+    const colors = usedColorCount(slice)
+    const { canvas, host } = createExportCanvas()
+    const drawn = drawChart(host, slice, {
+      cell: plan.cell,
+      ruler,
+      rulerPx: exportRulerPx(plan.cell),
+      grid,
+      codes: true,
+      bold: true,
+      boardLines: true,
+      boardLabels: false,
+      centerMarks: false,
+      background: bg,
+      emptyFill: bg === 'rgba(0,0,0,0)' ? null : undefined,
+      theme: templated ? exportChartTheme(plan.cell) : undefined,
+      col0: tile.x,
+      row0: tile.y,
+      boardSize: boardOf(pattern)
+    })
+    if (!drawn || canvas.width !== drawn.width || canvas.height !== drawn.height) {
+      return {
+        ok: false,
+        message: `第 ${i + 1} 张图纸导出失败：画布尺寸校验不通过。请把这句话反馈给开发者。`
+      }
+    }
+    const sheet = {
+      index: i + 1,
+      count: plan.count,
+      x: tile.x,
+      y: tile.y,
+      w: tile.w,
+      h: tile.h,
+      totalW: pattern.width,
+      totalH: pattern.height,
+      truncated: colors > SHEET_LEGEND_CAP ? SHEET_LEGEND_CAP : 0
+    }
+    const out = templated
+      ? composeExportTemplate(slice, canvas, { geometry: drawn, cell: plan.cell }, {
+        includeLegend,
+        includeStats,
+        legendLimit: SHEET_LEGEND_CAP,
+        sheet
+      })
+      : canvas
+    const pageW = out.width
+    const pageH = out.height
+    const bytes = await canvasBytes(out, mime, quality)
+    canvas.width = 0
+    canvas.height = 0
+    if (out !== canvas) {
+      out.width = 0
+      out.height = 0
+    }
+    if (!bytes) {
+      return { ok: false, message: `第 ${i + 1} 张没能编码成图片，请改用分板 PDF，或减少画布尺寸后再试。` }
+    }
+    const name = plan.tiled
+      ? `${base}-第${String(i + 1).padStart(pad, '0')}张-列${tile.x + 1}-${tile.x + tile.w}-行${tile.y + 1}-${tile.y + tile.h}.${ext}`
+      : `${base}-${pattern.width}x${pattern.height}-图纸.${ext}`
+    entries.push({ name, data: bytes, width: pageW, height: pageH })
+    await new Promise(r => setTimeout(r, 0))
+  }
+  const size = `${pattern.width}×${pattern.height}`
+  if (!plan.tiled) {
+    const one = entries[0]
+    downloadBlob(new Blob([one.data], { type: mime }), one.name)
+    return {
+      ok: true,
+      paged: true,
+      tiled: false,
+      cell: plan.cell,
+      count: 1,
+      width: one.width,
+      height: one.height,
+      message: `${label} 图纸 ${size} 格，每格 ${plan.cell} px，图案上标了色号。` +
+        (usedColorCount(pattern) > SHEET_LEGEND_CAP ? `颜色较多，清单只列出用量最多的 ${SHEET_LEGEND_CAP} 色。` : '')
+    }
+  }
+  const zip = makeZip(entries.map(e => ({ name: e.name, data: e.data })))
+  downloadBlob(zip, `${base}-${pattern.width}x${pattern.height}-图纸-色号.zip`)
+  return {
+    ok: true,
+    paged: true,
+    tiled: true,
+    cell: plan.cell,
+    count: plan.count,
+    width: entries[0].width,
+    height: entries[0].height,
+    bytes: zip.size,
+    message: `${label} 图纸 ${size} 格。单张画布装不下清晰色号，已分成 ${plan.count} 张，每格 ${plan.cell} px，每张图案都标了色号。压缩包按「第01张 · 列 · 行」命名，标尺上的数字是全图的列号和行号。`
+  }
+}
+
 /**
  * 图纸图片导出（PNG / JPG 共用一条链路）。
  *
  * 需求 §4.7：网格、行列坐标、每格色号、颜色图例、材料统计、背景都可开关；
  * PNG 可以保留透明背景，JPG 必须铺白底（否则透明区域会变黑）。
  * 图例 / 统计会拼在图纸下方，避免长表把图纸主体压小。
+ *
+ * 色号开着、整张又大到画不清字时，这里改成分页（返回 Promise）。
+ * 放得下一张的小图仍然同步返回，和以前一样。
  */
 export function exportPatternImage(pattern, {
   projectName = '豆玩 DOUWAN',
   quality = 0.92,
   onFail = null,
+  onProgress = null,
   ...imageOptions
 } = {}) {
+  const wanted = imageOptions.cell || 24
+  const sheet = patternSheetPlan(pattern, wanted, {
+    ruler: imageOptions.ruler !== false,
+    includeLegend: imageOptions.includeLegend !== false,
+    includeStats: imageOptions.includeStats !== false,
+    codes: imageOptions.codes !== false
+  })
+  if (sheet.paged) {
+    return exportPagedImages(pattern, { ...imageOptions, projectName, quality, onFail, onProgress }, sheet)
+  }
   const built = buildPatternImageCanvas(pattern, imageOptions)
   if (!built.ok) return built
   const { canvas: out, plan, opts } = built
@@ -359,6 +706,10 @@ export function exportPatternImage(pattern, {
     width: out.width,
     height: out.height,
     ok: true,
+    paged: false,
+    tiled: false,
+    cell: plan.cell,
+    count: 1,
     pixels: out.width * out.height,
     message: imageMessage(pattern, plan, opts, out)
   }
@@ -385,21 +736,23 @@ export function exportPatternImageAtDpi(pattern, {
   quality = 0.92,
   ...opts
 } = {}) {
-  const plan = dpiExportPlan(pattern, {
-    dpi,
-    mode: 'full',
-    ruler: opts.ruler !== false,
-    includeLegend: opts.includeLegend === true,
-    includeStats: opts.includeStats === true
-  })
-  const res = exportPatternImage(pattern, { ...opts, format, projectName, quality, cell: plan.cell })
-  if (res && res.ok) {
-    res.dpi = plan.dpi
-    res.requestedDpi = dpi
-    res.capped = plan.capped
-    res.message = `${plan.message}；${res.message}`
+  const mm = beadOfPattern(pattern).mm
+  const wantCell = Math.max(1, Math.round((mm / MM_PER_INCH) * dpi))
+  const res = exportPatternImage(pattern, { ...opts, format, projectName, quality, cell: wantCell })
+  const decorate = (out) => {
+    if (!out || out.ok === false) return out
+    const actual = dpiOf(mm, out.cell)
+    out.requestedDpi = dpi
+    out.dpi = actual
+    out.capped = !out.paged && out.cell < wantCell
+    if (out.paged && out.tiled) {
+      out.message = `请求 ${dpi} DPI 的整张图画不下清晰色号。${out.message}`
+    } else if (out.capped) {
+      out.message = `请求 ${dpi} DPI，实际约 ${actual} DPI（每格 ${out.cell} px，色号仍标在图案上）。${out.message}`
+    }
+    return out
   }
-  return res
+  return res && typeof res.then === 'function' ? res.then(decorate) : decorate(res)
 }
 
 export function exportPatternPNGAtDpi(pattern, opts = {}) {
@@ -720,9 +1073,10 @@ export function exportSVG(pattern, { projectName = '豆玩 DOUWAN', cell = 12, c
       // PNG 的尺寸在这里现算一次（**按标版整页算**，因为「图纸 PNG」导出的就是那张带页眉与
       // 底部双卡的整页图），免得文案里写死「4000×4000」而实际是别的数字
       //（1000 格在标版下是 2104×3117，不是图纸主体的 3036×3036）。
-      const pngPlan = pngExportPlan(pattern, 24, { includeLegend: true, includeStats: true })
-      const pngW = Math.ceil(pngPlan.pageW || pngPlan.geometry.width)
-      const pngH = Math.ceil(pngPlan.pageH || pngPlan.geometry.height)
+      const pngPlan = patternSheetPlan(pattern, 24, { includeLegend: true, includeStats: true, codes: true })
+      const pngHint = pngPlan.paged
+        ? `「图纸 PNG」（按每格 ${pngPlan.cell} px 分成 ${pngPlan.count} 张，每张图案都有色号）`
+        : `「图纸 PNG」（这张画布导出 ${Math.ceil(pngPlan.pageW || pngPlan.geometry.width)}×${Math.ceil(pngPlan.pageH || pngPlan.geometry.height)} 像素）`
       return {
         ok: false,
         bytes: estPlain,
@@ -730,7 +1084,7 @@ export function exportSVG(pattern, { projectName = '豆玩 DOUWAN', cell = 12, c
           `超过单文件 ${mb(SVG_SINGLE_BYTES)} MB 的安全线（硬上限 ${mb(SVG_MAX_BYTES)} MB）。` +
           `原因：SVG 一格一个 <rect>，这张图纸要画 ${drawnBeadCount(pattern).toLocaleString()} 个图元（${size}最多 ${(pattern.width * pattern.height).toLocaleString()} 格），` +
           '浏览器光解析这些图元就会长时间卡住，字符串本身在内存里还要翻倍。' +
-          `整张图纸请用「图纸 PNG」（这张画布导出 ${pngW}×${pngH} 像素）；1:1 分页打印请用「分板 PDF」。`
+          `整张图纸请用${pngHint}；1:1 分页打印请用「分板 PDF」。`
       }
     }
   }

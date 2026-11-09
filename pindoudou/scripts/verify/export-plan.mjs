@@ -13,7 +13,7 @@
    ========================================================================= */
 
 import { toSVG, estimateSvgBytes, EMPTY } from '../../src/lib/pattern.js'
-import { pngExportPlan, printPlan, exportSVG, PNG_MAX_SIDE, PNG_MAX_PIXELS, SVG_MAX_BYTES, PRINT_MAX_BOARDS } from '../../src/lib/exporters.js'
+import { pngExportPlan, patternSheetPlan, printPlan, exportSVG, PNG_MAX_SIDE, PNG_MAX_PIXELS, SVG_MAX_BYTES, PRINT_MAX_BOARDS, CODE_CELL_MIN } from '../../src/lib/exporters.js'
 
 /* ---------------------------------------------------------------- 运行环境桩 */
 /* 只桩 <a> 与 createObjectURL：这条链路本来就不碰画布，桩得越少越可信 */
@@ -137,6 +137,42 @@ for (const n of [116, 300, 450, 464]) {
     // 拒绝也必须是「理由清楚」的拒绝，不能只返回 false
     check(/未导出/.test(res.message) && /MB/.test(res.message), `${n}×${n} 拒绝时说明体积理由`, res.message)
   }
+}
+
+/* ---------------------------------------------------------------- 大图色号：装不下一张就分页，格子不许掉到看不清 */
+console.log(`\n大图色号：单张低于 ${CODE_CELL_MIN}px/格就分页，色号不能被降档抹掉`)
+function covers(plan, w, h) {
+  const seen = new Uint8Array(w * h)
+  for (const t of plan.tiles) {
+    if (t.w < 1 || t.h < 1 || t.x < 0 || t.y < 0 || t.x + t.w > w || t.y + t.h > h) return false
+    for (let y = 0; y < t.h; y++) {
+      for (let x = 0; x < t.w; x++) {
+        const i = (t.y + y) * w + (t.x + x)
+        if (seen[i]) return false
+        seen[i] = 1
+      }
+    }
+  }
+  for (let i = 0; i < seen.length; i++) if (!seen[i]) return false
+  return true
+}
+{
+  const small = patternSheetPlan(mkPattern(104, 104), 24, { includeLegend: true, includeStats: true, codes: true })
+  check(!small.paged && small.cell === 24, `104×104 仍是一张、${small.cell} px/格`)
+  const mid = patternSheetPlan(mkPattern(116, 116), 24, { includeLegend: true, includeStats: true, codes: true })
+  const midPng = pngExportPlan(mkPattern(116, 116), 24, { includeLegend: true, includeStats: true })
+  check(!mid.paged && mid.cell === midPng.cell && mid.cell >= CODE_CELL_MIN, `116×116 仍是一张、cell=${mid.cell}（和旧的单张计划一致）`)
+}
+for (const n of [208, 300, 450, 1000]) {
+  const p = mkPattern(n, n)
+  const plan = patternSheetPlan(p, 24, { includeLegend: true, includeStats: true, codes: true })
+  check(plan.paged && plan.tiled && plan.cell >= CODE_CELL_MIN, `${n}×${n} 分页 cell=${plan.cell}，${plan.count} 张`, plan.tiled ? '' : '没有分页')
+  check(covers(plan, n, n), `${n}×${n} 每一格都落在某一张上，且不重叠`)
+  check(plan.cell >= 18 && plan.cell <= 24, `${n}×${n} 格子落在 18～24 px（色号看得清）`, `cell=${plan.cell}`)
+}
+{
+  const off = patternSheetPlan(mkPattern(300, 300), 24, { includeLegend: true, includeStats: true, codes: false })
+  check(!off.paged && off.cell < CODE_CELL_MIN, `关掉色号的 300×300 仍走整张降档（cell=${off.cell}）`)
 }
 
 console.log(failed ? `\n${failed} 项不通过\n` : '\n全部通过\n')

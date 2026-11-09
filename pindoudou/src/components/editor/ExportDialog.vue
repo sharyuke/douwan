@@ -4,11 +4,11 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import BaseDialog from '../ui/BaseDialog.vue'
 import Icon from '../ui/Icon.vue'
-import { pattern, stats, projectName, hasPattern, layout, brand } from '../../composables/useStudio.js'
+import { pattern, stats, projectName, hasPattern, layout, brand, bead } from '../../composables/useStudio.js'
 import { inventory } from '../../composables/useInventory.js'
 import { boardLayout } from '../../lib/pattern.js'
 import { drawBoard } from '../../lib/render.js'
-import { exportBoardPdf, exportPatternPNGAtDpi, exportMaterialsCSV } from '../../lib/exporters.js'
+import { exportBoardPdf, exportPatternPNGAtDpi, exportMaterialsCSV, patternSheetPlan } from '../../lib/exporters.js'
 import { toastOk, toastWarn, toastResult } from '../../composables/useToast.js'
 import BoardPreviewDialog from './BoardPreviewDialog.vue'
 
@@ -50,9 +50,26 @@ const meta = computed(() => {
   return `${p.width} × ${p.height} 颗 · 底板 ${s ? s.boardCm : ''} · ${s ? s.colors : 0} 色 · ${brand.value ? brand.value.name : ''}`
 })
 
+const pngPlan = computed(() => {
+  if (format.value !== 'png') return null
+  const p = targetPattern()
+  if (!p) return null
+  const mm = bead.value && bead.value.mm ? bead.value.mm : 2.6
+  const want = Math.max(1, Math.round((mm / 25.4) * 300))
+  return patternSheetPlan(p, want, {
+    ruler: contents.value.ruler,
+    codes: contents.value.codes,
+    includeLegend: contents.value.info,
+    includeStats: contents.value.info
+  })
+})
 const fileName = computed(() => {
   const base = (baseName.value || projectName.value || '豆玩图纸').trim()
-  const ext = format.value === 'csv' ? '-材料清单.csv' : format.value === 'png' ? '-图纸.png' : '_图纸.pdf'
+  const ext = format.value === 'csv'
+    ? '-材料清单.csv'
+    : format.value === 'png'
+      ? (pngPlan.value && pngPlan.value.tiled ? '-图纸-色号.zip' : '-图纸.png')
+      : '_图纸.pdf'
   return `${base}${ext}`
 })
 const rangeLabel = computed(() => {
@@ -62,7 +79,12 @@ const rangeLabel = computed(() => {
 })
 const summary = computed(() => {
   if (format.value === 'pdf') return `PDF · ${rangeLabel.value} · ${pageCount.value} 页`
-  if (format.value === 'png') return `PNG · ${rangeLabel.value} · 1 个文件`
+  if (format.value === 'png') {
+    if (pngPlan.value && pngPlan.value.tiled) {
+      return `PNG · ${rangeLabel.value} · ${pngPlan.value.count} 张，每张都有色号`
+    }
+    return `PNG · ${rangeLabel.value} · 1 个文件`
+  }
   return 'CSV · 材料清单 · 1 个文件'
 })
 
@@ -142,7 +164,7 @@ async function run() {
       toastResult(res, '图纸已生成')
       if (res && res.ok) emit('update:modelValue', false)
     } else if (format.value === 'png') {
-      const res = exportPatternPNGAtDpi(p, {
+      const res = await exportPatternPNGAtDpi(p, {
         dpi: 300,
         projectName: baseName.value || projectName.value,
         ruler: contents.value.ruler,
@@ -224,7 +246,7 @@ async function run() {
           <span>文件名</span>
           <input v-model="baseName" type="text" maxlength="40" :placeholder="projectName">
           <em>{{ fileName }}</em>
-          <small>{{ format === 'pdf' ? `1 个文件 · ${pageCount} 页 · 保留当前画布尺寸` : '1 个文件 · 保留当前画布尺寸' }}</small>
+          <small>{{ format === 'pdf' ? `1 个文件 · ${pageCount} 页 · 保留当前画布尺寸` : (pngPlan && pngPlan.tiled ? `1 个压缩包 · ${pngPlan.count} 张 · 每张图案都有色号` : '1 个文件 · 保留当前画布尺寸') }}</small>
         </div>
 
         <div class="cmdHint">

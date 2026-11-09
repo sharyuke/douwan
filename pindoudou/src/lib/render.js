@@ -654,6 +654,47 @@ export function drawChart(el, pattern, opts = {}, geo = null) {
 }
 
 /**
+ * 一个色号在当前格子里用多大的字。
+ *
+ * 按这一格自己的色号长度算，不按整张色板里最长的那个：
+ * 否则一个 4 位色号（DH10）会把旁边的 A1 一起缩到看不清，
+ * 甚至让「最长的那个塞不进格子」变成「整张图一个色号都不印」。
+ * 返回 0 表示这一格连 5px 都装不下，调用方只跳过这一格。
+ */
+export function codeLabelFont(cell, len) {
+  const n = Math.max(1, len || 1)
+  const inner = cell * 0.9
+  const fit = Math.floor(inner / (n * 0.56))
+  const fs = Math.min(Math.round(cell * 0.46), fit)
+  return fs >= 5 ? fs : 0
+}
+
+/** 板缝在「窗口本地坐标」上的位置。origin 是窗口左上角的全局格号，0 时与旧的整图循环一致。 */
+function boardEdgeStops(origin, length, spec) {
+  const S = Math.max(1, spec || 1)
+  const start = ((origin % S) + S) % S
+  const first = start === 0 ? S : S - start
+  const stops = []
+  for (let i = first; i < length; i += S) stops.push(i)
+  return stops
+}
+
+/**
+ * 每 10 格加粗线，同样折进窗口。
+ * 窗口从板的起点开始时直接用 majorGridStops，和整图绘制是同一批线。
+ */
+function majorStops(origin, length, spec) {
+  if (!origin || origin % Math.max(1, spec || 1) === 0) return majorGridStops(length, spec)
+  const all = majorGridStops(origin + length, spec)
+  const out = []
+  for (let i = 0; i < all.length; i++) {
+    const g = all[i]
+    if (g > origin && g < origin + length) out.push(g - origin)
+  }
+  return out
+}
+
+/**
  * 把「一帧里的装饰层」画出来：细格线 / 每 10 格加粗 / 底板虚线 / 色号 /
  * 板号角标 / 标尺 / 中心三角 / 外框。
  *
@@ -664,6 +705,10 @@ export function drawChart(el, pattern, opts = {}, geo = null) {
 function paintChartOverlay(ctx, g, pattern) {
   const { cell, ruler: R, gridW, gridH, width: W, height: H, originX: OX, originY: OY, opts: o } = g
   const { width: gw, height: gh, cells, palette } = pattern
+  /* 分页导出时，这块画布只是全图的一扇窗口。col0/row0 是窗口左上角的全局格号，
+     标尺、板缝、每 10 格线都要按全图对齐，不能从 1 重新数。整图导出这两个数是 0。 */
+  const col0 = o.col0 || 0
+  const row0 = o.row0 || 0
   const region = o.region || null
   if (region) {
     ctx.save()
@@ -718,13 +763,13 @@ function paintChartOverlay(ctx, g, pattern) {
     ctx.strokeStyle = themed ? o.theme.bold : GRID_BOLD
     ctx.lineWidth = themed ? Math.max(1, Math.round(cell / 11)) : 1
     ctx.beginPath()
-    for (const i of majorGridStops(gw, BS.x)) {
+    for (const i of majorStops(col0, gw, BS.x)) {
       const v = OX + i * cell + 0.5
       if (!hitCol(v)) continue
       ctx.moveTo(v, OY)
       ctx.lineTo(v, OY + gridH)
     }
-    for (const j of majorGridStops(gh, BS.y)) {
+    for (const j of majorStops(row0, gh, BS.y)) {
       const h = OY + j * cell + 0.5
       if (!hitRow(h)) continue
       ctx.moveTo(OX, h)
@@ -742,13 +787,13 @@ function paintChartOverlay(ctx, g, pattern) {
     ctx.lineWidth = Math.max(1.5, Math.round(cell / 7))
     ctx.setLineDash([Math.max(4, cell / 2.5), Math.max(3, cell / 4)])
     ctx.beginPath()
-    for (let i = BS.x; i < gw; i += BS.x) {
+    for (const i of boardEdgeStops(col0, gw, BS.x)) {
       const v = OX + i * cell + 0.5
       if (!hitCol(v)) continue
       ctx.moveTo(v, OY)
       ctx.lineTo(v, OY + gridH)
     }
-    for (let j = BS.y; j < gh; j += BS.y) {
+    for (const j of boardEdgeStops(row0, gh, BS.y)) {
       const h = OY + j * cell + 0.5
       if (!hitRow(h)) continue
       ctx.moveTo(OX, h)
@@ -758,31 +803,36 @@ function paintChartOverlay(ctx, g, pattern) {
     ctx.restore()
   }
 
-  // 格内色号
+  // 格内色号。cell < 11 时一个字号放不进格子，调用方（导出）必须把格子放大或分页，
+  // 不能靠这里硬印一排糊点。
   if (o.codes && cell >= 11) {
-    const maxLen = palette.reduce((m, p) => Math.max(m, p.code.length), 2)
-    const fs = Math.max(5, Math.min(Math.round(cell * 0.46), Math.round((1.41 * cell) / maxLen)))
-    if (maxLen * 0.58 * fs <= cell * 0.99) {
-      ctx.font = `700 ${fs}px Arial, sans-serif`
-      ctx.textAlign = 'center'
-      ctx.textBaseline = 'middle'
-      let curInk = null
-      for (let y = 0; y < gh; y++) {
-        const row = y * gw
-        const cy = OY + y * cell + cell / 2
-        if (region && (cy < region.y - cell || cy > region.y + region.h + cell)) continue
-        for (let x = 0; x < gw; x++) {
-          const k = cells[row + x]
-          if (k < 0) continue // 空格不印色号
-          const c = palette[k]
-          if (!c) continue
-          const cx = OX + x * cell + cell / 2
-          if (region && (cx < region.x - cell || cx > region.x + region.w + cell)) continue
-          const ink = inkOn(c.hex)
-          /* 同色豆子的字色一样，没必要每格都设一遍 */
-          if (ink !== curInk) { ctx.fillStyle = ink; curInk = ink }
-          ctx.fillText(c.code, cx, cy)
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    let curInk = null
+    let curFont = ''
+    const fontOf = new Map()
+    for (let y = 0; y < gh; y++) {
+      const row = y * gw
+      const cy = OY + y * cell + cell / 2
+      if (region && (cy < region.y - cell || cy > region.y + region.h + cell)) continue
+      for (let x = 0; x < gw; x++) {
+        const k = cells[row + x]
+        if (k < 0) continue // 空格不印色号
+        const c = palette[k]
+        if (!c || !c.code) continue
+        let fs = fontOf.get(c.code.length)
+        if (fs === undefined) {
+          fs = codeLabelFont(cell, c.code.length)
+          fontOf.set(c.code.length, fs)
         }
+        if (!fs) continue
+        const cx = OX + x * cell + cell / 2
+        if (region && (cx < region.x - cell || cx > region.x + region.w + cell)) continue
+        const font = `700 ${fs}px Arial, sans-serif`
+        if (font !== curFont) { ctx.font = font; curFont = font }
+        const ink = inkOn(c.hex)
+        if (ink !== curInk) { ctx.fillStyle = ink; curInk = ink }
+        ctx.fillText(c.code, cx, cy)
       }
     }
   }
@@ -825,23 +875,25 @@ function paintChartOverlay(ctx, g, pattern) {
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
     for (let i = 1; i <= gw; i++) {
-      const major = i % majorStep === 0
-      if (!major && i % step !== 0 && !(th.coordFirst && i === 1)) continue
+      const gi = i + col0
+      const major = gi % majorStep === 0
+      if (!major && gi % step !== 0 && !(th.coordFirst && i === 1)) continue
       const cx = OX + (i - 0.5) * cell
       /* 标尺在图纸四边，只有贴着脏矩形的才需要重画 */
       if (!hitCol(cx)) continue
       ctx.fillStyle = th.coord || (major ? '#1B1B1F' : '#9A9AA2')
-      ctx.fillText(String(i), cx, R * 0.5)
-      ctx.fillText(String(i), cx, OY + gridH + R * 0.5)
+      ctx.fillText(String(gi), cx, R * 0.5)
+      ctx.fillText(String(gi), cx, OY + gridH + R * 0.5)
     }
     for (let j = 1; j <= gh; j++) {
-      const major = j % majorStep === 0
-      if (!major && j % step !== 0 && !(th.coordFirst && j === 1)) continue
+      const gj = j + row0
+      const major = gj % majorStep === 0
+      if (!major && gj % step !== 0 && !(th.coordFirst && j === 1)) continue
       const cy = OY + (j - 0.5) * cell
       if (!hitRow(cy)) continue
       ctx.fillStyle = th.coord || (major ? '#1B1B1F' : '#9A9AA2')
-      ctx.fillText(String(j), R * 0.5, cy)
-      ctx.fillText(String(j), OX + gridW + R * 0.5, cy)
+      ctx.fillText(String(gj), R * 0.5, cy)
+      ctx.fillText(String(gj), OX + gridW + R * 0.5, cy)
     }
   }
 

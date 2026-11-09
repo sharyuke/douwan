@@ -30,6 +30,9 @@ export function toastErr(text) { return toast(text, 'err', 3800) }
  * 迟早漏一处 —— 漏掉的那处就是「点了没反应，界面还说成功」。
  */
 export function toastResult(res, fallback = '已开始导出') {
+  if (res && typeof res.then === 'function') {
+    return res.then(out => toastResult(out, fallback)).catch(e => toastErr(e && e.message ? e.message : '这次导出没有完成'))
+  }
   if (res && res.ok === false) return toastErr(res.message || '这次导出没有完成')
   if (res && res.message) return toast(res.message, 'ok', 6000)
   return toastOk(fallback)

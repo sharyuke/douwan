@@ -216,7 +216,7 @@ for (const codes of [false, true]) {
   check(res.ok === false, `exportSVG(codes=${codes ? 'Y' : 'N'}) 在 1000×1000 下拒绝`, `bytes=${MB(res.bytes).toFixed(1)} MB`)
   check(/约 [\d.]+ MB/.test(res.message) && /超过单文件/.test(res.message), '拒绝文案报出实际估算 MB')
   check(/个图元/.test(res.message) && /最多 1,000,000 格/.test(res.message), '拒绝文案说清「一格一个 <rect>」与图元/格数')
-  check(/图纸 PNG」（这张画布导出 2119×2988 像素）/.test(res.message), '拒绝文案指路图纸 PNG，并带上这张画布的真实导出尺寸')
+  check(/图纸 PNG」（按每格 \d+ px 分成 \d+ 张，每张图案都有色号）/.test(res.message), '拒绝文案指路分页后的图纸 PNG，并写明每张都有色号', res.message)
   if (codes) console.log(`     拒绝原文：${res.message}`)
 }
 {
@@ -246,16 +246,15 @@ console.log('\n④ Pattern JSON（100 万格 = 100 万个色号字符串）')
 /* ---------------------------------------------- ⑤ 真跑一遍绘制链（桩 canvas） */
 console.log('\n⑤ 绘制链（桩 canvas：只验「不抛 / 尺寸与结构对得上 / 文案带真实数字」）')
 {
-  const png = exportPatternPNG(P1000, { projectName: 'verify', cell: 24, codes: true })
-  /* 「图纸 PNG」导出的是**标版整页**（页眉 Logo + 网址胶囊 + 图纸 + 底部图案信息卡与颜色清单卡），
-     所以尺寸是整页的 2119×2988（V4 版式：页眉更高、双卡更高、留白更大），不是图纸主体的 3036×3036
-     —— 整页还要过 4096 px 边长那条墙，每格像素因此从 3 降到 2。
-     整页高度会随底部双卡的高度与图纸区/双卡之间的留白变（颜色多的时候卡片按列排，
-     行数固定 ⇒ 高度基本不变），改了卡片列数或留白，这里要跟着改。 */
-  check(png.ok === true && png.cell === 2 && png.width === 2119 && png.height === 2988,
-    `1000×1000 图纸 PNG → cell=${png.cell} / ${png.width}×${png.height}`, png.message)
-  check(/2119×2988 像素/.test(png.message), 'PNG 文案带真实像素尺寸')
-  check(/PDF 分板/.test(png.message) && /分板视图/.test(png.message), 'PNG 文案同时指路 PDF 分板与分板视图')
+  const png = await exportPatternPNG(P1000, { projectName: 'verify', cell: 24, codes: true })
+  /* 1000 格装不进一张还带得清色号的图。导出改成分页：每张格子 ≥ 18px，色号印在图案上。
+     单张降档到 2px/格、整页 2119×2988 且不印色号的旧行为作废。 */
+  check(png.ok === true && png.paged === true && png.tiled === true && png.cell >= 18 && png.count > 1,
+    `1000×1000 图纸 PNG → ${png.count} 张 / 每格 ${png.cell} px`, png.message)
+  check(png.width <= 4096 && png.height <= 4096 && png.width * png.height <= 16000000,
+    `每一张都在画布上限内（首页 ${png.width}×${png.height}）`)
+  check(/分成/.test(png.message) && /色号/.test(png.message), 'PNG 文案说明分成多张并且每张都有色号')
+  check(!/画不下色号/.test(png.message), '不再告诉用户这个尺度画不下色号')
   console.log(`     PNG 文案：${png.message}`)
 
   const clean1 = exportCleanPNG(P1000, { projectName: 'verify' })

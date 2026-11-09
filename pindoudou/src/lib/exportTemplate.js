@@ -422,11 +422,18 @@ function colorCols(n) {
  * 整套标版的版面参数。templateExtraHeight 与 composeExportTemplate 必须用同一套
  * 计算，否则「预检说的尺寸」和「实际文件尺寸」会对不上。
  */
-function layoutOf(pattern, chartWidth, { includeLegend = true, includeStats = true } = {}) {
+function layoutOf(pattern, chartWidth, { includeLegend = true, includeStats = true, legendLimit = 0 } = {}) {
   const s = exportScale(chartWidth)
   const mats = materialList(pattern, null)
   const infoRows = includeStats ? infoRowsOf(pattern, mats) : []
-  const colorRows = includeLegend ? [...mats.rows].sort(codeSort) : []
+  /* legendLimit：分页导出时颜色清单只留用量最多的若干色，卡片高度才锁得住。
+     不传就跟以前一样，全部色号都进清单（单张图纸的口径不变）。
+     mats.rows 已经按用量从多到少排过，截断后再按色号重排。 */
+  const colorRows = includeLegend
+    ? (legendLimit > 0 && mats.rows.length > legendLimit
+      ? mats.rows.slice(0, legendLimit)
+      : [...mats.rows]).sort(codeSort)
+    : []
   const cols = colorCols(colorRows.length)
   const colorRowsPerCol = colorRows.length ? Math.ceil(colorRows.length / cols) : 0
   const cd = D.card
@@ -477,8 +484,8 @@ export function exportCardColGap(scale = 1) {
  * dpiExportPlan('full') 用它算总尺寸并决定要不要降 cell；
  * composeExportTemplate 用同一套函数排版，两处永不失配。
  */
-export function templateExtraHeight(pattern, width, { includeLegend = true, includeStats = true } = {}) {
-  const L = layoutOf(pattern, width, { includeLegend, includeStats })
+export function templateExtraHeight(pattern, width, opts = {}) {
+  const L = layoutOf(pattern, width, opts)
   let h = L.headerH
   if (L.cardsH) h += L.cardGap + L.cardsH
   return h + L.bottomPad
@@ -769,12 +776,15 @@ function drawColorsCard(ctx, rows, cols, x, y, w, h, s) {
  */
 export function composeExportTemplate(pattern, chartCanvas, plan, {
   includeLegend = true,
-  includeStats = true
+  includeStats = true,
+  legendLimit = 0,
+  sheet = null
 } = {}) {
   const g = plan.geometry
-  const L = layoutOf(pattern, g.width, { includeLegend, includeStats })
+  const layoutOpts = { includeLegend, includeStats, legendLimit }
+  const L = layoutOf(pattern, g.width, layoutOpts)
   const s = L.s
-  const extraH = templateExtraHeight(pattern, g.width, { includeLegend, includeStats })
+  const extraH = templateExtraHeight(pattern, g.width, layoutOpts)
   const out = document.createElement('canvas')
   out.width = Math.ceil(L.pageW)
   out.height = Math.ceil(g.height + extraH)
@@ -799,6 +809,22 @@ export function composeExportTemplate(pattern, chartCanvas, plan, {
   ctx.stroke()
   ctx.restore()
   ctx.drawImage(chartCanvas, panelX, Math.round(panelY))
+
+  /* 分页时在图纸和双卡之间的留白里写清「这是第几张、覆盖全图哪一段」。
+     留白本来就在，不另加高度，单张导出（没有 sheet）版式一个像素都不动。 */
+  if (sheet && sheet.count > 1) {
+    const text = `第 ${sheet.index} / ${sheet.count} 张 · 全图 ${sheet.totalW} × ${sheet.totalH}` +
+      ` · 列 ${sheet.x + 1}–${sheet.x + sheet.w} · 行 ${sheet.y + 1}–${sheet.y + sheet.h}` +
+      (sheet.truncated ? ` · 本张颜色较多，清单只列用量最多的 ${sheet.truncated} 色` : '')
+    const bandTop = panelY + g.height
+    const bandH = L.cardsH ? L.cardGap : L.bottomPad
+    ctx.fillStyle = C.ink
+    ctx.font = `700 ${Math.max(12, Math.round(14 * s))}px ${FONT}`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(text, L.pageW / 2, bandTop + bandH / 2)
+    ctx.textAlign = 'left'
+  }
 
   /* 底部双卡 */
   if (L.cardsH) {
