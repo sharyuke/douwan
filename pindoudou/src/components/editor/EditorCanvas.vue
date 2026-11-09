@@ -19,6 +19,7 @@ import { EDIT_TOOLS, EDIT_HISTORY, EDIT_ACTIONS } from '../../data/icons.js'
 import { SHAPES, boxFromCorner, nudgeBox } from '../../lib/shapes.js'
 import Icon from '../ui/Icon.vue'
 import BaseDialog from '../ui/BaseDialog.vue'
+import BoardPreviewDialog from './BoardPreviewDialog.vue'
 import PatternPreview from '../ui/PatternPreview.vue'
 import EditorEmptyGuide from './EditorEmptyGuide.vue'
 import CanvasRuler from './CanvasRuler.vue'
@@ -481,10 +482,7 @@ function redrawAll() {
   nextTick(() => {
     draw()
     if (currentView.value === 'compare') drawCompare()
-    if (currentView.value === 'split') {
-      drawBoardPreviews()
-      drawSelectedBoard()
-    }
+    if (currentView.value === 'split') drawBoardPreviews()
   })
 }
 
@@ -2325,7 +2323,7 @@ onBeforeUnmount(() => {
    （≈ 121 KB 后备缓冲）并且要整板重绘一遍，1225 块就是 148 MB + 几秒同步阻塞 ——
    而列表里同时看得见的本来就只有十几块。所以超过 SPLIT_MAX_TILES 之后
    只渲染「前 60 块 + 当前选中的那块」，其余用输入框按板号跳。
-   选中的板另有放大预览，材料色号、豆数统计都按选中的那块单独算，不受列表截断影响。 */
+   点一块板弹出大图，整块放进窗口；材料色号在弹窗里按那一块单独算。 */
 const SPLIT_TILE_HEAD = 60
 const SPLIT_MAX_TILES = 120
 
@@ -2340,36 +2338,10 @@ function showBoardTile(i) {
   return i < SPLIT_TILE_HEAD || i === selectedBoard.value
 }
 
-const selectedBoardData = computed(() => {
-  const l = layout.value
-  if (!l) return null
-  return l.boards[selectedBoard.value] || l.boards[0]
-})
+const previewOpen = ref(false)
 
-const boardMaterialsList = computed(() => {
-  const p = pattern.value
-  const b = selectedBoardData.value
-  if (!p || !b) return []
-  const counts = new Map()
-  for (let y = b.y0; y < b.y0 + b.h; y++) {
-    for (let x = b.x0; x < b.x0 + b.w; x++) {
-      const c = p.palette[p.cells[y * p.width + x]]
-      if (!c) continue
-      counts.set(c.id, { c, n: (counts.get(c.id)?.n || 0) + 1 })
-    }
-  }
-  return [...counts.values()].map(({ c, n }) => ({ code: c.code, hex: c.hex, n })).sort((a, b2) => b2.n - a.n)
-})
-
-function drawSelectedBoard() {
-  const b = selectedBoardData.value
-  const el = document.getElementById('boardFocus')
-  if (b && el) drawBoard(el, pattern.value, b, { cell: Math.max(6, cellPx.value), codes: options.numbering, ruler: true })
-}
-
-watch([selectedBoard, cellPx, () => options.numbering], () => nextTick(drawSelectedBoard))
 watch(currentView, () => nextTick(() => {
-  if (currentView.value === 'split') { drawBoardPreviews(); drawSelectedBoard() }
+  if (currentView.value === 'split') drawBoardPreviews()
 }))
 
 function setBoardPreviewRef(el, i) {
@@ -2390,8 +2362,8 @@ function jumpToBoardNo() {
 
 function jumpToBoard(i) {
   selectedBoard.value = i
+  previewOpen.value = true
   nextTick(() => {
-    drawSelectedBoard()
     /* 截断时选中的那块会新挂上一个 canvas（showBoardTile），得把它也画出来 */
     if (splitTilesCapped.value) drawBoardPreviews()
     boardGridEl.value?.querySelector('.boardTile.on')?.scrollIntoView({ block: 'nearest' })
@@ -2589,7 +2561,7 @@ defineExpose({
               <b>自动分板</b>
               <p class="muted" style="margin-top:4px">
                 共 {{ layout ? layout.count : 0 }} 块 {{ splitBoard ? splitBoard.label : '拼板' }}（{{ splitBoardNote }}）。
-                图纸上珊瑚色虚线就是拼板边界，角标数字是板号。
+                点一块板可以预览大图。
               </p>
             </div>
           </div>
@@ -2602,7 +2574,7 @@ defineExpose({
             <p>
               共 {{ layout.count }} 块，这里只列出前 {{ SPLIT_TILE_HEAD }} 块
               （其余 {{ layout.count - SPLIT_TILE_HEAD }} 块不重复铺在页面上，避免一次建上千张缩略图）。
-              要直接看别的板，输入板号跳过去即可，放大预览与材料色号照常显示。
+              要直接看别的板，输入板号即可，大图预览会一起打开。
             </p>
             <label class="boardJump">
               <span>跳到第</span>
@@ -2622,13 +2594,18 @@ defineExpose({
               <button
                 v-if="showBoardTile(i)"
                 class="boardTile" :class="{ on: selectedBoard === i }"
+                type="button"
+                :aria-label="`预览第 ${b.no} 板`"
                 @click="jumpToBoard(i)"
               >
                 <div class="boardTile__no">
                   <span>第 {{ b.no }} 板</span>
                   <em>{{ b.coord }}</em>
                 </div>
-                <canvas :ref="el => setBoardPreviewRef(el, i)" />
+                <span class="boardTile__pic">
+                  <canvas :ref="el => setBoardPreviewRef(el, i)" />
+                  <span class="boardTile__zoom" aria-hidden="true"><Icon name="zoom-in" :size="14" /></span>
+                </span>
                 <div class="boardTile__meta">
                   <span>{{ b.w }}×{{ b.h }}</span>
                   <span>{{ beadsOfBoard(b) }} 颗</span>
@@ -2637,18 +2614,12 @@ defineExpose({
             </template>
           </div>
 
-          <div v-if="selectedBoardData" class="boardFocusWrap">
-            <div class="row row--between">
-              <b>第 {{ selectedBoardData.no }} 板 放大预览</b>
-              <span class="muted">格子 {{ selectedBoardData.x0 + 1 }}–{{ selectedBoardData.x0 + selectedBoardData.w }} 列 · {{ selectedBoardData.y0 + 1 }}–{{ selectedBoardData.y0 + selectedBoardData.h }} 行</span>
-            </div>
-            <div class="boardFocus"><canvas id="boardFocus" /></div>
-            <div class="swatchRow" style="margin-top:10px">
-              <span v-for="m in boardMaterialsList" :key="m.code" class="swatchPill">
-                <i :style="{ background: m.hex }"></i>{{ m.code }} × {{ m.n }}
-              </span>
-            </div>
-          </div>
+          <BoardPreviewDialog
+            v-model="previewOpen"
+            :boards="layout ? layout.boards : []"
+            :index="selectedBoard"
+            @update:index="jumpToBoard"
+          />
         </div>
 
         <!-- 材料（图例） -->
@@ -2970,9 +2941,11 @@ defineExpose({
   border:1px solid transparent;border-radius:var(--r-xs);background:var(--surface-3);
 }
 .boardJump input:focus{background:var(--surface);border-color:var(--pink);box-shadow:0 0 0 3px rgba(255,142,199,.18);outline:0}
-.boardFocusWrap{margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}
-.boardFocus{margin-top:10px;background:#fff;border:1px solid var(--line);border-radius:var(--r-md);padding:10px;display:grid;place-items:center;overflow:auto}
-.boardFocus canvas{display:block;image-rendering:pixelated}
+.boardTile__pic{position:relative;display:block}
+.boardTile__zoom{
+  position:absolute;right:6px;bottom:6px;width:22px;height:22px;border-radius:50%;
+  display:grid;place-items:center;background:rgba(27,27,31,.72);color:#fff;pointer-events:none
+}
 .materialsWrap .tableWrap{background:#fff}
 /* 色号 LOD 提示：珊瑚色跟底板虚线同一套语义（图纸上的界限/说明），别用报错红 */
 .codesHint{

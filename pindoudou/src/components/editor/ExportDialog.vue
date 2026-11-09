@@ -6,10 +6,11 @@ import BaseDialog from '../ui/BaseDialog.vue'
 import Icon from '../ui/Icon.vue'
 import { pattern, stats, projectName, hasPattern, layout, brand } from '../../composables/useStudio.js'
 import { inventory } from '../../composables/useInventory.js'
-import {
-  buildPatternImageCanvas, exportBoardPdf, exportPatternPNGAtDpi, exportMaterialsCSV
-} from '../../lib/exporters.js'
+import { boardLayout } from '../../lib/pattern.js'
+import { drawBoard } from '../../lib/render.js'
+import { exportBoardPdf, exportPatternPNGAtDpi, exportMaterialsCSV } from '../../lib/exporters.js'
 import { toastOk, toastWarn, toastResult } from '../../composables/useToast.js'
+import BoardPreviewDialog from './BoardPreviewDialog.vue'
 
 const props = defineProps({ modelValue: { type: Boolean, default: false } })
 const emit = defineEmits(['update:modelValue'])
@@ -28,11 +29,20 @@ const busy = ref(false)
 const contents = ref({ ruler: true, codes: true, materials: false, info: true })
 const previewEl = ref(null)
 const previewMsg = ref('')
+const bigOpen = ref(false)
+const bigIndex = ref(0)
 
 const artW = computed(() => (pattern.value ? Math.min(pattern.value.artW || pattern.value.width, pattern.value.width) : 0))
 const artH = computed(() => (pattern.value ? Math.min(pattern.value.artH || pattern.value.height, pattern.value.height) : 0))
 const artOnly = computed(() => pattern.value && (artW.value !== pattern.value.width || artH.value !== pattern.value.height))
-const pageCount = computed(() => (layout.value ? layout.value.count : 1))
+/* 右侧「第 n / N 页」按这次真正要导出的范围切板，不是永远拿整张画布的板数 */
+const previewPattern = computed(() => targetPattern())
+const previewBoards = computed(() => {
+  const p = previewPattern.value
+  if (!p) return []
+  return boardLayout(p.width, p.height, p.boardSize || undefined).boards
+})
+const pageCount = computed(() => previewBoards.value.length || (layout.value ? layout.value.count : 1))
 const meta = computed(() => {
   const p = pattern.value
   if (!p) return ''
@@ -89,26 +99,25 @@ function targetPattern() {
   }
 }
 
+function openBig() {
+  bigIndex.value = 0
+  bigOpen.value = true
+}
+
+/* 纸上只放得下第 1 页的缩略。整页大图在点击后的弹窗里，一页一块板。 */
 function drawPreview() {
   const el = previewEl.value
-  const p = targetPattern()
-  if (!el || !p) return
+  const p = previewPattern.value
+  const b = previewBoards.value[0]
+  if (!el || !p || !b) return
   try {
-    const longest = Math.max(p.width, p.height)
-    const cell = Math.max(2, Math.min(14, Math.floor(560 / longest)))
-    const built = buildPatternImageCanvas(p, {
-      format: 'png', cell, ruler: false, grid: true, codes: false,
-      includeLegend: false, includeStats: false
-    })
-    if (!built.ok) { previewMsg.value = built.message || '预览生成失败'; return }
-    const src = built.canvas
-    const scale = Math.min(1, 232 / src.width, 232 / src.height)
-    el.width = Math.max(1, Math.round(src.width * scale))
-    el.height = Math.max(1, Math.round(src.height * scale))
-    const ctx = el.getContext('2d')
-    ctx.clearRect(0, 0, el.width, el.height)
-    ctx.drawImage(src, 0, 0, el.width, el.height)
-    previewMsg.value = `底板 ${stats.value ? stats.value.boardCm : ''} · 缩放适应纸张`
+    const cell = Math.max(2, Math.min(12, Math.floor(220 / Math.max(b.w, b.h))))
+    drawBoard(el, p, b, { cell, codes: false, ruler: true, grid: true })
+    el.style.width = ''
+    el.style.height = ''
+    previewMsg.value = pageCount.value > 1
+      ? `第 1 / ${pageCount.value} 页 · 点击预览大图`
+      : `底板 ${stats.value ? stats.value.boardCm : ''} · 点击预览大图`
   } catch (e) {
     previewMsg.value = `预览生成失败：${e && e.message ? e.message : '浏览器不支持'}`
   }
@@ -236,7 +245,10 @@ async function run() {
                 <b>{{ projectName }}</b>
                 <span>{{ pattern.width }} × {{ pattern.height }} 颗 · {{ brand ? brand.name : '' }}</span>
               </div>
-              <div class="expPreview__art"><canvas ref="previewEl" /></div>
+              <button type="button" class="expPreview__art" aria-label="预览大图" @click="openBig">
+                <canvas ref="previewEl" />
+                <span class="expPreview__zoom" aria-hidden="true"><Icon name="zoom-in" :size="16" /></span>
+              </button>
               <span class="expPreview__note">布局示意 · 非作品成品图</span>
             </div>
           </div>
@@ -244,6 +256,16 @@ async function run() {
         </div>
       </div>
     </div>
+
+    <BoardPreviewDialog
+      v-if="pattern"
+      v-model="bigOpen"
+      :boards="previewBoards"
+      :index="bigIndex"
+      :pattern-source="previewPattern"
+      :show-codes="contents.codes"
+      @update:index="v => bigIndex = v"
+    />
 
     <template #footer="{ close }">
       <span class="cmdFoot__note"><span>{{ summary }}</span></span>
@@ -325,8 +347,16 @@ async function run() {
 .expPreview__pageHead{display:flex;flex-direction:column;gap:2px;width:100%}
 .expPreview__pageHead b{font-size:var(--fs-xs);font-weight:700;color:var(--ink);line-height:var(--ty-label-lh)}
 .expPreview__pageHead span{font-size:12px;color:var(--muted);line-height:var(--ty-caption-lh)}
-.expPreview__art{flex:1;min-height:0;display:grid;place-items:center}
-.expPreview__art canvas{max-width:100%;max-height:100%;border-radius:2px}
+.expPreview__art{
+  position:relative;flex:1;min-height:0;display:grid;place-items:center;
+  border:0;padding:0;background:transparent;cursor:zoom-in
+}
+.expPreview__art canvas{max-width:100%;max-height:100%;width:auto;height:auto;border-radius:2px}
+.expPreview__zoom{
+  position:absolute;right:8px;bottom:8px;width:28px;height:28px;border-radius:50%;
+  display:grid;place-items:center;background:rgba(27,27,31,.72);color:#fff;pointer-events:none
+}
+.expPreview__art:hover .expPreview__zoom{background:var(--ink)}
 .expPreview__note{font-size:12px;color:var(--muted-2);line-height:var(--ty-caption-lh)}
 .expPreview__cap{font-size:var(--fs-xs);color:var(--muted);text-align:center;margin:0;line-height:var(--ty-label-lh)}
 .expEmpty{padding:40px 0;text-align:center;color:var(--muted);font-size:var(--fs-sm);line-height:var(--ty-body-lh)}

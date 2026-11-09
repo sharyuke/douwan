@@ -1231,7 +1231,9 @@ input[type=checkbox]:focus-visible,input[type=radio]:focus-visible{outline:2.5px
 .boardTile.on{border:2px solid var(--primary);padding:8px}
 .boardTile__no{display:flex;align-items:center;justify-content:space-between;font-size:var(--fs-2xs);font-weight:700;margin-bottom:6px;line-height:var(--ty-caption-lh)}
 .boardTile__no em{font-style:normal;color:var(--muted);font-weight:700}
-.boardTile canvas{width:100%;display:block;image-rendering:pixelated;border-radius:6px;border:1px solid var(--line)}
+/* drawBoard 会把 canvas 的行内宽高写成原始像素（一块 104 板大约 600px）。
+   不压过那两个行内值的话，窄栏里的格子会被 overflow 裁掉一角，缩略图显示不全。 */
+.boardTile canvas{width:100%!important;height:auto!important;display:block;image-rendering:pixelated;border-radius:6px;border:1px solid var(--line)}
 .boardTile__meta{display:flex;justify-content:space-between;font-size:var(--fs-2xs);color:var(--muted-2);margin-top:5px;line-height:var(--ty-caption-lh)}
 .progressRing{font-size:var(--fs-2xs);font-weight:700;color:var(--green-deep);line-height:var(--ty-caption-lh)}
 

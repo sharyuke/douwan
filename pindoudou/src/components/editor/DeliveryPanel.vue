@@ -11,6 +11,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import BaseDialog from '../ui/BaseDialog.vue'
 import Icon from '../ui/Icon.vue'
+import BoardPreviewDialog from './BoardPreviewDialog.vue'
 import {
   pattern, hasPattern, projectName, stats, materials, layout,
   currentProjectId, saveProject, buildStats, buildBoards, buildBoard,
@@ -65,6 +66,12 @@ const previewing = ref(false)
    每张都带自己的板号、全图列 / 行范围、本板颗数与色号图例。
    板多时（最多 1225 块）只在滚到眼前时画、滚走就释放画布缓冲。 */
 const splitListEl = ref(null)
+const bigOpen = ref(false)
+const bigIndex = ref(0)
+function openBig(no) {
+  bigIndex.value = Math.max(0, no - 1)
+  bigOpen.value = true
+}
 const boardPreviewEls = new Map()
 const boardDrawn = new Set()
 let boardIo = null
@@ -591,7 +598,7 @@ function close() {
           <div v-if="tab === 'split'" ref="splitListEl" class="splitPreviewList" data-audit="split-preview">
             <div class="splitPreviewNote">
               <b>共 {{ boards.length }} 块板</b>
-              <span>每块单独预览 · 坐标沿用整张图纸的全局列 / 行号</span>
+              <span>点一块板预览大图 · 坐标沿用整张图纸的全局列 / 行号</span>
             </div>
             <article v-for="row in boardPreviewRows" :key="row.b.no" class="boardCard" :data-board-no="row.b.no">
               <header class="boardCard__head">
@@ -599,9 +606,16 @@ function close() {
                 <span class="boardCard__range">全图 {{ row.b.x0 + 1 }}–{{ row.b.x0 + row.b.w }} 列 · {{ row.b.y0 + 1 }}–{{ row.b.y0 + row.b.h }} 行</span>
                 <span class="boardCard__meta">{{ row.beads.toLocaleString() }} 颗 · {{ row.mats.length }} 色</span>
               </header>
-              <div class="boardCard__img" :style="{ aspectRatio: row.aspect }">
+              <button
+                type="button"
+                class="boardCard__img"
+                :style="{ aspectRatio: row.aspect }"
+                :aria-label="`预览第 ${row.b.no} 板大图`"
+                @click="openBig(row.b.no)"
+              >
                 <canvas :ref="el => setBoardPreviewRef(el, row.b.no)"></canvas>
-              </div>
+                <span class="boardCard__zoom" aria-hidden="true"><Icon name="zoom-in" :size="16" /></span>
+              </button>
               <div v-if="settings.legend && row.mats.length" class="boardCard__legend">
                 <span v-for="m in row.mats" :key="m.id">
                   <i :style="{ background: m.hex }"></i>{{ m.code }} × {{ m.count }} 颗
@@ -799,6 +813,14 @@ function close() {
         <strong>还没有图纸</strong>
         <p>先上传图片或从素材库选一个，生成图纸后再来交付。</p>
       </div>
+
+      <BoardPreviewDialog
+        v-model="bigOpen"
+        :boards="boards"
+        :index="bigIndex"
+        :show-codes="settings.codes"
+        @update:index="v => bigIndex = v"
+      />
     </div>
   </BaseDialog>
 </template>
@@ -838,8 +860,15 @@ function close() {
 .boardCard__range{font-size:var(--fs-2xs);color:var(--muted);line-height:var(--ty-caption-lh)}
 .boardCard__meta{margin-left:auto;font-size:var(--fs-2xs);font-weight:700;color:var(--ink);white-space:nowrap;line-height:var(--ty-caption-lh)}
 /* aspect-ratio 撑住卡片高度；canvas 绝对铺满，滚出屏幕缩成 1×1 时也不会塌 */
-.boardCard__img{position:relative;width:100%;background:#fff}
+.boardCard__img{
+  position:relative;width:100%;background:#fff;border:0;padding:0;display:block;cursor:zoom-in
+}
 .boardCard__img canvas{position:absolute;inset:0;width:100%!important;height:100%!important;image-rendering:pixelated}
+.boardCard__zoom{
+  position:absolute;right:8px;bottom:8px;width:28px;height:28px;border-radius:50%;
+  display:grid;place-items:center;background:rgba(27,27,31,.72);color:#fff;pointer-events:none
+}
+.boardCard__img:hover .boardCard__zoom{background:var(--ink)}
 .boardCard__legend{
   display:flex;flex-wrap:wrap;gap:4px 10px;padding:8px 10px;border-top:1px solid var(--line);
   font-size:var(--fs-2xs);color:var(--muted);line-height:var(--ty-caption-lh)}
