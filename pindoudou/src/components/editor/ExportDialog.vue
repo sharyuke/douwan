@@ -63,15 +63,6 @@ const pngPlan = computed(() => {
     includeStats: true
   })
 })
-const fileName = computed(() => {
-  const base = (baseName.value || projectName.value || '豆玩图纸').trim()
-  const ext = format.value === 'csv'
-    ? '-材料清单.csv'
-    : format.value === 'png'
-      ? (pngPlan.value && pngPlan.value.tiled ? '-图纸-色号.zip' : '-图纸.png')
-      : '_图纸.pdf'
-  return `${base}${ext}`
-})
 const rangeLabel = computed(() => {
   const p = pattern.value
   if (!p) return ''
@@ -232,12 +223,10 @@ async function run() {
           </label>
         </div>
 
-        <div class="exp__name">
-          <span>文件名</span>
-          <input v-model="baseName" type="text" maxlength="40" :placeholder="projectName">
-          <em>{{ fileName }}</em>
-          <small>{{ format === 'pdf' ? `1 个文件 · ${pageCount} 页 · 保留当前画布尺寸` : (pngPlan && pngPlan.tiled ? `1 个压缩包 · ${pngPlan.count} 张 · 每张图案都有色号` : '1 个文件 · 保留当前画布尺寸') }}</small>
-        </div>
+        <input
+          v-model="baseName" class="expName" type="text" maxlength="40"
+          aria-label="文件名" :placeholder="projectName || '豆玩图纸'"
+        >
 
         <div class="cmdHint">
           <Icon name="info" :size="16" />
@@ -321,17 +310,12 @@ async function run() {
   appearance:none;outline:none;cursor:pointer;line-height:var(--ty-body-lh)
 }
 .expField .pixelIcon{position:absolute;right:10px;bottom:13px;pointer-events:none}
-.exp__name{
-  display:flex;flex-direction:column;gap:6px;margin-top:16px;padding:12px 14px;
-  border-radius:12px;background:var(--surface-2);
-}
-.exp__name>span{font-size:var(--fs-xs);color:var(--muted);line-height:var(--ty-label-lh)}
-.exp__name input{
-  height:32px;border:0;border-bottom:1px solid var(--line-strong);background:transparent;
+.expName{
+  width:100%;height:38px;margin-top:14px;padding:0 12px;
+  border:1px solid var(--line);border-radius:12px;background:var(--surface);
   font:inherit;font-size:var(--fs-sm);color:var(--ink);outline:none;line-height:var(--ty-body-lh)
 }
-.exp__name em{font-style:normal;font-size:var(--fs-xs);color:var(--ink-2);line-height:var(--ty-label-lh)}
-.exp__name small{font-size:var(--fs-xs);color:var(--muted);line-height:var(--ty-label-lh)}
+.expName:focus{border-color:var(--primary-deep)}
 .exp .cmdHint{margin-top:14px}
 .exp__side{display:flex;flex-direction:column}
 .expPreview{display:flex;flex-direction:column;gap:8px;height:100%}
