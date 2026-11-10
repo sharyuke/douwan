@@ -2,6 +2,8 @@ package service
 
 import (
 	"math"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -615,5 +617,147 @@ func TestNormalizeChannelKeepsCustomNames(t *testing.T) {
 	}
 	if got := model.NormalizeChannel("  "); got != model.ChannelUnknown {
 		t.Fatalf("空白应视为未知来源: %q", got)
+	}
+}
+
+func TestActivityPulseCountsAndSelf(t *testing.T) {
+	seed := newActivitySeed(t)
+	ctx := t.Context()
+	seed.feature(t, "userC", "2026-10-15", model.FeatureAccountRegister, model.ActivitySourceAPI, 1)
+	seed.feature(t, "userC", "2026-10-15", model.FeatureAccountLogin, model.ActivitySourceAPI, 2)
+
+	visA := strings.Repeat("a", 32)
+	visB := strings.Repeat("b", 32)
+	seed.visitor(t, visA, seed.id("userA"), "2026-10-13", "2026-10-15", 10, "/editor")
+	seed.visitor(t, visB, 0, "2026-10-15", "2026-10-15", 2, "/")
+	seed.visitPage(t, visA, "2026-10-13", "/", 6, seed.id("userA"))
+	seed.visitPage(t, visA, "2026-10-15", "/editor", 4, seed.id("userA"))
+	seed.visitPage(t, visB, "2026-10-15", "/", 2, 0)
+
+	out, err := seed.svc.Pulse(ctx, 7)
+	if err != nil {
+		t.Fatalf("汇总失败: %v", err)
+	}
+	if out.People.RegisteredTotal != 4 || out.People.RegisteredToday != 1 || out.People.RegisteredWindow != 4 {
+		t.Fatalf("注册人数不对: %+v", out.People)
+	}
+	if out.People.LoggedInToday != 1 || out.People.LoggedInWindow != 2 {
+		t.Fatalf("登录人数不对: %+v", out.People)
+	}
+	if out.Events.RegistersToday != 1 || out.Events.RegistersWindow != 1 {
+		t.Fatalf("注册次数不对: %+v", out.Events)
+	}
+	if out.Events.LoginsToday != 2 || out.Events.LoginsWindow != 5 {
+		t.Fatalf("登录次数不对: %+v", out.Events)
+	}
+	if out.Traffic.PVToday != 6 || out.Traffic.UVToday != 2 || out.Traffic.PVWindow != 12 || out.Traffic.UVWindow != 2 {
+		t.Fatalf("访问量不对: %+v", out.Traffic)
+	}
+	if out.Self.People.RegisteredTotal != 0 || out.Self.Traffic.PVWindow != 0 {
+		t.Fatalf("还没标注时「自己」应该是 0: %+v", out.Self)
+	}
+
+	mark, err := seed.svc.AddSelf(ctx, dto.ActivitySelfMarkRequest{
+		Kind: model.SelfKindUser, Value: strconv.FormatUint(seed.id("userA"), 10), Label: "自己的账号",
+	})
+	if err != nil {
+		t.Fatalf("标注账号失败: %v", err)
+	}
+	out, err = seed.svc.Pulse(ctx, 7)
+	if err != nil {
+		t.Fatalf("标注后汇总失败: %v", err)
+	}
+	if out.Self.People.RegisteredTotal != 1 || out.Self.People.RegisteredToday != 0 || out.Self.People.RegisteredWindow != 1 {
+		t.Fatalf("自己的注册人数不对: %+v", out.Self.People)
+	}
+	if out.Self.People.LoggedInWindow != 1 || out.Self.People.LoggedInToday != 0 {
+		t.Fatalf("自己的登录人数不对: %+v", out.Self.People)
+	}
+	if out.Self.Events.LoginsWindow != 3 || out.Self.Events.LoginsToday != 0 {
+		t.Fatalf("自己的登录次数不对: %+v", out.Self.Events)
+	}
+	if out.Self.Traffic.PVToday != 4 || out.Self.Traffic.UVToday != 1 || out.Self.Traffic.PVWindow != 10 || out.Self.Traffic.UVWindow != 1 {
+		t.Fatalf("自己的访问量不对: %+v", out.Self.Traffic)
+	}
+	if out.People.LoggedInWindow != 2 || out.Traffic.PVWindow != 12 {
+		t.Fatalf("标注自己之后总数不该变: people=%+v traffic=%+v", out.People, out.Traffic)
+	}
+	var sawSelf bool
+	for _, row := range out.Accounts {
+		if row.UserID == seed.id("userA") {
+			sawSelf = row.Self && row.MarkID == mark.ID && row.Logins == 3
+		}
+	}
+	if !sawSelf {
+		t.Fatalf("账号列表没把 userA 标成自己: %+v", out.Accounts)
+	}
+
+	if _, err := seed.svc.AddSelf(ctx, dto.ActivitySelfMarkRequest{
+		Kind: model.SelfKindVisitor, Value: visB[:8], Label: "自己的浏览器",
+	}); err != nil {
+		t.Fatalf("标注访客前缀失败: %v", err)
+	}
+	out, err = seed.svc.Pulse(ctx, 7)
+	if err != nil {
+		t.Fatalf("标注浏览器后汇总失败: %v", err)
+	}
+	if out.Self.Traffic.PVToday != 6 || out.Self.Traffic.UVToday != 2 {
+		t.Fatalf("加上匿名浏览器后，今天自己的访问量应为 6 / 2，实际 %+v", out.Self.Traffic)
+	}
+	if out.Self.People.LoggedInWindow != 1 {
+		t.Fatalf("匿名浏览器不该增加登录人数: %+v", out.Self.People)
+	}
+
+	if err := seed.svc.DeleteSelf(ctx, mark.ID); err != nil {
+		t.Fatalf("取消标注失败: %v", err)
+	}
+	again, err := seed.svc.AddSelf(ctx, dto.ActivitySelfMarkRequest{
+		Kind: model.SelfKindUser, Value: strconv.FormatUint(seed.id("userA"), 10), Label: "自己的账号",
+	})
+	if err != nil {
+		t.Fatalf("重新标注失败: %v", err)
+	}
+	if again.ID != mark.ID {
+		t.Fatalf("重新标注应该恢复原来的行，id=%d，期望 %d", again.ID, mark.ID)
+	}
+	out, err = seed.svc.Pulse(ctx, 7)
+	if err != nil {
+		t.Fatalf("重新标注后汇总失败: %v", err)
+	}
+	var restored bool
+	for _, item := range out.Marks {
+		if item.ID == mark.ID && item.Kind == model.SelfKindUser {
+			restored = true
+		}
+	}
+	if !restored || out.Self.People.RegisteredTotal != 1 {
+		t.Fatalf("重新标注后应该重新计入自己: marks=%+v self=%+v", out.Marks, out.Self.People)
+	}
+	if _, err := seed.svc.AddSelf(ctx, dto.ActivitySelfMarkRequest{Kind: model.SelfKindUser, Value: "999999"}); err == nil {
+		t.Fatal("不存在的账号应该拒绝标注")
+	}
+}
+
+func (s *activitySeed) visitor(t *testing.T, id string, userID uint64, firstDay, lastDay string, views int64, lastPath string) {
+	t.Helper()
+	row := model.SiteVisitor{
+		Visitor: id, UserID: userID,
+		FirstSeenAt: activityNow, LastSeenAt: activityNow,
+		FirstDay: firstDay, LastDay: lastDay,
+		PageViews: views, FirstPath: "/", LastPath: lastPath,
+	}
+	if err := s.db.Create(&row).Error; err != nil {
+		t.Fatalf("写访客 %s: %v", id[:8], err)
+	}
+}
+
+func (s *activitySeed) visitPage(t *testing.T, visitor, day, path string, pv int64, userID uint64) {
+	t.Helper()
+	row := model.SiteVisitorPageDaily{
+		Visitor: visitor, Day: day, Path: path, PV: pv, UserID: userID,
+		FirstAt: activityNow, LastAt: activityNow,
+	}
+	if err := s.db.Create(&row).Error; err != nil {
+		t.Fatalf("写访问 %s %s: %v", visitor[:8], day, err)
 	}
 }

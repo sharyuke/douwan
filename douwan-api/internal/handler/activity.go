@@ -18,6 +18,44 @@ func NewActivityHandler(svc *service.ActivityService) *ActivityHandler {
 	return &ActivityHandler{svc: svc}
 }
 
+// Pulse GET /api/v1/admin/activity/pulse?days=30
+//
+// 后台「用户数据」：注册 / 登录的人数与次数、访问量，以及其中标成自己的部分。
+func (h *ActivityHandler) Pulse(c *gin.Context) {
+	result, err := h.svc.Pulse(c.Request.Context(), queryInt(c, "days"))
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+	response.Success(c, result)
+}
+
+// AddSelf POST /api/v1/admin/activity/self
+func (h *ActivityHandler) AddSelf(c *gin.Context) {
+	var req dto.ActivitySelfMarkRequest
+	if !bind(c, &req) {
+		return
+	}
+	if _, err := h.svc.AddSelf(c.Request.Context(), req); err != nil {
+		response.Fail(c, err)
+		return
+	}
+	response.Success(c, gin.H{"ok": true})
+}
+
+// DeleteSelf DELETE /api/v1/admin/activity/self/:id
+func (h *ActivityHandler) DeleteSelf(c *gin.Context) {
+	id, ok := pathID(c, "id")
+	if !ok {
+		return
+	}
+	if err := h.svc.DeleteSelf(c.Request.Context(), id); err != nil {
+		response.Fail(c, err)
+		return
+	}
+	response.Success(c, gin.H{"ok": true})
+}
+
 // Overview GET /api/v1/admin/activity/overview?days=30
 func (h *ActivityHandler) Overview(c *gin.Context) {
 	result, err := h.svc.Overview(c.Request.Context(), queryInt(c, "days"))

@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -405,6 +406,84 @@ func (r *VisitRepository) ListVisitors(ctx context.Context, f VisitVisitorFilter
 		return nil, 0, response.ErrInternal.WithCause(err)
 	}
 	return rows, total, nil
+}
+
+// SelfVisitScope 是「自己」对应的访客范围：账号、完整访客标识、前缀。
+type SelfVisitScope struct {
+	UserIDs  []uint64
+	Exact    []string
+	Prefixes []string
+}
+
+// Any 表示这个范围里至少有一个条件。
+func (s SelfVisitScope) Any() bool {
+	return len(s.UserIDs) > 0 || len(s.Exact) > 0 || len(s.Prefixes) > 0
+}
+
+// UserIDsMatchingVisitors 找出访客标识落在范围内、并且关联了账号的用户 ID。
+func (r *VisitRepository) UserIDsMatchingVisitors(ctx context.Context, exact, prefixes []string) ([]uint64, error) {
+	if len(exact) == 0 && len(prefixes) == 0 {
+		return nil, nil
+	}
+	parts, args := visitorMatch("visitor", exact, prefixes)
+	var rows []struct {
+		UserID uint64 `gorm:"column:user_id"`
+	}
+	err := r.db.WithContext(ctx).Table("site_visitors").
+		Select("DISTINCT user_id AS user_id").
+		Where("user_id <> 0 AND deleted_at IS NULL").
+		Where("("+strings.Join(parts, " OR ")+")", args...).
+		Scan(&rows).Error
+	if err != nil {
+		return nil, response.ErrInternal.WithCause(err)
+	}
+	out := make([]uint64, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, row.UserID)
+	}
+	return out, nil
+}
+
+// ScopedWindowStats 统计落在「自己」范围内的 PV / UV。范围为空时返回 0。
+func (r *VisitRepository) ScopedWindowStats(ctx context.Context, from, to string, scope SelfVisitScope) (VisitWindowStats, error) {
+	var out VisitWindowStats
+	if !scope.Any() {
+		return out, nil
+	}
+	parts, args := []string{}, []any{}
+	if len(scope.UserIDs) > 0 {
+		parts = append(parts, "user_id IN ?")
+		args = append(args, scope.UserIDs)
+		parts = append(parts, "visitor IN (SELECT visitor FROM site_visitors WHERE user_id IN ? AND deleted_at IS NULL)")
+		args = append(args, scope.UserIDs)
+	}
+	more, moreArgs := visitorMatch("visitor", scope.Exact, scope.Prefixes)
+	parts = append(parts, more...)
+	args = append(args, moreArgs...)
+	err := r.db.WithContext(ctx).Table("site_visitor_page_daily").
+		Select("COALESCE(SUM(pv), 0) AS pv, COUNT(DISTINCT visitor) AS visitors").
+		Where("day >= ? AND day <= ?", from, to).
+		Where("("+strings.Join(parts, " OR ")+")", args...).
+		Scan(&out).Error
+	if err != nil {
+		return out, response.ErrInternal.WithCause(err)
+	}
+	return out, nil
+}
+
+// visitorMatch 把完整标识和前缀收成 WHERE 片段。前缀只用于已校验过的十六进制。
+func visitorMatch(column string, exact, prefixes []string) ([]string, []any) {
+	var parts []string
+	var args []any
+	if len(exact) > 0 {
+		parts = append(parts, column+" IN ?")
+		args = append(args, exact)
+	}
+	for _, prefix := range prefixes {
+		parts = append(parts, column+" LIKE ?")
+		args = append(args, prefix+"%")
+	}
+	return parts, args
 }
 
 // visitVisitorOrder 把排序键映射成 SQL，未知值一律回落到累计访问量。

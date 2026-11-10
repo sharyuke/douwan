@@ -210,7 +210,7 @@ export const routes = [
     meta: { admin: true, noindex: true },
     children: [
       { path: '', name: 'admin-overview', component: AdminOverview, meta: { title: '数据概览', perm: 'overview.view' } },
-      { path: 'activity', name: 'admin-activity', component: AdminActivity, meta: { title: '用户活跃监控', perm: 'activity.view' } },
+      { path: 'activity', name: 'admin-activity', component: AdminActivity, meta: { title: '用户数据', perm: 'activity.view' } },
       { path: 'feedback', name: 'admin-feedback', component: AdminFeedback, meta: { title: '意见反馈', perm: 'feedback.view' } },
       { path: 'seo', name: 'admin-seo', component: AdminSeo, meta: { title: 'SEO 管理', perm: 'seo.view' } },
       { path: 'plans', name: 'admin-plans', component: AdminPlans, meta: { title: '套餐管理', perm: 'plan.manage' } },

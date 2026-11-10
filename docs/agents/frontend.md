@@ -26,7 +26,7 @@
 | `src/composables/useProjectSync.js` | **作品按账号同步**（2026-10-27）：登录 / 保存 / 删除时与服务端 `GET/PUT/DELETE /api/v1/projects` 双向同步；合并按存档 `updatedAt`，删除走本机墓碑；设计见 `docs/project-sync.md` |
 | `src/composables/useMembership.js` | 会员权益判定，**按钮永不隐藏**，点不动要给原因 + 升级路径 |
 | `src/data/palette.js`、`assets.js` | **脚本生成，勿手改**（`pnpm palette` / `assets`） |
-| `src/views/admin/AdminActivityView.vue` | 后台「用户活跃监控」页：总览 / **访问量** / 留存 / 使用频率 / 地区 / 功能使用 / 来源渠道 / 用户明细 / **排除名单**，调 13 个 `/admin/activity/*` |
+| `src/views/admin/AdminActivityView.vue` | 后台「用户数据」页：注册 / 登录的人数与次数、访问量，以及「自己」标注。接口 `GET /admin/activity/pulse` |
 | `src/lib/telemetry.js` | 前台访问量埋点：路由 `afterEach` 上报 `POST /api/v1/visits`（访客标识存 localStorage、同页面 2 秒去抖、后台页面不上报、失败静默） |
 | `src/data/seo.js` | **SEO 文案单一事实来源**：站点信息、首页/素材中心/教程页文案、工具页生成规则、应用内路由清单；构建时编译成 `dist/seo/pages.json` 供后端渲染。**V3.0 起还包含关键词库（分组 / 意图 / 目标页）与自动 SEO 模板** |
 | `src/lib/seo.js` | 运行时注入 canonical / OG / Twitter / JSON-LD |

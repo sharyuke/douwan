@@ -44,6 +44,10 @@ export const overviewApi = {
  * 见后端 docs/activity.md，页面上的说明文案与它保持一致。
  */
 export const activityApi = {
+  /** 用户数据一页：注册 / 登录人数与次数、访问量，以及其中标成自己的部分 */
+  pulse: query => api.get('/admin/activity/pulse', { ...opts(), query }),
+  addSelf: body => api.post('/admin/activity/self', body, opts()),
+  deleteSelf: id => api.del(`/admin/activity/self/${id}`, opts()),
   overview: query => api.get('/admin/activity/overview', { ...opts(), query }),
   retention: query => api.get('/admin/activity/retention', { ...opts(), query }),
   frequency: query => api.get('/admin/activity/frequency', { ...opts(), query }),

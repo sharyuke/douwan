@@ -68,27 +68,23 @@ const CHROME_CANDIDATES = [
 /** 后台页面清单：真实路径 + 期望在页面上出现的关键字（用来判断是不是白屏） */
 const PAGES = [
   { name: 'admin-overview', path: '/admin', expect: ['数据概览', '今日订单数', '支付'] },
-  // 活跃监控：四个维度的 KPI 与标签页都要求至少渲染出固定文案，
-  // 数据本身可能为空（0），所以只断言口径文案不空口。
+  // 用户数据：人数、次数、访问量都在同一页。数字可以是 0，只断言文案还在。
   {
     name: 'admin-activity',
     path: '/admin/activity',
-    expect: ['用户活跃监控', '今日活跃用户（DAU）', '使用频率', '采集周期'],
+    expect: ['用户数据', '累计注册人数', '今日登录人数', '今日登录次数', '今日访问量', '标为自己'],
     optional: true
   },
-  // 访问量标签：PV / UV 的口径文案必须出现（数字可以是 0），
-  // 并且要能看到「含未登录访客」这句——不然很容易把 UV 当人数读。
   {
     name: 'admin-activity-traffic',
     path: '/admin/activity?tab=traffic',
-    expect: ['访问量', '今日访问量（PV）', '今日访客（UV）', '页面访问排行', '访客明细', '未登录访客'],
+    expect: ['用户数据', '今日访问量', '今日访客', '按浏览器计'],
     optional: true
   },
-  // 排除名单：把「自己」的访问从统计里扣掉，这一页要能看到名单与一键标记
   {
     name: 'admin-activity-exclusions',
     path: '/admin/activity?tab=exclusions',
-    expect: ['排除名单', '名单条数', '覆盖访客', '添加排除项'],
+    expect: ['用户数据', '把我这个浏览器标为自己', '自己'],
     optional: true
   },
   // SEO 管理：口径说明必须出现（「已提交 ≠ 已收录」那句话是这一页的重点）

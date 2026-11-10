@@ -292,6 +292,9 @@ func New(deps Deps) *gin.Engine {
 			activity := adm.Group("/activity",
 				middleware.RequirePermission(model.PermActivityView))
 			{
+				activity.GET("/pulse", activityHandler.Pulse)
+				activity.POST("/self", activityHandler.AddSelf)
+				activity.DELETE("/self/:id", activityHandler.DeleteSelf)
 				activity.GET("/overview", activityHandler.Overview)
 				activity.GET("/retention", activityHandler.Retention)
 				activity.GET("/frequency", activityHandler.Frequency)

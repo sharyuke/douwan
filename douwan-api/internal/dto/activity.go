@@ -365,3 +365,98 @@ type EventBatchResult struct {
 	Rejected []string `json:"rejected"`
 	Message  string   `json:"message"`
 }
+
+/* -------------------------------------------------- 用户数据（简化首屏） */
+
+// ActivityPulse 后台「用户数据」一页要的数字。
+//
+// 人数、次数、访问量分开返回：登录人数是去重账号，登录次数是动作次数。
+// Self 是其中标成「自己」的那一份，已经包含在上面的总数里，不需要再加一次。
+type ActivityPulse struct {
+	Window      ActivityWindow         `json:"window"`
+	People      ActivityPulsePeople    `json:"people"`
+	Events      ActivityPulseEvents    `json:"events"`
+	Traffic     ActivityPulseTraffic   `json:"traffic"`
+	Self        ActivityPulseShare     `json:"self"`
+	Marks       []ActivitySelfMarkItem `json:"marks"`
+	Accounts    []ActivityPulseAccount `json:"accounts"`
+	Visitors    []ActivityPulseVisitor `json:"visitors"`
+	GeneratedAt time.Time              `json:"generated_at"`
+}
+
+// ActivityPulseShare 是「自己」那一份，字段与总数相同。
+type ActivityPulseShare struct {
+	People  ActivityPulsePeople  `json:"people"`
+	Events  ActivityPulseEvents  `json:"events"`
+	Traffic ActivityPulseTraffic `json:"traffic"`
+}
+
+// ActivityPulsePeople 注册与登录的人数（一个账号只计一次）。
+type ActivityPulsePeople struct {
+	RegisteredTotal  int64 `json:"registered_total"`
+	RegisteredToday  int64 `json:"registered_today"`
+	RegisteredWindow int64 `json:"registered_window"`
+	LoggedInToday    int64 `json:"logged_in_today"`
+	LoggedInWindow   int64 `json:"logged_in_window"`
+}
+
+// ActivityPulseEvents 注册与登录的次数（同一个人可以贡献多次登录）。
+type ActivityPulseEvents struct {
+	RegistersToday  int64 `json:"registers_today"`
+	RegistersWindow int64 `json:"registers_window"`
+	LoginsToday     int64 `json:"logins_today"`
+	LoginsWindow    int64 `json:"logins_window"`
+}
+
+// ActivityPulseTraffic 页面访问量与去重访客。
+type ActivityPulseTraffic struct {
+	PVToday  int64 `json:"pv_today"`
+	UVToday  int64 `json:"uv_today"`
+	PVWindow int64 `json:"pv_window"`
+	UVWindow int64 `json:"uv_window"`
+}
+
+// ActivitySelfMarkItem 一条「自己」标注。
+type ActivitySelfMarkItem struct {
+	ID        uint64    `json:"id"`
+	Kind      string    `json:"kind"`
+	KindLabel string    `json:"kind_label"`
+	Value     string    `json:"value"`
+	Username  string    `json:"username"`
+	Label     string    `json:"label"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// ActivitySelfMarkRequest 新增一条「自己」标注。
+type ActivitySelfMarkRequest struct {
+	Kind  string `json:"kind" binding:"required,oneof=user visitor"`
+	Value string `json:"value" binding:"required,max=64"`
+	Label string `json:"label" binding:"omitempty,max=64"`
+}
+
+// ActivityPulseAccount 最近用过或刚注册的账号，用来点「标为自己」。
+type ActivityPulseAccount struct {
+	UserID      uint64     `json:"user_id"`
+	Username    string     `json:"username"`
+	Nickname    string     `json:"nickname"`
+	CreatedAt   time.Time  `json:"created_at"`
+	LastLoginAt *time.Time `json:"last_login_at"`
+	Logins      int64      `json:"logins"`
+	Self        bool       `json:"self"`
+	MarkID      uint64     `json:"mark_id"`
+}
+
+// ActivityPulseVisitor 窗口内来过的浏览器。
+//
+// Visitor 是脱敏后的标识。Token 是用来标注的前 8 位，完整标识不出接口。
+type ActivityPulseVisitor struct {
+	Visitor    string    `json:"visitor"`
+	Token      string    `json:"token"`
+	UserID     uint64    `json:"user_id"`
+	Username   string    `json:"username"`
+	PageViews  int64     `json:"page_views"`
+	LastSeenAt time.Time `json:"last_seen_at"`
+	LastPath   string    `json:"last_path"`
+	Self       bool      `json:"self"`
+	MarkID     uint64    `json:"mark_id"`
+}

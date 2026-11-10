@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -672,11 +673,164 @@ func (r *ActivityRepository) UserTotals(ctx context.Context, userID uint64) (Act
 
 // CountUsersCreated 返回注册时间落在 [from, to) 内的用户数。
 func (r *ActivityRepository) CountUsersCreated(ctx context.Context, from, to time.Time) (int64, error) {
+	return r.CountUsersCreatedIn(ctx, from, to, nil, false)
+}
+
+// CountUsersCreatedIn 返回注册时间落在 [from, to) 内的用户数。
+// only 为 true 时只数 ids 里的账号；ids 为空则结果是 0。
+func (r *ActivityRepository) CountUsersCreatedIn(ctx context.Context, from, to time.Time, ids []uint64, only bool) (int64, error) {
+	if only && len(ids) == 0 {
+		return 0, nil
+	}
+	q := r.db.WithContext(ctx).Model(&model.User{}).
+		Where("created_at >= ? AND created_at < ?", from, to)
+	if only {
+		q = q.Where("id IN ?", ids)
+	}
 	var count int64
-	err := r.db.WithContext(ctx).Model(&model.User{}).
-		Where("created_at >= ? AND created_at < ?", from, to).Count(&count).Error
+	if err := q.Count(&count).Error; err != nil {
+		return 0, response.ErrInternal.WithCause(err)
+	}
+	return count, nil
+}
+
+// CountUsersIn 返回 ids 里仍然存在的账号数。ids 为空时是 0。
+func (r *ActivityRepository) CountUsersIn(ctx context.Context, ids []uint64) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	var count int64
+	err := r.db.WithContext(ctx).Model(&model.User{}).Where("id IN ?", ids).Count(&count).Error
 	if err != nil {
 		return 0, response.ErrInternal.WithCause(err)
 	}
 	return count, nil
+}
+
+// FeatureHitTotals 是一个功能在窗口内的去重人数与次数。
+type FeatureHitTotals struct {
+	Users int64 `gorm:"column:users"`
+	Hits  int64 `gorm:"column:hits"`
+}
+
+// FeatureHitTotals 统计某个功能（只算服务端记的 api 来源）。
+// only 为 true 时只看 ids 里的账号。
+func (r *ActivityRepository) FeatureHitTotals(ctx context.Context, feature, from, to string, ids []uint64, only bool) (FeatureHitTotals, error) {
+	if only && len(ids) == 0 {
+		return FeatureHitTotals{}, nil
+	}
+	q := r.db.WithContext(ctx).Table("user_feature_daily").
+		Select("COUNT(DISTINCT user_id) AS users, COALESCE(SUM(hits),0) AS hits").
+		Where("deleted_at IS NULL AND feature = ? AND source = ? AND day >= ? AND day <= ?",
+			feature, model.ActivitySourceAPI, from, to)
+	if only {
+		q = q.Where("user_id IN ?", ids)
+	}
+	var out FeatureHitTotals
+	if err := q.Scan(&out).Error; err != nil {
+		return out, response.ErrInternal.WithCause(err)
+	}
+	return out, nil
+}
+
+// PulseAccountRow 是「用户数据」账号表的一行。
+type PulseAccountRow struct {
+	UserID      uint64     `gorm:"column:user_id"`
+	Username    string     `gorm:"column:username"`
+	Nickname    string     `gorm:"column:nickname"`
+	CreatedAt   time.Time  `gorm:"column:created_at"`
+	LastLoginAt *time.Time `gorm:"column:last_login_at"`
+	Logins      int64      `gorm:"column:logins"`
+}
+
+// RecentAccounts 按最近登录（没有登录记录则按注册时间）返回账号，并带上窗口内登录次数。
+func (r *ActivityRepository) RecentAccounts(ctx context.Context, from, to string, limit int) ([]PulseAccountRow, error) {
+	if limit <= 0 {
+		limit = 40
+	}
+	return r.accountPulseRows(ctx, from, to, nil, limit)
+}
+
+// AccountsByIDs 按主键取账号行，字段与 RecentAccounts 相同。
+func (r *ActivityRepository) AccountsByIDs(ctx context.Context, from, to string, ids []uint64) ([]PulseAccountRow, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	return r.accountPulseRows(ctx, from, to, ids, 0)
+}
+
+func (r *ActivityRepository) accountPulseRows(ctx context.Context, from, to string, ids []uint64, limit int) ([]PulseAccountRow, error) {
+	q := r.db.WithContext(ctx).Table("users").
+		Select("id AS user_id, username, nickname, created_at, last_login_at, "+
+			"COALESCE((SELECT SUM(hits) FROM user_feature_daily AS f "+
+			"WHERE f.user_id = users.id AND f.deleted_at IS NULL "+
+			"AND f.feature = ? AND f.source = ? AND f.day >= ? AND f.day <= ?), 0) AS logins",
+			model.FeatureAccountLogin, model.ActivitySourceAPI, from, to).
+		Where("deleted_at IS NULL")
+	if len(ids) > 0 {
+		q = q.Where("id IN ?", ids)
+	}
+	q = q.Order("COALESCE(last_login_at, created_at) DESC, id DESC")
+	if limit > 0 {
+		q = q.Limit(limit)
+	}
+	var rows []PulseAccountRow
+	if err := q.Scan(&rows).Error; err != nil {
+		return nil, response.ErrInternal.WithCause(err)
+	}
+	return rows, nil
+}
+
+// ListSelfMarks 返回全部「自己」标注。
+func (r *ActivityRepository) ListSelfMarks(ctx context.Context) ([]model.ActivitySelfMark, error) {
+	var rows []model.ActivitySelfMark
+	if err := r.db.WithContext(ctx).Order("id ASC").Find(&rows).Error; err != nil {
+		return nil, response.ErrInternal.WithCause(err)
+	}
+	return rows, nil
+}
+
+// SaveSelfMark 新增或恢复一条标注。同一 kind + value 只保留一行。
+//
+// 删除是软删除，唯一索引仍然占着那一行，所以重新标注必须把旧行找回来清空 deleted_at，
+// 不能再 INSERT 一条。
+func (r *ActivityRepository) SaveSelfMark(ctx context.Context, kind, value, label string) (model.ActivitySelfMark, error) {
+	var row model.ActivitySelfMark
+	err := r.db.WithContext(ctx).Unscoped().Where("kind = ? AND value = ?", kind, value).Take(&row).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return row, response.ErrInternal.WithCause(err)
+	}
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		row = model.ActivitySelfMark{Kind: kind, Value: value, Label: label}
+		if err := r.db.WithContext(ctx).Create(&row).Error; err != nil {
+			return row, response.ErrInternal.WithCause(err)
+		}
+		return row, nil
+	}
+	// map 里的 nil 在部分 GORM 版本会被跳过，软删除列必须用 SQL NULL 清掉，
+	// 否则重新标注看起来成功，列表里却仍然看不到。
+	if err := r.db.WithContext(ctx).Unscoped().Model(&model.ActivitySelfMark{}).
+		Where("id = ?", row.ID).
+		Updates(map[string]any{
+			"label":      label,
+			"deleted_at": gorm.Expr("NULL"),
+			"updated_at": time.Now(),
+		}).Error; err != nil {
+		return row, response.ErrInternal.WithCause(err)
+	}
+	row.Label = label
+	row.DeletedAt = gorm.DeletedAt{}
+	return row, nil
+}
+
+// DeleteSelfMark 去掉一条标注。不存在时返回 10404。
+func (r *ActivityRepository) DeleteSelfMark(ctx context.Context, id uint64) error {
+	res := r.db.WithContext(ctx).Delete(&model.ActivitySelfMark{}, id)
+	if res.Error != nil {
+		return response.ErrInternal.WithCause(res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return response.ErrNotFound.WithMessage("这条标注不存在")
+	}
+	return nil
 }

@@ -8,7 +8,7 @@ export const ADMIN_NAV = [
     group: '经营',
     items: [
       { to: '/admin', label: '数据概览', icon: 'layout-grid', perm: 'overview.view', exact: true },
-      { to: '/admin/activity', label: '用户活跃监控', icon: 'chart-no-axes-combined', perm: 'activity.view' },
+      { to: '/admin/activity', label: '用户数据', icon: 'chart-no-axes-combined', perm: 'activity.view' },
       { to: '/admin/feedback', label: '意见反馈', icon: 'info', perm: 'feedback.view' },
       { to: '/admin/seo', label: 'SEO 管理', icon: 'search', perm: 'seo.view' }
     ]
@@ -41,7 +41,7 @@ export const ADMIN_NAV = [
 /** 每个后台路由对应的页面标题与说明，顶栏与浏览器标题共用 */
 export const ADMIN_TITLES = {
   '/admin': { title: '数据概览', sub: '一眼看清系统在发生什么' },
-  '/admin/activity': { title: '用户活跃监控', sub: '访问量、使用频率、地区、功能与来源渠道' },
+  '/admin/activity': { title: '用户数据', sub: '注册、登录和网站访问量' },
   '/admin/feedback': { title: '意见反馈', sub: '前台用户提交的建议与问题，处理完可以标记已处理' },
   '/admin/seo': { title: 'SEO 管理', sub: '可索引页面、Sitemap、推送队列与搜索引擎验证状态' },
   '/admin/plans': { title: '套餐管理', sub: '价格与权益全部可配置，草稿默认不对外展示' },

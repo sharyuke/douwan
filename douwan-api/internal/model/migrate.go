@@ -33,6 +33,7 @@ func AllModels() []any {
 		// 用户活跃数据监控（日汇总，非流水）
 		&UserDailyActivity{},
 		&UserFeatureDaily{},
+		&ActivitySelfMark{},
 		// 本地 AI 推理任务（异步队列，产物落 storage）
 		&AIJob{},
 		&AIUpload{},
