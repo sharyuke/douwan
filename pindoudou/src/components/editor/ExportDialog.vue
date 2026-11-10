@@ -1,5 +1,6 @@
 <script setup>
-/* 导出弹窗（Figma 124:1628）：格式 / 范围 / 纸张 / 包含内容 / 文件名 + 版式预览。
+/* 导出弹窗（Figma 124:1628）：格式 / 范围 / 纸张 / 文件名 + 版式预览。
+   图纸固定带上网格与坐标、色号标注、材料数量清单和作品信息，页面上不再勾选。
    三种格式都接真实导出链路：PDF 走分板图纸打印、PNG 走高分辨率图纸、CSV 走材料清单。 */
 import { computed, nextTick, ref, watch } from 'vue'
 import BaseDialog from '../ui/BaseDialog.vue'
@@ -26,7 +27,6 @@ const range = ref('full')
 const paper = ref('portrait')
 const baseName = ref('')
 const busy = ref(false)
-const contents = ref({ ruler: true, codes: true, materials: false, info: true })
 const previewEl = ref(null)
 const previewMsg = ref('')
 const bigOpen = ref(false)
@@ -57,10 +57,10 @@ const pngPlan = computed(() => {
   const mm = bead.value && bead.value.mm ? bead.value.mm : 2.6
   const want = Math.max(1, Math.round((mm / 25.4) * 300))
   return patternSheetPlan(p, want, {
-    ruler: contents.value.ruler,
-    codes: contents.value.codes,
-    includeLegend: contents.value.info,
-    includeStats: contents.value.info
+    ruler: true,
+    codes: true,
+    includeLegend: true,
+    includeStats: true
   })
 })
 const fileName = computed(() => {
@@ -93,7 +93,7 @@ watch(() => props.modelValue, v => {
   baseName.value = projectName.value || ''
   nextTick(drawPreview)
 })
-watch([format, range, paper, contents], () => { if (props.modelValue) nextTick(drawPreview) }, { deep: true })
+watch([format, range, paper], () => { if (props.modelValue) nextTick(drawPreview) })
 
 function targetPattern() {
   const p = pattern.value
@@ -154,11 +154,11 @@ async function run() {
       const res = await exportBoardPdf(p, {
         projectName: baseName.value || projectName.value,
         orientation: paper.value,
-        ruler: contents.value.ruler,
-        codes: contents.value.codes,
+        ruler: true,
+        codes: true,
         grid: true,
-        includeLegend: contents.value.info,
-        includeMaterials: contents.value.materials,
+        includeLegend: true,
+        includeMaterials: true,
         inventoryMap: inventory.value
       })
       toastResult(res, '图纸已生成')
@@ -167,11 +167,11 @@ async function run() {
       const res = await exportPatternPNGAtDpi(p, {
         dpi: 300,
         projectName: baseName.value || projectName.value,
-        ruler: contents.value.ruler,
-        codes: contents.value.codes,
+        ruler: true,
+        codes: true,
         grid: true,
-        includeLegend: contents.value.info,
-        includeStats: contents.value.info
+        includeLegend: true,
+        includeStats: true
       })
       toastResult(res, '图纸已导出')
       if (res && res.ok) emit('update:modelValue', false)
@@ -232,16 +232,6 @@ async function run() {
           </label>
         </div>
 
-        <template v-if="format !== 'csv'">
-          <p class="cmdLabel exp__block">包含内容</p>
-          <div class="exp__checks">
-            <label><input v-model="contents.ruler" type="checkbox"><i /><span>网格与坐标</span></label>
-            <label><input v-model="contents.codes" type="checkbox"><i /><span>色号标注</span></label>
-            <label><input v-model="contents.materials" type="checkbox"><i /><span>材料数量清单</span></label>
-            <label><input v-model="contents.info" type="checkbox"><i /><span>作品信息</span></label>
-          </div>
-        </template>
-
         <div class="exp__name">
           <span>文件名</span>
           <input v-model="baseName" type="text" maxlength="40" :placeholder="projectName">
@@ -285,7 +275,7 @@ async function run() {
       :boards="previewBoards"
       :index="bigIndex"
       :pattern-source="previewPattern"
-      :show-codes="contents.codes"
+      :show-codes="true"
       @update:index="v => bigIndex = v"
     />
 
@@ -331,18 +321,6 @@ async function run() {
   appearance:none;outline:none;cursor:pointer;line-height:var(--ty-body-lh)
 }
 .expField .pixelIcon{position:absolute;right:10px;bottom:13px;pointer-events:none}
-.exp__checks{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px}
-.exp__checks label{display:flex;align-items:center;gap:8px;cursor:pointer;font-size:var(--fs-sm);color:var(--ink);line-height:var(--ty-body-lh)}
-.exp__checks input{position:absolute;opacity:0;width:0;height:0}
-.exp__checks i{
-  width:18px;height:18px;border-radius:5px;border:1.5px solid var(--line-strong);
-  background:#fff;display:grid;place-items:center;flex:0 0 auto;
-}
-.exp__checks input:checked + i{background:var(--primary);border-color:var(--primary)}
-.exp__checks input:checked + i::after{
-  content:'';width:9px;height:5px;border-left:2px solid var(--primary-ink);
-  border-bottom:2px solid var(--primary-ink);transform:rotate(-45deg) translate(1px,-1px);
-}
 .exp__name{
   display:flex;flex-direction:column;gap:6px;margin-top:16px;padding:12px 14px;
   border-radius:12px;background:var(--surface-2);
