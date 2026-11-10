@@ -5,6 +5,7 @@ import {
   options, sourceUrl, sourceName, projectName, hasPattern, stats, saveStatus,
   width, height, brand, paletteLimited, maxCells, canvasOverSource, availableColors,
   canvasCapW, canvasCapH, regenerate, setCanvasSize, setCanvasCapacity, restoreVariant, canUndo, setBrand,
+  rememberTargetColors,
   selectVariant, generating, activeKey, variants as variantList, pattern,
   lastSearch, matteInfo, matteLevels, setRemoveBg, setMatteLevel,
   cartoonInfo, cartoonStyles, setCartoonStyle,
@@ -1183,6 +1184,12 @@ function onColorsChange() {
   clampTargetColors()
   if (sourceUrl.value) void runWithBusy(() => regenerate())
 }
+/* 手动调色数（滑杆 / 数字框 / 手机下拉）：记到当前品牌名下，换色卡切回来恢复这个数。
+   填充方式等其它参数也走 onColorsChange，那些不算手动调色 */
+function onColorsEdit() {
+  onColorsChange()
+  rememberTargetColors()
+}
 /* 换色板不重新生成：setBrand 会把现有图纸的颜色和色号一起匹配到新色板
    （重新生成会覆盖手工修改，而且自由画布根本没有原图可重跑）。 */
 function onBrandPick(e) {
@@ -1257,7 +1264,7 @@ const colorChoices = computed(() => {
 /* 手机端下拉的回写：必须自己赋值，不能指望 <select> 的 v-model（见上面「手机端的下拉」） */
 function onColorsPick(e) {
   options.targetColors = Number(e.target.value)
-  onColorsChange()
+  onColorsEdit()
 }
 
 function onFitPick(e) {
@@ -2063,8 +2070,8 @@ function onSave() {
             <span>目标 {{ options.targetColors }}{{ stats ? ' · 实际 ' + stats.colors : '' }} 色</span>
           </label>
           <div class="rangeRow mHide colorRow">
-            <input v-model.number="options.targetColors" type="range" min="4" :max="colorsMax" data-audit="target-colors" @change="onColorsChange">
-            <input class="valueBox" type="number" min="4" :max="colorsMax" data-audit="target-colors" :value="options.targetColors" @change="options.targetColors = Number($event.target.value); onColorsChange()">
+            <input v-model.number="options.targetColors" type="range" min="4" :max="colorsMax" data-audit="target-colors" @change="onColorsEdit">
+            <input class="valueBox" type="number" min="4" :max="colorsMax" data-audit="target-colors" :value="options.targetColors" @change="options.targetColors = Number($event.target.value); onColorsEdit()">
           </div>
           <!-- 手机上：档位下拉 + 原来的数字框（精确值还得能直接敲，比如 37 色） -->
           <div class="mDrop mDrop--colors mRow">
@@ -2074,13 +2081,13 @@ function onSave() {
             <input
               class="valueBox" type="number" min="4" :max="colorsMax"
               :value="options.targetColors" aria-label="颜色数量（直接输入）"
-              @change="options.targetColors = Number($event.target.value); onColorsChange()"
+              @change="options.targetColors = Number($event.target.value); onColorsEdit()"
             >
           </div>
           <!-- 上限从 30 放到「色板真实可用色号数」（漫德 291 / COCO 291，最多取 291）：
                复杂照片"不像"有一半是色号不够，只给 30 色时脸部的过渡只能硬着落 -->
           <p class="processHint only-lg">
-            最多 {{ colorsMax }} 色（{{ currentBrand.name }} 可用 {{ colorsInUse }} 色）。格数决定形状多细，色号决定像不像。
+            最多 {{ colorsMax }} 色（{{ currentBrand.name }} 可用 {{ colorsInUse }} 色），换色板默认给满。格数决定形状多细，色号决定像不像。
           </p>
           <!-- 1000 格配 16 色 = 把精细档的一半浪费掉：给一句可执行建议，不自动改用户的选择 -->
           <p v-if="colorHint" class="processHint" :style="{ color: 'var(--coral-deep)' }">{{ colorHint }}</p>

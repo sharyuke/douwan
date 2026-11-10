@@ -1009,7 +1009,6 @@ function raiseColorsForGrowth(cw, ch) {
   if (!floor || options.targetColors >= floor) return 0
   const before = options.targetColors
   options.targetColors = floor
-  if (options.brandId) brandTargetColors[options.brandId] = floor
   return before
 }
 
@@ -1356,13 +1355,18 @@ function remapEditLayerColors(layer, match) {
    （可能已经被少色品牌合并过）往回过。cells / palette 都是不可变对象，这里只存引用。
    没有这份记忆时，MARD 291 → MARD 24 → MARD 291 会永久丢掉那 267 个色号。 */
 const BRAND_MEMORY_LIMIT = 8
-/* 用户想要的色数也按品牌记：切到少色品牌时只夹小当前值，切回来恢复原来的数 */
+/* 用户手动调过的色数按品牌记：切回来恢复他调的那个数。
+   只记手动值 —— 没记过的品牌，选上去就把用色上限给满（见 setBrand 的默认口径） */
 const brandTargetColors = {}
+
+/** 用户在界面上手动改了色数：把它记到当前品牌名下（换色卡切回来时恢复） */
+export function rememberTargetColors() {
+  if (options.brandId) brandTargetColors[options.brandId] = options.targetColors
+}
 
 /** 换了一份文档（新图 / 打开存档 / 清空）：按品牌记的色数只对当前文档有效 */
 function resetBrandTargetColors() {
   for (const k of Object.keys(brandTargetColors)) delete brandTargetColors[k]
-  brandTargetColors[options.brandId] = options.targetColors
 }
 
 function brandMemoryOf(v) {
@@ -1458,15 +1462,23 @@ export function setBrand(brandId) {
   beginOperation()
   try {
   const fromBrand = options.brandId
+  const fromTarget = options.targetColors
   options.brandId = brandId
   const colors = availableColors.value
-  /* 色数按品牌记：切到少色品牌时只夹小当前值，切回多色品牌恢复原来的数 */
-  if (fromBrand) brandTargetColors[fromBrand] = options.targetColors
-  if (brandTargetColors[brandId]) options.targetColors = brandTargetColors[brandId]
+  /* 选色卡默认把用色上限给满：上限就是「最多能给多少色」，选 MARD 291 就是 291，
+     色板小的品牌按实际色号数封顶。用户手动调过的数按品牌记，切回来恢复他调的那个 */
+  if (brandTargetColors[brandId] != null) {
+    options.targetColors = brandTargetColors[brandId]
+  } else if (colors.length) {
+    options.targetColors = colors.length
+  }
   if (colors.length && options.targetColors > colors.length) {
     options.targetColors = Math.max(4, Math.min(options.targetColors, colors.length))
   }
-  brandTargetColors[brandId] = options.targetColors
+  /* 离开的品牌记过手动值就刷成离开时的数：手改之后可能又被放大画布自动抬过 */
+  if (fromBrand && brandTargetColors[fromBrand] != null) {
+    brandTargetColors[fromBrand] = fromTarget
+  }
   const { changed, after, restored } = remapVariantsToBrand(brandId, colors, fromBrand)
   if (changed || restored) saveStatus.value = '未保存'
   const name = getBrand(brandId).name.replace(/\s*套装$/, '')
@@ -5614,7 +5626,6 @@ function applyCanvasSize(w, h, { silent = false, announce = true } = {}) {
       options.canvasH = prevH
       if (raisedColors) {
         options.targetColors = raisedColors
-        if (options.brandId) brandTargetColors[options.brandId] = raisedColors
       }
       return null
     }
