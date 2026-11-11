@@ -11,6 +11,10 @@ type Repositories struct {
 	Membership *MembershipRepository
 	Credit     *CreditRepository
 	Usage      *UsageRepository
+	// 第三方登录身份（QQ / 微信）
+	Identity *IdentityRepository
+	// 手机短信验证码
+	SmsCode *SmsCodeRepository
 
 	// 后台管理（需求文档 MVP）
 	Admin       *AdminRepository
@@ -43,6 +47,8 @@ func New(db *gorm.DB) *Repositories {
 		Membership:  &MembershipRepository{db: db},
 		Credit:      &CreditRepository{db: db},
 		Usage:       &UsageRepository{db: db},
+		Identity:    &IdentityRepository{db: db},
+		SmsCode:     &SmsCodeRepository{db: db},
 		Admin:       &AdminRepository{db: db},
 		Plan:        &PlanRepository{db: db},
 		CardKey:     &CardKeyRepository{db: db},

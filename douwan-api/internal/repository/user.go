@@ -52,6 +52,20 @@ func (r *UserRepository) FindByAccount(ctx context.Context, account string) (*mo
 	return &u, nil
 }
 
+// FindByPhone 按手机号查用户。没有这条记录时返回 (nil, nil)，
+// 手机验证码登录据此走自动注册。
+func (r *UserRepository) FindByPhone(ctx context.Context, phone string) (*model.User, error) {
+	var u model.User
+	err := r.db.WithContext(ctx).Where("phone = ?", phone).First(&u).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil
+		}
+		return nil, response.ErrInternal.WithCause(err)
+	}
+	return &u, nil
+}
+
 // FindByIDs 批量按主键查用户，供列表页拼装用户名。
 func (r *UserRepository) FindByIDs(ctx context.Context, ids []uint64) ([]model.User, error) {
 	if len(ids) == 0 {

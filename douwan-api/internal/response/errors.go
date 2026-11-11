@@ -29,11 +29,25 @@ const (
 	CodeTokenInvalid    Code = 20003
 	CodePasswordWrong   Code = 20004
 	CodeAccountDisabled Code = 20005
+	CodeSmsCodeWrong    Code = 20006
+	CodeSmsTooFrequent  Code = 20007
+	CodeSmsDailyLimited Code = 20008
+	CodeSmsDisabled     Code = 20009
+	CodeSmsSendFailed   Code = 20010
 	CodeForbidden       Code = 20403
 
 	// 用户 30xxx
 	CodeUserNotFound Code = 30001
 	CodeUserExists   Code = 30002
+
+	// 第三方登录 31xxx
+	CodeOAuthNotConfigured Code = 31001
+	CodeOAuthFailed        Code = 31002
+	CodeOAuthStateInvalid  Code = 31003
+	CodeIdentityNotFound   Code = 31004
+	CodeIdentityBound      Code = 31005
+	CodeIdentityLast       Code = 31006
+	CodeOAuthAppNotEnabled Code = 31007
 
 	// 后台管理 40xxx
 	CodeAdminNotFound       Code = 40001
@@ -123,6 +137,20 @@ var (
 
 	ErrUserNotFound = &Error{Code: CodeUserNotFound, HTTPStatus: http.StatusNotFound, Message: "用户不存在"}
 	ErrUserExists   = &Error{Code: CodeUserExists, HTTPStatus: http.StatusConflict, Message: "该账号已被注册"}
+
+	ErrOAuthNotConfigured = &Error{Code: CodeOAuthNotConfigured, HTTPStatus: http.StatusServiceUnavailable, Message: "第三方登录尚未配置，请联系管理员"}
+	ErrOAuthFailed        = &Error{Code: CodeOAuthFailed, HTTPStatus: http.StatusBadGateway, Message: "第三方登录失败，请稍后重试"}
+	ErrOAuthStateInvalid  = &Error{Code: CodeOAuthStateInvalid, HTTPStatus: http.StatusBadRequest, Message: "登录状态已失效，请重新发起登录"}
+	ErrIdentityNotFound   = &Error{Code: CodeIdentityNotFound, HTTPStatus: http.StatusNotFound, Message: "没有找到这个绑定"}
+	ErrIdentityBound      = &Error{Code: CodeIdentityBound, HTTPStatus: http.StatusConflict, Message: "这个第三方账号已经绑定了其他豆玩账号"}
+	ErrIdentityLast       = &Error{Code: CodeIdentityLast, HTTPStatus: http.StatusConflict, Message: "这是账号最后的登录方式，不能解绑"}
+	ErrOAuthAppNotEnabled = &Error{Code: CodeOAuthAppNotEnabled, HTTPStatus: http.StatusServiceUnavailable, Message: "第三方登录暂不可用"}
+
+	ErrSmsCodeWrong    = &Error{Code: CodeSmsCodeWrong, HTTPStatus: http.StatusUnauthorized, Message: "验证码不正确或已过期，请重新获取"}
+	ErrSmsTooFrequent  = &Error{Code: CodeSmsTooFrequent, HTTPStatus: http.StatusTooManyRequests, Message: "发送太频繁，请稍后再试"}
+	ErrSmsDailyLimited = &Error{Code: CodeSmsDailyLimited, HTTPStatus: http.StatusTooManyRequests, Message: "今天发送的验证码已达上限，请明天再试"}
+	ErrSmsDisabled     = &Error{Code: CodeSmsDisabled, HTTPStatus: http.StatusServiceUnavailable, Message: "手机号登录暂未开启"}
+	ErrSmsSendFailed   = &Error{Code: CodeSmsSendFailed, HTTPStatus: http.StatusBadGateway, Message: "验证码发送失败，请稍后再试"}
 
 	// 后台管理
 	ErrAdminNotFound       = &Error{Code: CodeAdminNotFound, HTTPStatus: http.StatusNotFound, Message: "管理员不存在"}

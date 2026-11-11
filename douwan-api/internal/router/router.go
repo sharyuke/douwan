@@ -20,6 +20,7 @@ import (
 	"gitee.com/maryuke/douwan-api/internal/repository"
 	"gitee.com/maryuke/douwan-api/internal/response"
 	"gitee.com/maryuke/douwan-api/internal/service"
+	"gitee.com/maryuke/douwan-api/internal/sms"
 	"gitee.com/maryuke/douwan-api/internal/storage"
 )
 
@@ -44,6 +45,9 @@ type Deps struct {
 	Activity *activity.Recorder
 	// Seo 是 SEO 服务。为 nil 时按默认配置现场构造一个。
 	Seo *service.SeoService
+	// SMSSender 短信验证码发送器。为 nil 时按配置构造阿里云发送器；
+	// 测试注入假发送器，避免真的打到短信网关。
+	SMSSender sms.Sender
 }
 
 // New 构造 gin 引擎。所有业务路由统一挂在 /api/v1 下，
@@ -100,6 +104,26 @@ func New(deps Deps) *gin.Engine {
 	// ------------------------------------------------------------------ 服务
 	userService := service.NewUserService(deps.DB, deps.Tokens, deps.TokenStore)
 	userHandler := handler.NewUserHandler(userService)
+
+	oauthService := service.NewOAuthService(userService, deps.Config.OAuth, deps.Tokens, audit)
+	oauthHandler := handler.NewOAuthHandler(oauthService, deps.Config.OAuth)
+
+	smsSender := deps.SMSSender
+	if smsSender == nil {
+		aliyunCfg := sms.AliyunConfig{
+			AccessKeyID:     deps.Config.SMS.AccessKeyID,
+			AccessKeySecret: deps.Config.SMS.AccessKeySecret,
+			SignName:        deps.Config.SMS.SignName,
+			TemplateCode:    deps.Config.SMS.TemplateCode,
+			Endpoint:        deps.Config.SMS.Endpoint,
+		}
+		if aliyunCfg.Configured() {
+			smsSender = sms.NewAliyun(aliyunCfg)
+		}
+	}
+	smsService := service.NewSmsService(deps.DB, repos, deps.Tokens, deps.TokenStore,
+		smsSender, deps.Config.SMS, deps.Config.JWT.Secret)
+	smsHandler := handler.NewSmsHandler(smsService)
 
 	cipher, _ := admin.NewCipher(deps.Config.Admin.CardCipherKey)
 
@@ -187,12 +211,29 @@ func New(deps Deps) *gin.Engine {
 			authGroup.POST("/refresh", userHandler.Refresh)
 			// 登出只依赖刷新令牌本身，不需要带上有效的访问令牌
 			authGroup.POST("/logout", userHandler.Logout)
+
+			// 第三方登录。未配置时返回 31001，不会给出假的跳转地址。
+			authGroup.GET("/oauth/qq/start", oauthHandler.QQStart)
+			authGroup.GET("/oauth/qq/status", oauthHandler.QQStatus)
+			authGroup.GET("/oauth/qq/callback", oauthHandler.QQCallback)
+			authGroup.GET("/oauth/wechat/start", oauthHandler.WeChatStart)
+			authGroup.GET("/oauth/wechat/status", oauthHandler.WeChatStatus)
+			authGroup.GET("/oauth/wechat/callback", oauthHandler.WeChatCallback)
+
+			// 手机验证码。发码单独限流，避免匿名接口被用来刷短信。
+			authGroup.GET("/sms/status", smsHandler.Status)
+			authGroup.POST("/sms/send", middleware.RateLimit(5, time.Minute), smsHandler.Send)
+			authGroup.POST("/sms/login", middleware.RateLimit(10, time.Minute), smsHandler.Login)
 		}
 
 		me := v1.Group("/users", middleware.Auth(deps.Tokens))
 		{
 			me.GET("/me", userHandler.Me)
 			me.PATCH("/me", userHandler.UpdateProfile)
+			me.GET("/me/identities", oauthHandler.Identities)
+			me.DELETE("/me/identities/:id", oauthHandler.Unbind)
+			me.GET("/me/oauth/qq/bind", oauthHandler.QQBind)
+			me.GET("/me/oauth/wechat/bind", oauthHandler.WeChatBind)
 		}
 
 		/* ------------------------------------------------------ 前台公开接口 */

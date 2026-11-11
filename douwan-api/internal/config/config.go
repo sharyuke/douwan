@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -29,6 +30,8 @@ type Config struct {
 	Activity Activity `mapstructure:"activity"`
 	LocalAI  LocalAI  `mapstructure:"local_ai"`
 	SEO      SEO      `mapstructure:"seo"`
+	OAuth    OAuth    `mapstructure:"oauth"`
+	SMS      SMS      `mapstructure:"sms"`
 }
 
 // App 应用级配置。
@@ -219,8 +222,10 @@ type Activity struct {
 // 因此这里的地址默认就是回环地址 —— **不要**填公网地址，那意味着推理端口被暴露了。
 //
 // 降级行为（Enabled=false 时，也是生产环境的默认值）：
-//   · 所有 /api/v1/ai/* 接口返回 40028（未开启），不建任务、不占队列、不落库；
-//   · 前端「豆玩普通拼豆转换」等既有功能完全不受影响。
+//
+//	· 所有 /api/v1/ai/* 接口返回 40028（未开启），不建任务、不占队列、不落库；
+//	· 前端「豆玩普通拼豆转换」等既有功能完全不受影响。
+//
 // 即便 Enabled=true，推理服务不可达时也只是任务失败（40033），不会影响其它接口。
 type LocalAI struct {
 	// Enabled 总开关。默认 false：没有显式打开开关，AI 功能一律不可用。
@@ -315,6 +320,63 @@ type SEO struct {
 	RetainDays int `mapstructure:"retain_days"`
 	// MaxAttempts 单条任务最多尝试几次，超过就停（避免无限重试）
 	MaxAttempts int `mapstructure:"max_attempts"`
+}
+
+// OAuth 第三方登录配置。
+//
+// QQ 与微信都走真实 OAuth：AppID / AppSecret（QQ 为 AppKey）/ RedirectURI
+// 三项缺一不可；缺项时接口返回「未配置」，不会假装登录成功。
+type OAuth struct {
+	QQ     QQOAuth     `mapstructure:"qq"`
+	WeChat WeChatOAuth `mapstructure:"wechat"`
+	// FrontendCallback 是授权完成后浏览器要跳回的前端地址。
+	// 令牌放在 hash 里，不会进服务端访问日志。
+	FrontendCallback string        `mapstructure:"frontend_callback"`
+	StateTTL         time.Duration `mapstructure:"state_ttl"`
+}
+
+// QQOAuth QQ 互联应用配置。
+type QQOAuth struct {
+	AppID       string `mapstructure:"app_id"`
+	AppKey      string `mapstructure:"app_key"`
+	RedirectURI string `mapstructure:"redirect_uri"`
+}
+
+// Enabled 三项齐全才算配置完成。
+func (q QQOAuth) Enabled() bool {
+	return strings.TrimSpace(q.AppID) != "" && strings.TrimSpace(q.AppKey) != "" && strings.TrimSpace(q.RedirectURI) != ""
+}
+
+// WeChatOAuth 微信开放平台「网站应用」配置。
+//
+// 必须使用网站应用的 AppID / AppSecret（scope=snsapi_login）；
+// 公众号 AppID 会在扫码页报 scope 权限错误。
+type WeChatOAuth struct {
+	AppID       string `mapstructure:"app_id"`
+	AppSecret   string `mapstructure:"app_secret"`
+	RedirectURI string `mapstructure:"redirect_uri"`
+}
+
+// Enabled 三项齐全才算配置完成。
+func (w WeChatOAuth) Enabled() bool {
+	return strings.TrimSpace(w.AppID) != "" && strings.TrimSpace(w.AppSecret) != "" && strings.TrimSpace(w.RedirectURI) != ""
+}
+
+// SMS 阿里云短信配置（手机号验证码登录）。
+//
+// 凭据只从环境变量读，不通过接口返回明文。
+// 四项凭据配齐才开启；缺一项时 /auth/sms/status 返回 configured=false。
+type SMS struct {
+	AccessKeyID       string        `mapstructure:"access_key_id"`
+	AccessKeySecret   string        `mapstructure:"access_key_secret"`
+	SignName          string        `mapstructure:"sign_name"`
+	TemplateCode      string        `mapstructure:"template_code"`
+	Endpoint          string        `mapstructure:"endpoint"`
+	CodeTTL           time.Duration `mapstructure:"code_ttl"`
+	SendInterval      time.Duration `mapstructure:"send_interval"`
+	MaxPerPhonePerDay int           `mapstructure:"max_per_phone_per_day"`
+	MaxPerIPPerDay    int           `mapstructure:"max_per_ip_per_day"`
+	MaxVerifyAttempts int           `mapstructure:"max_verify_attempts"`
 }
 
 // IsLoopbackURL 判断推理服务地址是否指向本机回环。// 需求红线：推理端口不得公开暴露，所以配置里出现非回环地址时应当拒绝启动。
@@ -433,6 +495,26 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("seo.cron_interval", 24*time.Hour)
 	v.SetDefault("seo.retain_days", 90)
 	v.SetDefault("seo.max_attempts", 5)
+
+	v.SetDefault("oauth.qq.app_id", "")
+	v.SetDefault("oauth.qq.app_key", "")
+	v.SetDefault("oauth.qq.redirect_uri", "")
+	v.SetDefault("oauth.wechat.app_id", "")
+	v.SetDefault("oauth.wechat.app_secret", "")
+	v.SetDefault("oauth.wechat.redirect_uri", "")
+	v.SetDefault("oauth.frontend_callback", "/#/auth/callback")
+	v.SetDefault("oauth.state_ttl", 10*time.Minute)
+
+	v.SetDefault("sms.access_key_id", "")
+	v.SetDefault("sms.access_key_secret", "")
+	v.SetDefault("sms.sign_name", "")
+	v.SetDefault("sms.template_code", "")
+	v.SetDefault("sms.endpoint", "")
+	v.SetDefault("sms.code_ttl", 5*time.Minute)
+	v.SetDefault("sms.send_interval", time.Minute)
+	v.SetDefault("sms.max_per_phone_per_day", 10)
+	v.SetDefault("sms.max_per_ip_per_day", 30)
+	v.SetDefault("sms.max_verify_attempts", 5)
 }
 
 // Load 读取配置。path 为空时依次尝试 ./configs/config.yaml 与 ./config.yaml；
@@ -473,10 +555,45 @@ func Load(path string) (*Config, error) {
 	if err := v.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("解析配置: %w", err)
 	}
+	applyOAuthEnvAliases(&cfg)
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 	return &cfg, nil
+}
+
+// applyOAuthEnvAliases 兼容文档里的短环境变量名。
+//
+// 首选仍是 DOUWAN_OAUTH_*。线上 QQ 用的是 QQ_APP_ID / QQ_APP_KEY / QQ_REDIRECT_URI，
+// 微信也接受 WECHAT_* 与 WX_*。别名只补空值，不覆盖已经写进配置的值。
+func applyOAuthEnvAliases(c *Config) {
+	if strings.TrimSpace(c.OAuth.QQ.AppID) == "" {
+		c.OAuth.QQ.AppID = strings.TrimSpace(os.Getenv("QQ_APP_ID"))
+	}
+	if strings.TrimSpace(c.OAuth.QQ.AppKey) == "" {
+		c.OAuth.QQ.AppKey = strings.TrimSpace(os.Getenv("QQ_APP_KEY"))
+	}
+	if strings.TrimSpace(c.OAuth.QQ.RedirectURI) == "" {
+		c.OAuth.QQ.RedirectURI = strings.TrimSpace(os.Getenv("QQ_REDIRECT_URI"))
+	}
+	if strings.TrimSpace(c.OAuth.WeChat.AppID) == "" {
+		c.OAuth.WeChat.AppID = firstEnv("WECHAT_APP_ID", "WX_APP_ID")
+	}
+	if strings.TrimSpace(c.OAuth.WeChat.AppSecret) == "" {
+		c.OAuth.WeChat.AppSecret = firstEnv("WECHAT_APP_SECRET", "WX_APP_SECRET")
+	}
+	if strings.TrimSpace(c.OAuth.WeChat.RedirectURI) == "" {
+		c.OAuth.WeChat.RedirectURI = firstEnv("WECHAT_REDIRECT_URI", "WX_REDIRECT_URI")
+	}
+}
+
+func firstEnv(keys ...string) string {
+	for _, key := range keys {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 // Validate 校验配置是否自相矛盾。生产环境的弱密钥直接拒绝启动，
@@ -541,6 +658,9 @@ func (c *Config) Validate() error {
 		if c.Activity.VisitReportPerMinute <= 0 {
 			return fmt.Errorf("activity.visit_report_per_minute 必须为正数")
 		}
+	}
+	if c.OAuth.StateTTL < time.Minute || c.OAuth.StateTTL > time.Hour {
+		return fmt.Errorf("oauth.state_ttl 必须在 1m~1h 之间（当前 %s）", c.OAuth.StateTTL)
 	}
 	// 本地 AI。只拦「明显不合理」与**安全红线**：	// 推理服务必须是本机回环（隧道另一端），出现公网地址说明端口被暴露了。
 	if c.LocalAI.Enabled {

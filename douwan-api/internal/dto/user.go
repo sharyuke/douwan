@@ -45,6 +45,27 @@ type LoginRequest struct {
 	SiteHost  string `json:"-"`
 }
 
+// SmsSendRequest 发送手机验证码。
+type SmsSendRequest struct {
+	Phone string `json:"phone" binding:"required"`
+}
+
+// SmsLoginRequest 手机验证码登录。未注册的手机号验证通过后自动建号。
+type SmsLoginRequest struct {
+	Phone string `json:"phone" binding:"required"`
+	Code  string `json:"code" binding:"required"`
+
+	Channel   string `json:"channel"`
+	UTMSource string `json:"utm_source"`
+	Referrer  string `json:"referrer"`
+	SiteHost  string `json:"-"`
+}
+
+// SmsStatusResult 手机号登录是否可用。configured 表示短信凭据已配齐。
+type SmsStatusResult struct {
+	Configured bool `json:"configured"`
+}
+
 // RefreshRequest 用刷新令牌换新的令牌对。
 type RefreshRequest struct {
 	RefreshToken string `json:"refresh_token" binding:"required"`
@@ -120,6 +141,63 @@ type MeResult struct {
 }
 
 /* ------------------------------------------------------------------ 转换 */
+
+// IdentityInfo 第三方登录绑定。完整 openid 不出接口。
+type IdentityInfo struct {
+	ID                   uint64     `json:"id"`
+	Provider             string     `json:"provider"`
+	ProviderLabel        string     `json:"provider_label"`
+	ProviderOpenIDMasked string     `json:"provider_open_id_masked"`
+	Nickname             string     `json:"nickname"`
+	AvatarURL            string     `json:"avatar_url"`
+	BoundAt              time.Time  `json:"bound_at"`
+	LastLoginAt          *time.Time `json:"last_login_at"`
+}
+
+// NewIdentityInfo 实体转对外结构。
+func NewIdentityInfo(row model.UserIdentity) IdentityInfo {
+	return IdentityInfo{
+		ID:                   row.ID,
+		Provider:             row.Provider,
+		ProviderLabel:        model.ProviderLabel(row.Provider),
+		ProviderOpenIDMasked: maskOpenID(row.ProviderOpenID),
+		Nickname:             row.Nickname,
+		AvatarURL:            row.AvatarURL,
+		BoundAt:              row.CreatedAt,
+		LastLoginAt:          row.LastLoginAt,
+	}
+}
+
+func maskOpenID(value string) string {
+	if len(value) <= 8 {
+		return "****"
+	}
+	return value[:4] + "****" + value[len(value)-4:]
+}
+
+// OAuthStartResult 第三方登录的跳转地址。
+type OAuthStartResult struct {
+	URL        string `json:"url"`
+	State      string `json:"state"`
+	Configured bool   `json:"configured"`
+}
+
+// OAuthProviderStatus 第三方登录可用状态。
+type OAuthProviderStatus struct {
+	Provider   string `json:"provider"`
+	Configured bool   `json:"configured"`
+	Available  bool   `json:"available"`
+	Checked    bool   `json:"checked"`
+	Reason     string `json:"reason"`
+	Message    string `json:"message"`
+}
+
+// OAuthCallbackResult 回调成功后交给前端的提示。令牌走跳转地址，不进这个结构。
+type OAuthCallbackResult struct {
+	Provider string `json:"provider"`
+	Bound    bool   `json:"bound"`
+	IsNew    bool   `json:"is_new"`
+}
 
 // NewUserProfile 把实体转成对外资料。
 func NewUserProfile(u *model.User) UserProfile {

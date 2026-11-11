@@ -60,6 +60,10 @@ const (
 	ActionEntitlementRevoke = "entitlement.revoke"
 
 	ActionSettingUpdate = "setting.update"
+
+	ActionOAuthLogin  = "user.oauth_login"
+	ActionOAuthBind   = "user.oauth_bind"
+	ActionOAuthUnbind = "user.oauth_unbind"
 )
 
 // 日志动作的中文名。缺省时直接显示原始动作字符串。
@@ -107,6 +111,10 @@ var actionTexts = map[string]string{
 	ActionEntitlementRevoke: "撤销用户权益",
 
 	ActionSettingUpdate: "修改系统设置",
+
+	ActionOAuthLogin:  "第三方登录成功",
+	ActionOAuthBind:   "绑定第三方登录",
+	ActionOAuthUnbind: "解绑第三方登录",
 }
 
 // ActionText 返回动作的中文名。
@@ -138,6 +146,7 @@ func sortedActions() []string {
 		ActionAssetUpload, ActionAssetUpdate, ActionAssetStatus, ActionAssetDelete, ActionAssetSort,
 		ActionCategoryCreate, ActionCategoryUpdate, ActionCategoryDelete,
 		ActionEntitlementGrant, ActionEntitlementRevoke, ActionSettingUpdate,
+		ActionOAuthLogin, ActionOAuthBind, ActionOAuthUnbind,
 	}
 	return order
 }

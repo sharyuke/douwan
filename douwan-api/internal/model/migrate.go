@@ -6,6 +6,8 @@ func AllModels() []any {
 	return []any{
 		// 账号与权益
 		&User{},
+		&UserIdentity{},
+		&SmsCode{},
 		&Membership{},
 		&CreditAccount{},
 		&CreditTransaction{},
