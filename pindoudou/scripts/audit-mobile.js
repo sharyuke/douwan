@@ -128,16 +128,16 @@
         title: txt(document.querySelector('.msSheet__head b')),
         groups: [...document.querySelectorAll('.msGroupTitle')].map(txt),
         rows: [...document.querySelectorAll('.msRowBtn')].map(txt),
-        shapes: document.querySelectorAll('.msShapeGrid [data-shape-kind]').length,
+        shapes: document.querySelectorAll('[data-shape-kind], [data-tool-key="shape"]').length,
         triple: document.querySelectorAll('.msTriple__btn').length
       }
       document.querySelector('.msSheet__head button')?.click(); await sleep(300)
       out.moreSheet.closed = !document.querySelector('.msSheet--more')
       out.moreSheet.ok = out.moreSheet.open && out.moreSheet.title === '更多工具' &&
-        out.moreSheet.groups.join(',') === '图形,辅助绘制,图纸处理' &&
+        out.moreSheet.groups.join(',') === '辅助绘制,图纸处理' &&
         out.moreSheet.rows.some(t => t.startsWith('套索')) &&
-        out.moreSheet.shapes === 4 &&
-        out.moreSheet.triple === 7 && out.moreSheet.closed
+        out.moreSheet.shapes === 0 &&
+        out.moreSheet.triple === 3 && out.moreSheet.closed
     }
 
     /* ⋯ 菜单抽屉：点遮罩收起 */

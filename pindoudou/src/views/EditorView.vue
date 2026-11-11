@@ -25,7 +25,7 @@ import {
   projectLimit, projects, useImageFile, sourceUrl,
   captureClipboardRecord, applyClipboardProject,
   armSkipEditorRoute, consumeSkipEditorRoute,
-  tool, swapMode, brushStroke, shapeKind, brushSize, eraserSize, BRUSH_MAX, toolSizeOf, setToolSize, brushColorId,
+  tool, swapMode, brushStroke, brushSize, eraserSize, BRUSH_MAX, toolSizeOf, setToolSize, brushColorId,
   mirrorPattern, removeSpecks, options, currentView,
   zoom, setZoom, layout, availableColors, maxCells, brand,
   canvasCapW, canvasCapH,
@@ -35,7 +35,6 @@ import {
   sourceRecommend, newCanvasAt, setReplaceConfirm
 } from '../composables/useStudio.js'
 import { EDIT_TOOLS } from '../data/icons.js'
-import { SHAPES } from '../lib/shapes.js'
 import { BOARD_SPECS, boardSpecFor } from '../lib/boardSpec.js'
 import { useBackClose } from '../composables/useBackClose.js'
 import { useShortcutTip } from '../composables/useShortcutTip.js'
@@ -353,7 +352,7 @@ function toggleToolSize(key) {
   const next = sizePop.value === key ? null : key
   tool.value = key
   sizePop.value = next
-  if (next) { closeSwapMenu(); closeShapeMenu() }
+  if (next) closeSwapMenu()
   unbindSizePop()
   if (next) {
     placeSizePop()
@@ -429,7 +428,7 @@ function closeSwapMenu() {
 function toggleSwapMenu() {
   const next = !swapMenu.value
   tool.value = 'swap'
-  if (next) { closeSizePop(); closeShapeMenu() }
+  if (next) closeSizePop()
   swapMenu.value = next
   unbindSwapMenu()
   if (next) {
@@ -458,68 +457,6 @@ function pickBrushLine() {
   closeMsToolMenu()
 }
 
-/* 图形：工具轨上在「去除杂色」后面。点本体选中上次的图形，点箭头选五角星 / 心形 / 云 / 四角星。 */
-const shapeMenu = ref(false)
-const shapeMenuPos = ref({ left: 0, top: 0 })
-const shapeMenuEl = ref(null)
-const SHAPE_MENU_W = 112
-const SHAPE_MENU_H = 178
-const shapeMenuStyle = computed(() => ({ left: `${shapeMenuPos.value.left}px`, top: `${shapeMenuPos.value.top}px` }))
-const currentShape = computed(() => SHAPES.find(s => s.key === shapeKind.value) || SHAPES[0])
-function placeShapeMenu() {
-  const chev = document.querySelector('[data-shape-arrow]')
-  if (!chev) return
-  const toolBtn = chev.closest('.csToolWrap')?.querySelector('.csTool') || chev
-  const rail = chev.closest('.csRail')
-  const br = toolBtn.getBoundingClientRect()
-  const rr = (rail || toolBtn).getBoundingClientRect()
-  const cardH = shapeMenuEl.value?.getBoundingClientRect().height || SHAPE_MENU_H
-  let left = Math.round(rr.right + 8)
-  if (left + SHAPE_MENU_W > window.innerWidth - 12) left = Math.round(rr.left - 8 - SHAPE_MENU_W)
-  const top = Math.round(Math.min(Math.max(12, br.top + br.height / 2 - cardH / 2), window.innerHeight - cardH - 12))
-  shapeMenuPos.value = { left, top }
-}
-function bindShapeMenu() {
-  window.addEventListener('resize', placeShapeMenu)
-  document.querySelector('.csRail')?.addEventListener('scroll', placeShapeMenu, { passive: true })
-}
-function unbindShapeMenu() {
-  window.removeEventListener('resize', placeShapeMenu)
-  document.querySelector('.csRail')?.removeEventListener('scroll', placeShapeMenu)
-}
-function closeShapeMenu() {
-  if (!shapeMenu.value) return
-  shapeMenu.value = false
-  unbindShapeMenu()
-}
-function onShapeTool() {
-  tool.value = 'shape'
-  closeSizePop()
-  closeSwapMenu()
-}
-function toggleShapeMenu() {
-  const next = !shapeMenu.value
-  tool.value = 'shape'
-  if (next) { closeSizePop(); closeSwapMenu() }
-  shapeMenu.value = next
-  unbindShapeMenu()
-  if (next) {
-    placeShapeMenu()
-    bindShapeMenu()
-    nextTick(placeShapeMenu)
-  }
-}
-function pickShape(key) {
-  if (!SHAPES.some(s => s.key === key)) return
-  shapeKind.value = key
-  tool.value = 'shape'
-  closeShapeMenu()
-  closeMsToolMenu()
-}
-function pickMobileShape(key) {
-  shapeKind.value = key
-  pickMobileTool('shape')
-}
 function setSizePopValue(value) {
   setToolSize(value, sizePop.value === 'erase' ? 'erase' : 'paint')
 }
@@ -611,9 +548,6 @@ function onDocPointerDown(e) {
   }
   if (swapMenu.value) {
     if (!inside('[data-swap-menu]') && !inside('[data-swap-arrow]')) closeSwapMenu()
-  }
-  if (shapeMenu.value) {
-    if (!inside('[data-shape-menu]') && !inside('[data-shape-arrow]')) closeShapeMenu()
   }
   if (msToolMenu.value) {
     if (!inside('[data-ms-tool-menu]') && !inside('[data-ms-tool-arrow]')) closeMsToolMenu()
@@ -818,7 +752,6 @@ function toggleMsToolMenu(key) {
   closeMsSheet()
   closeSizePop()
   closeSwapMenu()
-  closeShapeMenu()
   msToolMenu.value = next
   unbindMsToolMenu()
   placeMsToolMenu()
@@ -1033,7 +966,6 @@ function onKeydown(e) {
     /* 换图前的保存提示开着：Esc 归弹窗（BaseDialog 会关掉它），别顺手收起下面的面板 */
     if (replaceSaveOpen.value) return
     if (msToolMenu.value) { closeMsToolMenu(); return }
-    if (shapeMenu.value) { closeShapeMenu(); return }
     if (swapMenu.value) { closeSwapMenu(); return }
     if (sizePop.value) { closeSizePop(); return }
     if (paletteOpen.value) { closePaletteFly(); return }
@@ -1047,7 +979,7 @@ function onKeydown(e) {
 }
 
 /* ---------------------------------------------------------------- 键盘快捷键
-   只在电脑端（≥1100px）：套索 L / 画笔 B / 橡皮 E / 填充 G / 吸色 I / 换色 C / 图形 U / 去杂色 R / 镜像 M。
+   只在电脑端（≥1100px）：套索 L / 画笔 B / 橡皮 E / 填充 G / 吸色 I / 换色 C / 去杂色 R / 镜像 M。
    与工具轨上的浮动标签一一对应（标签里标的就是这些键）。
    平板（781–1099）和手机（≤780）没有这套键：触屏上按这些字母没意义，
    外接键盘打字也不该把工具切走。吸色在这两档改成手指长按一格。
@@ -1056,7 +988,7 @@ function onKeydown(e) {
      · 正在输入（改名输入框、尺寸滑杆等）—— 打字不能被工具切走；
      · 按着 Ctrl / Cmd / Alt —— 那些是浏览器与撤销重做的键；
      · 弹层开着 —— 按键归弹层（换色弹窗里按 C 不该切工具）。 */
-const SHORTCUT_TOOLS = { l: 'lasso', b: 'paint', e: 'erase', g: 'fill', i: 'pick', c: 'swap', u: 'shape' }
+const SHORTCUT_TOOLS = { l: 'lasso', b: 'paint', e: 'erase', g: 'fill', i: 'pick', c: 'swap' }
 
 function onShortcutKey(e) {
   if (e.defaultPrevented) return
@@ -1806,31 +1738,6 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
             <Icon name="wand-sparkles" :size="24" /><span class="toolLabel">去除杂色</span>
           </button>
 
-          <div class="csToolWrap has-size">
-            <button
-              type="button" class="tool csTool" :class="{ on: tool === 'shape' }"
-              :aria-label="coarsePointer ? '图形' : '图形：拖动建立，点图形移动，点空白取消'"
-              :aria-pressed="tool === 'shape'"
-              data-tip="图形"
-              data-tip-desc="拖动建立，点图形移动，点空白取消"
-              :data-tip-key="coarsePointer ? '' : 'U'"
-              data-tool-key="shape"
-              @click="onShapeTool"
-            >
-              <Icon :name="currentShape.icon" :size="24" /><span class="toolLabel">图形</span>
-            </button>
-            <button
-              type="button" class="csTool__sizeBtn" :class="{ on: tool === 'shape' }"
-              data-shape-arrow
-              data-tip="图形菜单" data-tip-desc="五角星、心形、云、四角星"
-              :aria-expanded="shapeMenu" aria-haspopup="menu" aria-controls="cs-shape-menu"
-              aria-label="图形菜单：五角星、心形、云、四角星"
-              @click.stop="toggleShapeMenu"
-            >
-              <Icon name="chevron-right" :size="16" />
-            </button>
-          </div>
-
           <span class="csRail__sep" aria-hidden="true"></span>
 
           <button
@@ -1877,7 +1784,7 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
           <button
             type="button" class="csRail__collapse"
             aria-label="收起绘图工具栏" data-rail-collapse
-            @click="railOpen = false; closePaletteFly(); closeSizePop(); closeSwapMenu(); closeShapeMenu()"
+            @click="railOpen = false; closePaletteFly(); closeSizePop(); closeSwapMenu()"
           >
             <Icon name="chevron-up" :size="20" />
           </button>
@@ -1961,22 +1868,6 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
             <span>查看教程</span>
           </button>
         </template>
-      </div>
-
-      <!-- 图形菜单：贴在「图形」右侧。四项，选中的那行是青柠底。 -->
-      <div
-        v-if="consoleMode && shapeMenu" id="cs-shape-menu" ref="shapeMenuEl"
-        class="csShapeMenu no-print" :style="shapeMenuStyle" data-shape-menu
-        role="menu" aria-label="图形菜单"
-      >
-        <button
-          v-for="s in SHAPES" :key="s.key"
-          type="button" role="menuitemradio" :data-shape-kind="s.key"
-          :aria-checked="shapeKind === s.key"
-          @click="pickShape(s.key)"
-        >
-          <Icon :name="s.icon" :size="16" /><span>{{ s.label }}</span>
-        </button>
       </div>
 
       <!-- 换色菜单：贴在换色按钮右侧。点一项就选中这个动作，再点格子才替换。 -->
@@ -2346,19 +2237,6 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
             >
           </div>
         </div>
-
-        <p class="msGroupTitle">图形</p>
-        <div class="msShapeGrid">
-          <button
-            v-for="s in SHAPES" :key="s.key"
-            type="button" class="msTriple__btn" :class="{ on: tool === 'shape' && shapeKind === s.key }"
-            :data-shape-kind="s.key"
-            @click="pickMobileShape(s.key)"
-          >
-            <Icon :name="s.icon" :size="20" /><span>{{ s.label }}</span>
-          </button>
-        </div>
-        <p class="msHint">拖动建立，点图形移动，点空白取消</p>
 
         <p class="msGroupTitle">辅助绘制</p>
         <button type="button" class="msRowBtn" :class="{ on: tool === 'lasso' }" @click="pickMobileTool('lasso')">
@@ -2820,23 +2698,6 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
   .csSwapMenu button[aria-checked="true"]{background:#C8E63C;font-weight:700}
   .csSwapMenu button:focus-visible{outline:2px solid #1A2D22;outline-offset:-2px}
   .csSwapMenu__sep{height:1px;margin:4px 6px;background:#DDE5D8}
-  .csShapeMenu{
-    position:fixed;z-index:60;box-sizing:border-box;width:112px;
-    padding:8px;display:flex;flex-direction:column;gap:6px;
-    background:#fff;border:1px solid #DDE5D8;border-radius:16px;
-    box-shadow:0 3px 16px rgba(26,45,34,.08);
-  }
-  .csShapeMenu button{
-    display:flex;align-items:center;gap:8px;height:36px;padding:0 8px;
-    border:1px solid #E4E7DF;border-radius:12px;background:#fff;cursor:pointer;
-    font-family:var(--font-sans);font-size:11px;font-weight:700;line-height:16px;
-    color:#4A4E46;white-space:nowrap;
-  }
-  .csShapeMenu button:hover{background:rgba(26,45,34,.04)}
-  .csShapeMenu button[aria-checked="true"]{background:#C8E63C;border-color:#C8E63C;color:#1A2D22}
-  .csShapeMenu button:focus-visible{outline:2px solid #1A2D22;outline-offset:-2px}
-  .msShapeGrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
-  .msShapeGrid .msTriple__btn{height:64px;padding:0 2px;font-size:12px}
   .swapTutorial video{
     display:block;width:100%;height:auto;border-radius:12px;background:#142018;
   }
