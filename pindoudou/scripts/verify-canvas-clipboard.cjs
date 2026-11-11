@@ -244,8 +244,7 @@ async function main() {
       manual: S.manualEdited.value,
       w: next.width,
       h: next.height,
-      brand: S.options.brandId,
-      board: S.boardLocked.value
+      brand: S.options.brandId
     }
   })()`)
   check('改了一格，指纹变了', !!(snap && snap.painted && snap.sig && snap.sig !== loaded.sig), snap)
@@ -299,7 +298,6 @@ async function main() {
         w: p ? p.width : 0,
         h: p ? p.height : 0,
         brand: S.options.brandId,
-        board: S.boardLocked.value,
         paste: window.__pasteLog || null,
         toast: [...document.querySelectorAll('.toast')].map(t => (t.textContent || '').trim()).join(' | ')
       }
