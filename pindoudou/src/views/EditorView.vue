@@ -23,6 +23,8 @@ import {
   currentProjectId, ensureProjectLoaded, saveProject, generating,
   restoreEditDraft, bareEditorDraftMatches,
   projectLimit, projects, useImageFile, sourceUrl,
+  captureClipboardRecord, applyClipboardProject,
+  armSkipEditorRoute, consumeSkipEditorRoute,
   tool, swapMode, brushStroke, shapeKind, brushSize, eraserSize, BRUSH_MAX, toolSizeOf, setToolSize, brushColorId,
   mirrorPattern, removeSpecks, options, currentView,
   zoom, setZoom, layout, availableColors, maxCells, brand,
@@ -44,6 +46,10 @@ import { loadRemoteAssets } from '../composables/useAssets.js'
 import { projectCanvas } from '../lib/forge.js'
 import { onRangeWheel } from '../lib/rangeWheel.js'
 import { trackEvent } from '../lib/telemetry.js'
+import {
+  copyCanvasRecord, readCanvasPayload, imageFileFromData, imageUrlFromHtml,
+  plainCanvasLabel, namedPasteFile, fileFromImageUrl
+} from '../lib/canvasClipboard.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -931,7 +937,98 @@ function openFeedback() {
 
 /* Esc 关掉右侧面板 / 浮层（全屏工作台没有遮罩，键盘是主要出口）。
    按层级从高到低收：选色面板盖在画布上、层级最高，先收它。 */
+function clipboardTargetBlocked(el) {
+  const tag = (el && el.tagName) || ''
+  return /^(INPUT|TEXTAREA|SELECT)$/.test(tag) || !!(el && el.isContentEditable)
+}
+function textSelected() {
+  const sel = window.getSelection && window.getSelection()
+  return !!(sel && !sel.isCollapsed && String(sel).trim())
+}
+
+/* 复制当前图纸。另一个操作台 Ctrl+V 会按原格子铺回去，不是重新取样。 */
+function onCopyCanvas() {
+  if (!hasPattern.value) {
+    toastWarn('还没有可以复制的图纸')
+    return
+  }
+  let json = ''
+  try { json = captureClipboardRecord() } catch { json = '' }
+  if (!json) {
+    toastWarn('这张图纸太大，复制不了')
+    return
+  }
+  let ok = false
+  try { ok = copyCanvasRecord(json, projectName.value || '') } catch { ok = false }
+  if (ok) toastOk('已复制图纸，到另一个操作台按 Ctrl+V 可以继续编辑')
+  else toastWarn('复制失败，再试一次')
+}
+
+let clipboardBusy = false
+
+function syncRouteAfterCanvasPaste() {
+  const id = currentProjectId.value
+  const saved = !!(id && projects.value.some(p => p.id === id))
+  if (saved) {
+    if (String(route.params.projectId || '') !== String(id)) {
+      armSkipEditorRoute()
+      router.replace(`/editor/${id}`)
+    }
+    return
+  }
+  if (route.params.projectId) router.replace('/editor')
+}
+
+async function onPasteEvent(e) {
+  if (clipboardBusy) return
+  if (clipboardTargetBlocked(e.target)) return
+  if (document.querySelector('.modal.show')) return
+  const dt = e.clipboardData
+  const payload = readCanvasPayload(dt)
+  const file = payload ? null : imageFileFromData(dt)
+  let html = ''
+  if (!payload && !file && dt && typeof dt.getData === 'function') {
+    try { html = dt.getData('text/html') || '' } catch { html = '' }
+  }
+  const url = html ? imageUrlFromHtml(html) : ''
+  const ownLabel = !payload && !file && !url && plainCanvasLabel(dt)
+  if (!payload && !file && !url && !ownLabel) return
+  e.preventDefault()
+  if (ownLabel) {
+    toastWarn('没能读到图纸内容，请在原来的操作台再复制一次')
+    return
+  }
+  clipboardBusy = true
+  try {
+    if (payload) {
+      const result = await applyClipboardProject(payload)
+      if (result !== 'ok') return
+      syncRouteAfterCanvasPaste()
+      toastOk('已粘贴图纸，可以继续编辑')
+      return
+    }
+    const image = file ? namedPasteFile(file) : await fileFromImageUrl(url)
+    if (!image) {
+      toastWarn('这张图读不到，请用右键「复制图片」再粘贴')
+      return
+    }
+    await useImageFile(image)
+  } catch (err) {
+    toastWarn((err && err.message) || '粘贴失败')
+  } finally {
+    clipboardBusy = false
+  }
+}
+
 function onKeydown(e) {
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'c' || e.key === 'C')) {
+    if (e.repeat) return
+    if (clipboardTargetBlocked(e.target) || textSelected()) return
+    if (document.querySelector('.modal.show')) return
+    e.preventDefault()
+    onCopyCanvas()
+    return
+  }
   if (e.key === 'Escape') {
     /* 换图前的保存提示开着：Esc 归弹窗（BaseDialog 会关掉它），别顺手收起下面的面板 */
     if (replaceSaveOpen.value) return
@@ -1032,6 +1129,7 @@ onMounted(() => {
   window.addEventListener('dragover', onWindowDragOver)
   window.addEventListener('drop', onWindowDrop)
   window.addEventListener('keydown', onKeydown)
+  window.addEventListener('paste', onPasteEvent)
   document.addEventListener('pointerdown', onDocPointerDown)
   wideQuery.addEventListener('change', onWideChange)
   narrowQuery.addEventListener('change', onNarrowChange)
@@ -1076,6 +1174,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('dragover', onWindowDragOver)
   window.removeEventListener('drop', onWindowDrop)
   window.removeEventListener('keydown', onKeydown)
+  window.removeEventListener('paste', onPasteEvent)
   document.removeEventListener('pointerdown', onDocPointerDown)
   unbindSizePop()
   unbindMsToolMenu()
@@ -1091,6 +1190,7 @@ onBeforeUnmount(() => {
 
 // 切到别的存档（切作品、从作品页打开）时地址变了但组件不会重建，得自己盯住参数
 watch(() => route.params.projectId, id => {
+  if (consumeSkipEditorRoute()) return
   if (!id) return
   openWorkspaceProject(id)
 })
@@ -1155,6 +1255,7 @@ function onLoginSuccess() {
    入口统一在 useStudio 的 useImageFile / useAsset：桌面命令栏、手机「换图」、
    画布拖图、左栏上传、素材库都经过它们。 */
 const replaceSaveOpen = ref(false)
+const replaceKind = ref('image')
 let replaceSaveResolve = null
 
 /** 收掉提示并把结果交给等着的换图流程 */
@@ -1186,8 +1287,9 @@ watch(loginOpen, open => {
 })
 
 /* 工作台挂上提示。卸载时收掉，别把等着的换图流程永远挂在 await 上。 */
-setReplaceConfirm(() => new Promise(resolve => {
+setReplaceConfirm(kind => new Promise(resolve => {
   if (!hasPattern.value) { resolve(true); return }
+  replaceKind.value = kind === 'canvas' ? 'canvas' : 'image'
   replaceSaveResolve = resolve
   replaceSaveOpen.value = true
 }))
@@ -2010,7 +2112,8 @@ const statusText = computed(() => (saveStatus.value === '已打开存档' ? '已
       @close="settleReplace(false)"
     >
       <p data-audit="replace-save-tip" style="font-size:var(--fs-sm);line-height:var(--ty-body-lh);color:var(--ink-2)">
-        更换图片会新建一张画布。要先把当前作品保存到「我的作品」吗？不保存会直接换上新图片。
+        <template v-if="replaceKind === 'canvas'">粘贴会换掉当前画布。要先把当前作品保存到「我的作品」吗？不保存会直接换上剪贴板里的图纸。</template>
+        <template v-else>更换图片会新建一张画布。要先把当前作品保存到「我的作品」吗？不保存会直接换上新图片。</template>
       </p>
       <template #footer>
         <button class="btn btn-secondary" data-audit="replace-save-discard" @click="settleReplace(true)">取消</button>

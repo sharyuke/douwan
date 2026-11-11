@@ -152,6 +152,8 @@ const guides = [
 ]
 
 const shortcuts = [
+  { key: 'Ctrl / ⌘ + V', desc: '把剪贴板里的图片贴进操作台，直接开始编辑。从网页复制的图片也可以。' },
+  { key: 'Ctrl / ⌘ + C', desc: '复制当前图纸。到另一个豆玩操作台按 Ctrl+V，按原来的格子继续编辑。' },
   { key: 'Ctrl / ⌘ + Z', desc: '撤销上一步编辑（拖着画笔划过一片格子算一步）' },
   { key: 'Ctrl / ⌘ + Y', desc: '重做' },
   { key: '滚轮', desc: '在图纸上缩放' },

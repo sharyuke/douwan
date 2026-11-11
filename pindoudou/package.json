@@ -49,6 +49,7 @@
     "verify:size-guard": "node scripts/verify-size-guard.cjs",
     "verify:console": "node scripts/verify-console.cjs",
     "verify:shortcuts": "node scripts/verify-shortcuts.cjs",
+    "verify:clipboard": "node scripts/verify-canvas-clipboard.cjs",
     "verify:typography": "node scripts/verify-typography.cjs",
     "verify:materials-rename": "node scripts/audit.cjs --eval-file scripts/audit-materials-rename.js --page editor,editorProject,account",
     "verify:direct-entry": "node scripts/verify-direct-entry.cjs",

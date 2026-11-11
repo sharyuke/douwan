@@ -2486,7 +2486,7 @@ defineExpose({
               <div class="upCard__drop">
                 <span class="upCard__icon"><Icon name="image-up" :size="20" /></span>
                 <b class="upCard__title">点击或拖拽图片至此处上传</b>
-                <span class="upCard__hint">支持 JPG、PNG、WEBP 格式，接近正方形图片效果最佳</span>
+                <span class="upCard__hint">支持 JPG、PNG、WEBP，也可以按 Ctrl+V 粘贴。</span>
               </div>
               <button type="button" class="upCard__btn" data-empty-upload-btn @click="emit('upload')">
                 选择本地图片

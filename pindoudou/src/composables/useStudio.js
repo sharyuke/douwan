@@ -3709,12 +3709,13 @@ export function setReplaceConfirm(fn) {
 
 /**
  * 换图前的保存提示。只有画布上已经有作品时才问。
+ * kind = 'canvas' 时是从另一个操作台贴进来的图纸，文案和「更换图片」分开。
  * @returns {Promise<boolean>} true = 继续换图；false = 这次换图中止
  */
-export async function confirmBeforeReplace() {
+export async function confirmBeforeReplace(kind = 'image') {
   if (!hasPattern.value || !replaceConfirmHandler) return true
   try {
-    return (await replaceConfirmHandler()) !== false
+    return (await replaceConfirmHandler(kind)) !== false
   } catch {
     return false
   }
@@ -4315,6 +4316,50 @@ export function restoreEditDraft(forId) {
   currentView.value = 'pattern'
   editDraftArmed = true
   return currentProjectId.value || ''
+}
+
+/** 当前图纸收成剪贴板用的 JSON。没有格子时返回空串。 */
+export function captureClipboardRecord() {
+  const record = buildEditDraftRecord()
+  if (!record) return ''
+  try { return JSON.stringify(record) } catch { return '' }
+}
+
+/** 地址栏跟着剪贴板换作品时，别让路由钩子再用磁盘上的旧存档盖掉刚贴进来的格子。 */
+let skipEditorRouteOnce = false
+export function armSkipEditorRoute() {
+  skipEditorRouteOnce = true
+  setTimeout(() => { skipEditorRouteOnce = false }, 1500)
+}
+export function consumeSkipEditorRoute() {
+  const v = skipEditorRouteOnce
+  skipEditorRouteOnce = false
+  return v
+}
+
+/**
+ * 把另一个操作台复制来的图纸铺到当前画布，格子、手改、钉板、色板都原样留下。
+ * 不走 loadImageSource：那条路会重新取样，已经改过的色号就没了。
+ * @returns {'ok'|'cancel'|'bad'}
+ */
+export async function applyClipboardProject(raw) {
+  let record
+  try { record = typeof raw === 'string' ? JSON.parse(raw) : raw } catch { return 'bad' }
+  if (!record || record.v !== EDIT_DRAFT_VERSION || !record.project) return 'bad'
+  const proj = unpackProjectRecord(record.project)
+  if (!proj || !Array.isArray(proj.variants) || !proj.variants.length) return 'bad'
+  if (!(await confirmBeforeReplace('canvas'))) return 'cancel'
+  const id = proj.id || ''
+  const ok = openProject(id, { ...proj, id })
+  if (!ok) return 'bad'
+  if (id && projects.value.some(p => p.id === id)) currentProjectId.value = id
+  else currentProjectId.value = ''
+  const stored = id && projects.value.find(p => p.id === id)
+  saveStatus.value = proj.draftClean && stored ? '已保存' : '未保存'
+  currentView.value = 'pattern'
+  editDraftArmed = true
+  scheduleEditDraft()
+  return 'ok'
 }
 
 export function projectLimit() {
