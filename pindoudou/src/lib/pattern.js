@@ -36,6 +36,33 @@ export function beadCountOf(cells) {
 }
 
 /**
+ * 图案实际占用的紧包围盒（格子坐标）。
+ * 只数非空格：抠图留下的空边、底板四周的留白都不算进成品尺寸。
+ * 一颗豆都没有时返回 null。
+ */
+export function inkBoxOf(cells, width, height) {
+  const gw = width | 0
+  const gh = height | 0
+  if (!cells || gw < 1 || gh < 1) return null
+  const n = Math.min(cells.length, gw * gh)
+  let minX = gw
+  let minY = gh
+  let maxX = -1
+  let maxY = -1
+  for (let i = 0; i < n; i++) {
+    if (cells[i] === EMPTY) continue
+    const x = i % gw
+    const y = (i / gw) | 0
+    if (x < minX) minX = x
+    if (x > maxX) maxX = x
+    if (y < minY) minY = y
+    if (y > maxY) maxY = y
+  }
+  if (maxX < 0) return null
+  return { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 }
+}
+
+/**
  * 每格主体覆盖率低于多少就判为空格。
  * 0.52 的含义：一格里有超过一半是背景就不放豆，边缘格按少数服从多数处理。
  * 这个阈值是「图案像不像」与「边缘有没有多余豆」的折中，抠图力度档位会覆盖它。

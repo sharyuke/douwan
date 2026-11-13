@@ -1925,12 +1925,25 @@ function measureRuler() {
   if (!(wr.width > 1) || !(wr.height > 1) || !(cr.width > 1)) { rulerGeom.value = null; return }
   const cell = cr.width / p.width
   if (!(cell > 0)) { rulerGeom.value = null; return }
-  /* 成品区域可能只占底板中间一块：W/H 标注要贴成品，不是贴底板 */
+  /* 尺寸线贴着有豆子的那一块，不贴整张画布，也不把抠图空边算进去。
+     一颗豆都没有时退回成品区域，开关打开仍有一条可对的线。 */
   const s = stats.value
-  const aw = Math.max(1, Math.min(p.width, s && s.artW ? s.artW : p.width))
-  const ah = Math.max(1, Math.min(p.height, s && s.artH ? s.artH : p.height))
-  const ox = Math.max(0, Math.floor((p.width - aw) / 2))
-  const oy = Math.max(0, Math.floor((p.height - ah) / 2))
+  const ink = s && s.ink && s.ink.w > 0 && s.ink.h > 0 ? s.ink : null
+  let ax
+  let ay
+  let aw
+  let ah
+  if (ink) {
+    ax = ink.x
+    ay = ink.y
+    aw = ink.w
+    ah = ink.h
+  } else {
+    aw = Math.max(1, Math.min(p.width, s && s.artW ? s.artW : p.width))
+    ah = Math.max(1, Math.min(p.height, s && s.artH ? s.artH : p.height))
+    ax = Math.max(0, Math.floor((p.width - aw) / 2))
+    ay = Math.max(0, Math.floor((p.height - ah) / 2))
+  }
   const left = cr.left - wr.left
   const top = cr.top - wr.top
   rulerGeom.value = {
@@ -1941,8 +1954,8 @@ function measureRuler() {
     cell,
     cols: p.width,
     rows: p.height,
-    artLeft: left + ox * cell,
-    artTop: top + oy * cell,
+    artLeft: left + ax * cell,
+    artTop: top + ay * cell,
     artW: aw * cell,
     artH: ah * cell,
     cmW: aw * beadCm.value,
@@ -1957,7 +1970,14 @@ function scheduleRuler() {
     measureRuler()
   })
 }
-watch([rulerOn, cellPx, width, height, actualMode], scheduleRuler, { flush: 'post' })
+watch([
+  rulerOn, cellPx, width, height, actualMode,
+  /* 画完一笔、换图之后包围盒变了，刻度不用动，尺寸线要重画 */
+  () => {
+    const ink = stats.value && stats.value.ink
+    return ink ? `${ink.x},${ink.y},${ink.w},${ink.h}` : ''
+  }
+], scheduleRuler, { flush: 'post' })
 
 /** 手指还按在图纸上时，浏览器会自己改舞台的 scrollLeft（全屏工作台
     overflow:hidden 也挡不住）。监听必须 non-passive，才能 preventDefault。 */

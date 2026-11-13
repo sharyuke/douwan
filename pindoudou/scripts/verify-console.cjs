@@ -681,8 +681,26 @@ async function main() {
       !!rr.attrs && rr.attrs.cols === 52 && Math.abs(rr.attrs.cell - rr.canvas.w / rr.attrs.cols) < 0.5, rr.attrs)
     check('标尺有刻度数字（顶条 + 左条）',
       !!rr.attrs && rr.attrs.labels.includes('0') && rr.attrs.rows.length > 0, rr.attrs && { labels: rr.attrs.labels, rows: rr.attrs.rows })
-    check('标尺的成品尺寸标注 = 当前成品尺寸',
-      !!rr.attrs && rr.attrs.cm === rr.current.replace(/\s/g, ' ').trim(), { cm: rr.attrs && rr.attrs.cm, current: rr.current })
+    /* 尺寸线量的是有豆子的包围盒，不是画布，也不是成品尺寸卡上的成品区域 */
+    const inkCm = await evalJs(send, `(async () => {
+      const S = await window.__douzao.studio()
+      const p = S.pattern.value
+      const box = window.__douzao.pattern.inkBoxOf(p.cells, p.width, p.height)
+      const cm = S.bead.value.cm
+      const text = (n) => (n * cm).toFixed(1)
+      return {
+        cm: box ? text(box.w) + ' × ' + text(box.h) + ' cm' : '',
+        canvas: text(p.width) + ' × ' + text(p.height) + ' cm',
+        box, width: p.width, height: p.height
+      }
+    })()`)
+    console.log('ink:', JSON.stringify(inkCm))
+    check('标尺的成品尺寸标注 = 图案实际占用',
+      !!rr.attrs && !!inkCm.cm && rr.attrs.cm === inkCm.cm, { cm: rr.attrs && rr.attrs.cm, ink: inkCm })
+    if (inkCm.box && (inkCm.box.w < inkCm.width || inkCm.box.h < inkCm.height)) {
+      check('图案没铺满画布时，标注不等于画布尺寸',
+        rr.attrs.cm !== inkCm.canvas, { cm: rr.attrs.cm, canvas: inkCm.canvas })
+    }
     const innerX = rr.wrap.x + 32
     const innerY = rr.wrap.y + 28
     const innerW = rr.wrap.w - 32

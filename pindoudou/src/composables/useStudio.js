@@ -7,7 +7,7 @@
 
 import { computed, nextTick, reactive, ref, shallowRef, watch } from 'vue'
 import {
-  BOARD_SIZE, EMPTY, beadCountOf, variantParams, generateVariants as runVariants, generateVariant,
+  BOARD_SIZE, EMPTY, beadCountOf, inkBoxOf, variantParams, generateVariants as runVariants, generateVariant,
   applyInventory, materialList, boardLayout, BEAD_WEIGHT_G,
   buildability, estimateMinutes, readImagePixels, MAX_SOURCE_SIDE, colorFloorForCells,
   cleanupIsolated, CLEANUP_MAX_DE, PATTERN_VERSION, patternProfile, rematchBrand
@@ -1721,6 +1721,13 @@ export const stats = computed(() => {
   const artH = Math.max(1, Math.min(p.artH || options.canvasH, p.height))
   const artCells = artW * artH
   const empty = Math.max(0, Math.min(s.emptyCount != null ? s.emptyCount : artCells - beads, artCells))
+  /* 成品尺寸标注量的是有豆子的那一块，不是整张画布。
+     生成路径不走 recalcStats，这里补一次并记在图纸上，拖笔时沿用这一份，松手再重算。 */
+  let ink = s.ink
+  if (ink === undefined) {
+    ink = inkBoxOf(p.cells, p.width, p.height)
+    p.stats = { ...s, ink }
+  }
   return {
     size: `${p.width}×${p.height}`,
     width: p.width,
@@ -1728,6 +1735,7 @@ export const stats = computed(() => {
     artSize: `${artW}×${artH}`,
     artW,
     artH,
+    ink,
     sharePct: cells ? Math.round((artCells / cells) * 100) : 100,
     boards: lay ? lay.count : 1,
     boardText: lay ? boardsText(p.width, p.height, lay.boardSize) : '',
@@ -2384,6 +2392,8 @@ function recalcStats(p) {
     emptyCount: artEmpty,
     emptyRatio: artCells ? Math.round((artEmpty / artCells) * 1000) / 1000 : 0,
     padCount: p.cells.length - artCells,
+    /* 紧包围盒：画笔松手、换尺寸、重生成之后，画布上的尺寸线按这个走 */
+    ink: inkBoxOf(p.cells, p.width, p.height),
     colorCount: p.palette.length,
     buildability: build.score / 100,
     isolatedCount: build.isolatedCount,

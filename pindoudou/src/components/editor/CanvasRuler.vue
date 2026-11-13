@@ -196,7 +196,8 @@ function paint() {
   ctx.fillStyle = LABEL
   ctx.fillText('格', 8, STRIP_H / 2)
 
-  /* ---- 成品宽度 / 高度标注：贴着成品区域画，读数跟着成品尺寸走 ----
+  /* ---- 成品宽度 / 高度标注：贴着图案实际占用的格子画 ----
+     geom 里的 art* 是有豆子的那一块（不是整张画布）。
      开关关掉时整块跳过（info.cm 仍照算，那只是几何读数，不是画面） */
   if (props.showSize) {
     const artL = g.artLeft
